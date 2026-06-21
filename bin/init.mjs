@@ -52,7 +52,18 @@ const files = [
   {
     path: join(base, `proxy.${codeExt}`),
     merge: join(base, `middleware.${codeExt}`),
-    body: `export { proxy, config } from "@buffd/next/proxy";\n`,
+    body:
+      (JS ? "" : `import type { NextRequest } from "next/server";\n`) +
+      `import { withBuffdSession } from "@buffd/next/proxy";\n\n` +
+      `export function proxy(request${JS ? "" : ": NextRequest"}) {\n` +
+      `  return withBuffdSession(request);\n` +
+      `}\n\n` +
+      `// Next statically parses config.matcher, so it must be an inline literal\n` +
+      `// here. Excluding all of /api is required — under Next 16 + Turbopack a\n` +
+      `// matcher that touches /api breaks the whole /api segment.\n` +
+      `export const config = {\n` +
+      `  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],\n` +
+      `};\n`,
   },
   {
     path: join(base, `instrumentation-client.${codeExt}`),
@@ -66,7 +77,9 @@ const files = [
     path: join(appDir, "buffd", `page.${pageExt}`),
     body:
       `import { createBuffdPage } from "@buffd/next/dashboard";\n\n` +
-      `export { runtime, dynamic, metadata } from "@buffd/next/dashboard";\n\n` +
+      `// Next requires these to be declared inline in the page module.\n` +
+      `export const runtime = "nodejs";\n` +
+      `export const dynamic = "force-dynamic";\n\n` +
       `// Unguarded by default. To protect it, pass an authenticate callback:\n` +
       `//   export default createBuffdPage({ authenticate: isAuthenticated });\n` +
       `export default createBuffdPage();\n`,

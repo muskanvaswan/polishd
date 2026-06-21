@@ -12,15 +12,16 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { defaultBuffdConfig } from "./config";
+import { defaultBuffdConfig, type BuffdConfig } from "./config";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
 export function withBuffdSession(
   request: NextRequest,
   response: NextResponse = NextResponse.next(),
+  config: Partial<BuffdConfig> = {},
 ): NextResponse {
-  const cookieName = defaultBuffdConfig.sessionCookie;
+  const cookieName = config.sessionCookie ?? defaultBuffdConfig.sessionCookie;
   if (request.cookies.get(cookieName)) return response;
 
   response.cookies.set(cookieName, crypto.randomUUID(), {

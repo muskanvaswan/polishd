@@ -28,7 +28,16 @@ npx @buffd/next init      # scaffolds the glue files below
 
 ```ts
 // src/proxy.ts        (middleware.ts on Next 15) — sets the session cookie
-export { proxy, config } from "@buffd/next/proxy";
+import type { NextRequest } from "next/server";
+import { withBuffdSession } from "@buffd/next/proxy";
+
+export function proxy(request: NextRequest) {
+  return withBuffdSession(request);
+}
+// Must be an inline literal — Next can't import config.matcher.
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],
+};
 
 // src/instrumentation-client.ts — starts capture before hydration
 import { initBuffd } from "@buffd/next/client";
@@ -39,14 +48,16 @@ export { POST, runtime, dynamic } from "@buffd/next/route";
 
 // src/app/buffd/page.tsx — the dashboard (unguarded by default)
 import { createBuffdPage } from "@buffd/next/dashboard";
-export { runtime, dynamic, metadata } from "@buffd/next/dashboard";
+export const runtime = "nodejs";       // Next requires these inline in the page
+export const dynamic = "force-dynamic";
 export default createBuffdPage();
 ```
 
-> **The matcher is shipped for you.** Re-exporting `config` from
-> `@buffd/next/proxy` gives you the correct matcher — one that excludes all of
-> `/api`. Under Next 16 + Turbopack, a proxy matcher that touches any `/api/*`
-> route breaks resolution for the entire `/api` segment. Don't hand-write it.
+> **Get the matcher right.** Next statically parses `config.matcher`, so it must
+> be an inline literal in your proxy file — it can't be imported. `npx @buffd/next
+> init` writes the correct one for you. Excluding all of `/api` is load-bearing:
+> under Next 16 + Turbopack, a proxy matcher that touches any `/api/*` route
+> breaks resolution for the entire `/api` segment.
 
 ## Protecting the dashboard
 
@@ -59,7 +70,8 @@ import { createBuffdPage } from "@buffd/next/dashboard";
 import { isAuthenticated } from "@/lib/auth";
 import { MyLogin } from "./login";
 
-export { runtime, dynamic, metadata } from "@buffd/next/dashboard";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export default createBuffdPage({
   authenticate: isAuthenticated,        // () => boolean | Promise<boolean>

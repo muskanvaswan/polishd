@@ -61,7 +61,10 @@ import { dirname, isAbsolute, join } from "node:path";
 import { mkdirSync } from "node:fs";
 
 function resolveDbPath(): string {
-  const configured = process.env.BUFFD_DB_PATH || defaultBuffdConfig.databasePath;
+  // POLISH_DB_PATH is read as a fallback for apps migrated from the pre-rename
+  // build, so existing deployments keep working without env changes.
+  const configured =
+    process.env.BUFFD_DB_PATH || process.env.POLISH_DB_PATH || defaultBuffdConfig.databasePath;
   return isAbsolute(configured) ? configured : join(process.cwd(), configured);
 }
 
@@ -211,7 +214,8 @@ async function getBackend(): Promise<Backend | null> {
 
   initPromise = (async () => {
     try {
-      const url = process.env.BUFFD_DATABASE_URL;
+      // POLISH_DATABASE_URL fallback keeps pre-rename deployments working.
+      const url = process.env.BUFFD_DATABASE_URL || process.env.POLISH_DATABASE_URL;
       if (url) {
         const pg = openPostgres(url);
         // Force the lazy connection now so a bad URL latches to no-op loudly,

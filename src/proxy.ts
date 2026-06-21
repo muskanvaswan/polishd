@@ -11,6 +11,7 @@
  */
 import type { NextRequest } from "next/server";
 
+import type { BuffdConfig } from "./config";
 import { withBuffdSession } from "./session";
 
 export { withBuffdSession };
@@ -29,3 +30,18 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = { matcher: buffdMatcher };
+
+/**
+ * Build a configured proxy — use when you need a non-default cookie name (e.g.
+ * preserving a legacy `session` cookie across a migration):
+ *
+ *   const { proxy, matcher } = createBuffdProxy({ sessionCookie: "polish_session" });
+ *   export { proxy };
+ *   export const config = { matcher };
+ */
+export function createBuffdProxy(config: Partial<BuffdConfig> = {}) {
+  return {
+    proxy: (request: NextRequest) => withBuffdSession(request, undefined, config),
+    matcher: buffdMatcher,
+  };
+}
