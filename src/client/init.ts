@@ -76,6 +76,12 @@ export function initBuffd(options: InitOptions = {}): void {
     return false;
   };
 
+  /** True when the click coincided with the user highlighting text. */
+  const hasTextSelection = (): boolean => {
+    const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+    return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
+  };
+
   /** Walk up for the nearest `data-component`, the key synthesis signal. */
   const componentOf = (el: Element | null): string | undefined => {
     let node: Element | null = el;
@@ -137,6 +143,9 @@ export function initBuffd(options: InitOptions = {}): void {
 
     // Dead: click that hits nothing interactive (likely confusion).
     if (!isInteractive(target)) {
+      // A drag-to-highlight fires a click on the (non-interactive) text node on
+      // mouse-up. That's intent, not confusion — don't log it as a dead click.
+      if (hasTextSelection()) return;
       push({ type: "dead_click", selector, component, text });
     } else {
       push({ type: "click", selector, component, text });
