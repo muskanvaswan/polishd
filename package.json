@@ -1,11 +1,11 @@
 {
   "name": "@buffd/next",
   "version": "0.1.0",
-  "description": "Drop-in friction analytics for Next.js — capture real user friction signals (rage/dead clicks, scroll depth, errors, web vitals) and explore them on a built-in dashboard.",
+  "description": "Drop-in product analytics for Next.js — capture real user behavioral signals (rage/dead clicks, scroll depth, errors, web vitals) and explore them on a built-in dashboard. What gets measured gets improved.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
-  "keywords": ["nextjs", "analytics", "ux", "friction", "rage-click", "web-vitals"],
+  "keywords": ["nextjs", "analytics", "product-analytics", "ux", "rage-click", "web-vitals"],
   "files": ["dist", "DATABASE.md", "README.md"],
   "bin": {
     "buffd": "./bin/init.mjs"

@@ -1,5 +1,5 @@
 /**
- * @buffd/next/dashboard — the friction dashboard.
+ * @buffd/next/dashboard — the Buffd dashboard.
  *
  *   // src/app/buffd/page.tsx
  *   import { createBuffdPage } from "@buffd/next/dashboard";
@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 
 import {
   getDeviceBreakdown,
-  getFrictionElements,
+  getElementStats,
   getMonitoredComponents,
   getOverview,
   getRecentErrors,
@@ -38,7 +38,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Buffd — Friction Dashboard",
+  title: "Buffd — What gets measured gets improved",
   robots: { index: false, follow: false },
 };
 
@@ -175,7 +175,7 @@ function fmtMs(ms: number): string {
 }
 
 function MonitoredRow({ m }: { m: MonitoredComponent }) {
-  const hasFriction = m.rageClicks > 0 || m.deadClicks > 0;
+  const hasIssues = m.rageClicks > 0 || m.deadClicks > 0;
   return (
     <tr className={`${divider} first:border-t-0 align-top`}>
       <td className="py-2.5 pl-5 pr-4 min-w-[160px]">
@@ -184,9 +184,9 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
           <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-purple-950 text-purple-400">
             monitored
           </span>
-          {hasFriction && (
+          {hasIssues && (
             <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-red-950 text-red-400">
-              friction
+              issues
             </span>
           )}
         </div>
@@ -225,7 +225,7 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
 export interface BuffdDashboardData {
   overview: Awaited<ReturnType<typeof getOverview>>;
   pages: Awaited<ReturnType<typeof getTopPages>>;
-  elements: Awaited<ReturnType<typeof getFrictionElements>>;
+  elements: Awaited<ReturnType<typeof getElementStats>>;
   devices: Awaited<ReturnType<typeof getDeviceBreakdown>>;
   topUsed: Awaited<ReturnType<typeof getTopInteractions>>;
   journeys: Awaited<ReturnType<typeof getSessionJourneys>>;
@@ -239,7 +239,7 @@ export async function loadBuffdDashboardData(): Promise<BuffdDashboardData> {
     await Promise.all([
       getOverview(),
       getTopPages(8),
-      getFrictionElements(12),
+      getElementStats(12),
       getDeviceBreakdown(),
       getTopInteractions(12),
       getSessionJourneys(6),
@@ -260,7 +260,7 @@ export function BuffdDashboard({ data }: { data: BuffdDashboardData }) {
         <div>
           <p className={label}>Buffd</p>
           <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-white">
-            Friction Dashboard
+            What gets measured gets improved
           </h1>
           <p className="mt-1 text-[13px] text-[#666]">
             Stage 1 — Capture. Hover{" "}
@@ -370,7 +370,7 @@ export function BuffdDashboard({ data }: { data: BuffdDashboardData }) {
             Monitored components
             <InfoTip
               anchor="left"
-              text="Components explicitly wrapped in <BuffdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click friction. A high view count with low clicks often signals interest without commitment."
+              text="Components explicitly wrapped in <BuffdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
             />
           </>
         }
@@ -415,7 +415,7 @@ export function BuffdDashboard({ data }: { data: BuffdDashboardData }) {
             Sampled user journeys
             <InfoTip
               anchor="left"
-              text="Full sessions sampled and ranked by friction (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
+              text="Full sessions sampled and ranked by a composite score (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
             />
           </>
         }
@@ -463,7 +463,7 @@ export function BuffdDashboard({ data }: { data: BuffdDashboardData }) {
             Interactions by element
             <InfoTip
               anchor="left"
-              text="Click-type events grouped by DOM selector. This is which UI element the friction is on — the primary input to Stage 2 synthesis. Components wrapped in <BuffdMonitor> are listed separately under Monitored components."
+              text="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <BuffdMonitor> are listed separately under Monitored components."
             />
           </>
         }

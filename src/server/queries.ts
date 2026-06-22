@@ -22,7 +22,7 @@ export interface OverviewStats {
   jsErrors: number;
 }
 
-export interface FrictionPage {
+export interface PageStat {
   path: string;
   sessions: number;
   pageViews: number;
@@ -30,7 +30,7 @@ export interface FrictionPage {
   deadClicks: number;
   jsErrors: number;
   avgScrollDepth: number | null;
-  /** Composite friction score; higher = worse. */
+  /** Composite score; higher = worse. */
   score: number;
 }
 
@@ -41,7 +41,7 @@ export interface RecentError {
   ts: number;
 }
 
-export interface FrictionElement {
+export interface ElementStat {
   /** The DOM selector this element was interacted with as. */
   label: string;
   /** A representative DOM selector for this element. */
@@ -53,7 +53,7 @@ export interface FrictionElement {
   clicks: number;
   rageClicks: number;
   deadClicks: number;
-  /** Composite friction score; higher = worse. */
+  /** Composite score; higher = worse. */
   score: number;
   /** Client timestamp of the most recent interaction with this element, ms. */
   lastInteraction: number;
@@ -133,11 +133,11 @@ export async function getOverview(): Promise<OverviewStats> {
 }
 
 /**
- * Friction ranking. Weights match the build plan's guidance — rage clicks are
+ * Score ranking. Weights match the build plan's guidance — rage clicks are
  * the strongest frustration signal, then dead clicks and errors; shallow
  * scroll (content not reached) contributes mildly.
  */
-export async function getFrictionPages(limit = 5): Promise<FrictionPage[]> {
+export async function getPageStats(limit = 5): Promise<PageStat[]> {
   const rows = await query(
     `SELECT
        path,
@@ -152,7 +152,7 @@ export async function getFrictionPages(limit = 5): Promise<FrictionPage[]> {
   );
 
   return rows
-    .map((r): FrictionPage => {
+    .map((r): PageStat => {
       const rageClicks = num(r, "rageClicks");
       const deadClicks = num(r, "deadClicks");
       const jsErrors = num(r, "jsErrors");
@@ -302,13 +302,13 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
 /**
  * Per-element interaction breakdown, grouped by DOM selector path. This is the
  * data that makes Stage 2 synthesis possible: it tells you *which UI element*
- * the friction is on, not just which page.
+ * the issues are, not just which page.
  *
  * Explicitly monitored components (those wrapped in <BuffdMonitor>, the only
  * source of `data-component`) are excluded here — they get their own dedicated
  * "Monitored components" section, so this table covers the rest of the UI.
  */
-export async function getFrictionElements(limit = 12): Promise<FrictionElement[]> {
+export async function getElementStats(limit = 12): Promise<ElementStat[]> {
   const rows = await query(
     `SELECT
        COALESCE(selector, '(unknown)')                                 AS label,
@@ -325,7 +325,7 @@ export async function getFrictionElements(limit = 12): Promise<FrictionElement[]
   );
 
   return rows
-    .map((r): FrictionElement => {
+    .map((r): ElementStat => {
       const rageClicks = num(r, "rageClicks");
       const deadClicks = num(r, "deadClicks");
       const clicks = num(r, "clicks");
@@ -341,7 +341,7 @@ export async function getFrictionElements(limit = 12): Promise<FrictionElement[]
         lastInteraction: num(r, "lastTs"),
       };
     })
-    // Most recently interacted-with element first; friction breaks ties.
+    // Most recently interacted-with element first; score breaks ties.
     .sort((a, b) => b.lastInteraction - a.lastInteraction || b.score - a.score)
     .slice(0, limit);
 }
@@ -385,7 +385,7 @@ export async function getDeviceBreakdown(): Promise<DeviceBucket[]> {
 /**
  * Most-used features. Ranks interactive elements by raw click volume (the
  * `click` type — successful clicks on links/buttons/etc., excluding rage and
- * dead clicks). Where `getFrictionElements` surfaces what's *broken*, this
+ * dead clicks). Where `getElementStats` surfaces what's *broken*, this
  * surfaces what's *popular* — which buttons and features people actually use.
  */
 export async function getTopInteractions(limit = 12): Promise<TopInteraction[]> {
@@ -457,7 +457,7 @@ export interface SessionJourney {
   rageClicks: number;
   deadClicks: number;
   jsErrors: number;
-  /** Composite friction score; higher = worse. Drives the sampling order. */
+  /** Composite score; higher = worse. Drives the sampling order. */
   score: number;
   /** Ordered list of user actions. */
   steps: JourneyStep[];
@@ -481,10 +481,10 @@ const MAX_JOURNEY_STEPS = 50;
 /**
  * Sampled full-session recordings, reconstructed as ordered action flows.
  *
- * Sampling strategy: every session is scored by friction (rage×3 + dead×2 +
- * errors×2.5). We surface the highest-friction sessions first — those are the
+ * Sampling strategy: every session is scored by a composite score (rage×3 + dead×2 +
+ * errors×2.5). We surface the highest-scoring sessions first — those are the
  * ones worth replaying — preferring *complete* recordings (a `session_end` was
- * captured) and breaking ties by recency. When there's no friction at all this
+ * captured) and breaking ties by recency. When there's no signal at all this
  * degrades to "most recent complete sessions", so the section is still useful.
  */
 export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {

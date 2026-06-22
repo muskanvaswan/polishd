@@ -3,7 +3,7 @@
 /**
  * Buffd — "Interactions by element" body (client).
  *
- * Renders the element rows for the friction-by-element table, collapsed to the
+ * Renders the element rows for the element-issues table, collapsed to the
  * three most recently interacted-with elements by default with a "Show more"
  * toggle to reveal the rest. Lives in its own client component so the toggle is
  * interactive while the surrounding dashboard stays a server component.
@@ -13,7 +13,7 @@
  */
 import { useState } from "react";
 
-import type { FrictionElement } from "../server/queries";
+import type { ElementStat } from "../server/queries";
 
 const border = "border-[#2e2e2e]";
 const divider = `border-t ${border}`;
@@ -27,7 +27,7 @@ function scoreTone(score: number) {
   return "text-[#0cce6b]";
 }
 
-function ElementRow({ el }: { el: FrictionElement }) {
+function ElementRow({ el }: { el: ElementStat }) {
   return (
     <tr className={`${divider} align-top`}>
       <td className="py-2.5 pl-5 pr-6">
@@ -51,7 +51,7 @@ export default function ElementsTable({
   elements,
   header,
 }: {
-  elements: FrictionElement[];
+  elements: ElementStat[];
   header: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);

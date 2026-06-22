@@ -1,7 +1,9 @@
 # @buffd/next
 
-Drop-in **friction analytics** for Next.js (App Router). Capture real user
-friction signals — rage clicks, dead clicks, scroll depth, JS errors, web
+> **What gets measured gets improved.**
+
+Drop-in **product analytics** for Next.js (App Router). Capture real user
+behavioral signals — rage clicks, dead clicks, scroll depth, JS errors, web
 vitals, component engagement — and explore them on a built-in, Vercel-style
 dashboard at `/buffd`.
 

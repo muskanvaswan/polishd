@@ -4,7 +4,7 @@
  * Vanilla DOM, no framework imports, so it drops cleanly into Next's
  * `instrumentation-client.ts` (runs before hydration) and is trivially
  * extractable into `@buffd/next`. It attaches global listeners, derives
- * friction signals (rage/dead clicks, scroll depth, web vitals), batches
+ * behavioral signals (rage/dead clicks, scroll depth, web vitals), batches
  * events, and flushes on an interval, on soft navigation, and on pagehide.
  */
 import { defaultBuffdConfig, type BuffdConfig } from "../config";

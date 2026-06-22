@@ -287,7 +287,7 @@ function JourneyDrawer({
                   value={`${journey.pages} ${journey.pages === 1 ? "page" : "pages"}`}
                 />
                 <MetaCell
-                  label="Friction score"
+                  label="Buffd score"
                   value={String(journey.score)}
                   tone={scoreTone(journey.score)}
                 />
