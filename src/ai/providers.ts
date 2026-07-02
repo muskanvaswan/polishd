@@ -14,6 +14,8 @@ import type { BuffdAIProvider, BuffdAISettings } from "./types";
 
 export interface ModelReply {
   text: string;
+  /** True when the provider stopped at the output-token cap (clipped text). */
+  truncated: boolean;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -26,8 +28,14 @@ export const DEFAULT_MODEL: Record<BuffdAIProvider, string> = {
   google: "gemini-1.5-flash",
 };
 
-/** Default cap — a tight paragraph. Callers override for longer outputs. */
-const DEFAULT_MAX_OUTPUT_TOKENS = 600;
+/**
+ * Default cap. Reasoning models (e.g. the Claude 4.x family) spend output
+ * tokens on internal thinking before the visible text, and those count against
+ * `max_tokens` — so the cap needs generous headroom beyond the paragraph we
+ * actually want. It's a worst-case ceiling, not expected spend: providers bill
+ * only tokens actually generated.
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
 
 export interface CallOptions {
   /** Output token cap for this call. */
@@ -86,7 +94,11 @@ async function callAnthropic(
       system,
       messages: [{ role: "user", content: user }],
     },
-  )) as { content?: { type: string; text?: string }[]; usage?: Record<string, unknown> };
+  )) as {
+    content?: { type: string; text?: string }[];
+    stop_reason?: string;
+    usage?: Record<string, unknown>;
+  };
 
   const text = (data.content ?? [])
     .filter((b) => b.type === "text" && typeof b.text === "string")
@@ -95,6 +107,7 @@ async function callAnthropic(
     .trim();
   return {
     text,
+    truncated: data.stop_reason === "max_tokens",
     usage: {
       inputTokens: num(data.usage?.input_tokens),
       outputTokens: num(data.usage?.output_tokens),
@@ -122,13 +135,14 @@ async function callOpenAI(
       ],
     },
   )) as {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: string }; finish_reason?: string }[];
     usage?: Record<string, unknown>;
   };
 
   const text = (data.choices?.[0]?.message?.content ?? "").trim();
   return {
     text,
+    truncated: data.choices?.[0]?.finish_reason === "length",
     usage: {
       inputTokens: num(data.usage?.prompt_tokens),
       outputTokens: num(data.usage?.completion_tokens),
@@ -155,7 +169,7 @@ async function callGoogle(
       generationConfig: { maxOutputTokens: maxTokens },
     },
   )) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
     usageMetadata?: Record<string, unknown>;
   };
 
@@ -165,6 +179,7 @@ async function callGoogle(
     .trim();
   return {
     text,
+    truncated: data.candidates?.[0]?.finishReason === "MAX_TOKENS",
     usage: {
       inputTokens: num(data.usageMetadata?.promptTokenCount),
       outputTokens: num(data.usageMetadata?.candidatesTokenCount),
@@ -172,18 +187,12 @@ async function callGoogle(
   };
 }
 
-/**
- * Dispatch to the configured provider. Throws on transport / API errors with a
- * message safe to surface (no key material), which the caller turns into a
- * `provider-error` result.
- */
-export async function callModel(
+function dispatch(
   settings: BuffdAISettings,
   system: string,
   user: string,
-  opts: CallOptions = {},
+  maxTokens: number,
 ): Promise<ModelReply> {
-  const maxTokens = opts.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   switch (settings.provider) {
     case "anthropic":
       return callAnthropic(settings, system, user, maxTokens);
@@ -195,4 +204,29 @@ export async function callModel(
     default:
       throw new ProviderError(`unknown provider: ${settings.provider}`);
   }
+}
+
+/**
+ * Dispatch to the configured provider. Throws on transport / API errors with a
+ * message safe to surface (no key material), which the caller turns into a
+ * `provider-error` result.
+ *
+ * If the reply hits the output cap (reasoning models can burn most of it on
+ * thinking), retry once at double the cap — a clipped reply is 100% wasted
+ * spend, so one bigger attempt is the cheaper path. Still-truncated replies
+ * are returned flagged; callers must not cache them.
+ */
+export async function callModel(
+  settings: BuffdAISettings,
+  system: string,
+  user: string,
+  opts: CallOptions = {},
+): Promise<ModelReply> {
+  const maxTokens = opts.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const reply = await dispatch(settings, system, user, maxTokens);
+  if (!reply.truncated) return reply;
+  console.warn(
+    `[buffd] model hit the ${maxTokens}-token output cap — retrying once at ${maxTokens * 2}`,
+  );
+  return dispatch(settings, system, user, maxTokens * 2);
 }

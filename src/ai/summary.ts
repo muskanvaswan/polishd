@@ -162,6 +162,15 @@ export async function generateSummary(
       message: "The model returned an empty response.",
     };
   }
+  if (reply.truncated) {
+    // Even the retry hit the cap — don't cache a mid-sentence stump.
+    return {
+      ok: false,
+      error: "provider-error",
+      message:
+        "The model's response was cut off at the output limit, twice. Try a model that reasons less, or regenerate.",
+    };
+  }
 
   const summary: BuffdSummary = {
     text: reply.text,

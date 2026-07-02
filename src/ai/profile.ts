@@ -72,7 +72,9 @@ const PROFILE_SYSTEM_PROMPT =
   "site is for and what success looks like, if stated. Plain prose with short " +
   "paragraphs; no markdown headings, no code blocks. Be dense — under 450 words.";
 
-const PROFILE_MAX_TOKENS = 1400;
+// ~450 words of profile plus headroom for reasoning models' thinking tokens,
+// which count against the output cap.
+const PROFILE_MAX_TOKENS = 3000;
 
 /**
  * Scan the codebase and (re)generate the project profile. Always calls the
@@ -127,6 +129,16 @@ export async function generateProjectProfile(
       ok: false,
       error: "provider-error",
       message: "The model returned an empty response.",
+    };
+  }
+  if (reply.truncated) {
+    // Even the retry hit the cap — a partial profile would silently degrade
+    // every future summary, so refuse to store it.
+    return {
+      ok: false,
+      error: "provider-error",
+      message:
+        "The model's response was cut off at the output limit, twice. Try again or use a model that reasons less.",
     };
   }
 
