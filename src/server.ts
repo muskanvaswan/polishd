@@ -9,3 +9,26 @@ export * from "./server/store";
 export * from "./server/ingest";
 export * from "./server/queries";
 export { withBuffdSession } from "./session";
+
+// AI summary layer (server-only — calls model providers).
+export {
+  generateSummary,
+  loadSummary,
+  loadSummaryState,
+  getAISettingsPublic,
+  saveAISettings,
+} from "./ai/summary";
+export {
+  generateProjectProfile,
+  loadProjectProfile,
+  loadProfileState,
+} from "./ai/profile";
+export type {
+  BuffdAIProvider,
+  BuffdAISettings,
+  BuffdAISettingsPublic,
+  BuffdProjectProfile,
+  BuffdSummary,
+  GenerateProfileResult,
+  GenerateSummaryResult,
+} from "./ai/types";

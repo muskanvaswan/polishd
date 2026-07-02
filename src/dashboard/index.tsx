@@ -15,24 +15,27 @@
  *   });
  */
 import type { Metadata } from "next";
+import { after } from "next/server";
 import type { ReactNode } from "react";
 
 import {
-  getDeviceBreakdown,
-  getElementStats,
-  getMonitoredComponents,
-  getOverview,
-  getRecentErrors,
-  getSessionJourneys,
-  getTopInteractions,
-  getTopPages,
+  loadBuffdDashboardData,
+  type BuffdDashboardData,
   type DeviceBucket,
   type MonitoredComponent,
 } from "../server/queries";
+import { loadProfileState } from "../ai/profile";
+import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
+import type {
+  BuffdAISettingsPublic,
+  BuffdProjectProfile,
+  BuffdSummary,
+} from "../ai/types";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
 import TopPagesTable from "./pages";
+import SummaryCard from "./summary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -222,35 +225,31 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
-export interface BuffdDashboardData {
-  overview: Awaited<ReturnType<typeof getOverview>>;
-  pages: Awaited<ReturnType<typeof getTopPages>>;
-  elements: Awaited<ReturnType<typeof getElementStats>>;
-  devices: Awaited<ReturnType<typeof getDeviceBreakdown>>;
-  topUsed: Awaited<ReturnType<typeof getTopInteractions>>;
-  journeys: Awaited<ReturnType<typeof getSessionJourneys>>;
-  errors: Awaited<ReturnType<typeof getRecentErrors>>;
-  monitored: Awaited<ReturnType<typeof getMonitoredComponents>>;
-}
+// `loadBuffdDashboardData` + `BuffdDashboardData` now live in server/queries so
+// the AI summary layer can share them without importing React; re-export for
+// any existing callers of this module.
+export { loadBuffdDashboardData, type BuffdDashboardData } from "../server/queries";
 
-/** Fetch every dashboard query in parallel. Server-only. */
-export async function loadBuffdDashboardData(): Promise<BuffdDashboardData> {
-  const [overview, pages, elements, devices, topUsed, journeys, errors, monitored] =
-    await Promise.all([
-      getOverview(),
-      getTopPages(8),
-      getElementStats(12),
-      getDeviceBreakdown(),
-      getTopInteractions(12),
-      getSessionJourneys(6),
-      getRecentErrors(8),
-      getMonitoredComponents(),
-    ]);
-  return { overview, pages, elements, devices, topUsed, journeys, errors, monitored };
+/** The AI summary card's server-loaded inputs. */
+export interface BuffdAIBundle {
+  summary: BuffdSummary | null;
+  settings: BuffdAISettingsPublic;
+  stale: boolean;
+  profile: BuffdProjectProfile | null;
+  /** Analytics component identifiers the profile doesn't cover. */
+  gaps: string[];
+  /** Whether the source tree is on disk here (codebase scan possible). */
+  sourceAvailable: boolean;
 }
 
 // ── Dashboard (presentational) ───────────────────────────────────────────────
-export function BuffdDashboard({ data }: { data: BuffdDashboardData }) {
+export function BuffdDashboard({
+  data,
+  ai,
+}: {
+  data: BuffdDashboardData;
+  ai: BuffdAIBundle;
+}) {
   const { overview, pages, elements, devices, topUsed, journeys, errors, monitored } = data;
 
   return (
@@ -285,6 +284,16 @@ export function BuffdDashboard({ data }: { data: BuffdDashboardData }) {
           database — see the <span className="font-mono text-amber-300">@buffd/next</span> DATABASE.md guide.
         </div>
       )}
+
+      {/* AI summary — the model's story of how people use the site */}
+      <SummaryCard
+        initialSummary={ai.summary}
+        initialSettings={ai.settings}
+        initialStale={ai.stale}
+        initialProfile={ai.profile}
+        initialGaps={ai.gaps}
+        sourceAvailable={ai.sourceAvailable}
+      />
 
       {/* Stats */}
       <Section title="Overview">
@@ -556,6 +565,52 @@ export function createBuffdPage(opts: CreateBuffdPageOptions = {}) {
     }
 
     const data = await loadBuffdDashboardData();
-    return <BuffdDashboard data={data} />;
+    const [summaryState, settings, profileState] = await Promise.all([
+      loadSummaryState(data),
+      getAISettingsPublic(),
+      loadProfileState(data),
+    ]);
+
+    // Cadence-based auto-refresh: when the owner opted into daily/weekly and
+    // the summary is both past its cadence AND built from different data,
+    // regenerate in the background after this response is sent. Unchanged data
+    // never triggers a model call, so the cadence only spends tokens when
+    // there's genuinely new behavior to narrate.
+    const cadence = settings.refreshCadence ?? "manual";
+    if (
+      cadence !== "manual" &&
+      settings.hasApiKey &&
+      data.overview.ready &&
+      data.overview.totalEvents > 0
+    ) {
+      const cadenceMs = cadence === "daily" ? 86_400_000 : 604_800_000;
+      const due =
+        summaryState.summary === null ||
+        (summaryState.stale &&
+          Date.now() - summaryState.summary.generatedAt > cadenceMs);
+      if (due) {
+        after(async () => {
+          try {
+            await generateSummary();
+          } catch (err) {
+            console.warn("[buffd] scheduled summary refresh failed:", err);
+          }
+        });
+      }
+    }
+
+    return (
+      <BuffdDashboard
+        data={data}
+        ai={{
+          summary: summaryState.summary,
+          settings,
+          stale: summaryState.stale,
+          profile: profileState.profile,
+          gaps: profileState.gaps,
+          sourceAvailable: profileState.sourceAvailable,
+        }}
+      />
+    );
   };
 }

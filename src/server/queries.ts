@@ -735,6 +735,39 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
   });
 }
 
+// ── Aggregate loader ─────────────────────────────────────────────────────────
+
+/** Everything the dashboard (and the AI summary) reads, in one shape. */
+export interface BuffdDashboardData {
+  overview: Awaited<ReturnType<typeof getOverview>>;
+  pages: Awaited<ReturnType<typeof getTopPages>>;
+  elements: Awaited<ReturnType<typeof getElementStats>>;
+  devices: Awaited<ReturnType<typeof getDeviceBreakdown>>;
+  topUsed: Awaited<ReturnType<typeof getTopInteractions>>;
+  journeys: Awaited<ReturnType<typeof getSessionJourneys>>;
+  errors: Awaited<ReturnType<typeof getRecentErrors>>;
+  monitored: Awaited<ReturnType<typeof getMonitoredComponents>>;
+}
+
+/**
+ * Fetch every dashboard query in parallel. Server-only. Lives here (not in the
+ * dashboard) so the AI summary layer can reuse it without importing React.
+ */
+export async function loadBuffdDashboardData(): Promise<BuffdDashboardData> {
+  const [overview, pages, elements, devices, topUsed, journeys, errors, monitored] =
+    await Promise.all([
+      getOverview(),
+      getTopPages(8),
+      getElementStats(12),
+      getDeviceBreakdown(),
+      getTopInteractions(12),
+      getSessionJourneys(6),
+      getRecentErrors(8),
+      getMonitoredComponents(),
+    ]);
+  return { overview, pages, elements, devices, topUsed, journeys, errors, monitored };
+}
+
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
   const rows = await query(
     `SELECT path, component, meta, ts

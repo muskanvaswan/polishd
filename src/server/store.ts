@@ -32,6 +32,8 @@ interface Backend {
   insert(sessionId: string, events: BuffdEvent[]): Promise<number>;
   /** Run a read query. `?` placeholders are positional, in order. */
   query(sql: string, params?: unknown[]): Promise<Row[]>;
+  /** Run a write statement (INSERT/UPDATE) that returns no rows. */
+  exec(sql: string, params?: unknown[]): Promise<void>;
 }
 
 /** The columns every backend inserts, in a fixed order, for one event. */
@@ -89,6 +91,12 @@ function openSqlite(): Backend {
     CREATE INDEX IF NOT EXISTS idx_events_path ON events(path);
     CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
     CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+
+    CREATE TABLE IF NOT EXISTS buffd_meta (
+      key        TEXT    PRIMARY KEY,
+      value      TEXT    NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   return {
@@ -115,6 +123,9 @@ function openSqlite(): Backend {
     },
     async query(sql, params = []) {
       return db.prepare(sql).all(...(params as never[])) as Row[];
+    },
+    async exec(sql, params = []) {
+      db.prepare(sql).run(...(params as never[]));
     },
   };
 }
@@ -168,6 +179,12 @@ function openPostgres(url: string): Backend {
     CREATE INDEX IF NOT EXISTS idx_events_path    ON events(path);
     CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
     CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+
+    CREATE TABLE IF NOT EXISTS buffd_meta (
+      key        TEXT   PRIMARY KEY,
+      value      TEXT   NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
   `);
 
   return {
@@ -197,6 +214,10 @@ function openPostgres(url: string): Backend {
       await ready;
       const res = await pool.query(toPg(sql), params as unknown[]);
       return res.rows as Row[];
+    },
+    async exec(sql, params = []) {
+      await ready;
+      await pool.query(toPg(sql), params as unknown[]);
     },
   };
 }
@@ -277,6 +298,39 @@ export async function query(sql: string, params: unknown[] = []): Promise<Row[]>
       err instanceof Error ? err.message : err,
     );
     return [];
+  }
+}
+
+// ── Key/value metadata (buffd_meta) ──────────────────────────────────────────
+// A tiny single-row-per-key store for things that aren't events: the AI
+// settings the dashboard owner configures, and the last generated AI summary
+// (cached so the dashboard renders it without spending tokens). Returns
+// null / no-ops when the store is unavailable, like the rest of this module.
+
+/** Read one metadata value by key, or null when absent / no store. */
+export async function getMeta(key: string): Promise<string | null> {
+  const rows = await query(`SELECT value FROM buffd_meta WHERE key = ?`, [key]);
+  const v = rows[0]?.value;
+  return typeof v === "string" ? v : null;
+}
+
+/** Upsert one metadata value. Returns false when the store is unavailable. */
+export async function setMeta(key: string, value: string): Promise<boolean> {
+  const b = await getBackend();
+  if (!b) return false;
+  try {
+    await b.exec(
+      `INSERT INTO buffd_meta (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [key, value, Date.now()],
+    );
+    return true;
+  } catch (err) {
+    console.warn(
+      "[buffd] setMeta failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return false;
   }
 }
 

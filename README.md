@@ -81,6 +81,74 @@ export default createBuffdPage({
 });
 ```
 
+## AI summary
+
+The dashboard's top card turns the captured signals into a plain-English story
+of how people are actually using your site — its best and worst parts. It's
+**bring-your-own-key**: on first visit the card walks you through a four-step
+setup — connect a model (Anthropic, OpenAI, any OpenAI-compatible endpoint, or
+Google), describe your site, scan your codebase, and pick a refresh cadence.
+After that the card is just the story: the summary, when it was generated, a
+**refresh** icon to force a regenerate, and a **gear** that opens the full
+settings when you need them. Nothing is sent to a model until you ask.
+
+It's built to spend as few tokens as possible:
+
+- The model never sees raw events — only a compact, server-side **digest** of the
+  already-aggregated numbers (a few hundred tokens for an entire site).
+- The digest is **fingerprinted** and the summary is **cached**. Re-opening the
+  dashboard costs nothing, and a regenerate with no new data returns the cached
+  text without a model call.
+- The output is capped to a single tight paragraph.
+
+**Auto-refresh.** Pick a cadence (manual / daily / weekly) during setup or in
+Settings. When you open the dashboard past the cadence and the data has
+actually changed, the summary regenerates in the background after the page is
+served — no external cron, serverless-friendly. Unchanged data never triggers
+a model call, whatever the cadence.
+
+The API key is stored server-side (in your database) and is **never** sent back
+to the browser — the UI only ever shows whether one is set. You can also preset
+everything from the environment (handy for CI / shared deploys); dashboard
+settings take precedence.
+
+**Where to get a key:**
+
+| Provider | Get a key | Notes |
+|---|---|---|
+| Anthropic (Claude) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | default model `claude-opus-4-8` |
+| OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | default model `gpt-4o-mini` |
+| OpenAI-compatible | e.g. [openrouter.ai/keys](https://openrouter.ai/keys), [console.groq.com/keys](https://console.groq.com/keys) | also set **Base URL** |
+| Google (Gemini) | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | default model `gemini-1.5-flash` |
+
+### Project profile — the one-time setup scan
+
+To make the summary understand your *code* — not just the numbers — run the
+one-time **Scan codebase** step from the card's Project profile strip. Buffd
+reads your app's source from disk (pages and layouts first, then component
+files, under a hard token budget), and asks the model to write a compact
+profile: what the site is for, a map of its routes, and every interactive
+component by its exact identifier. Optionally tell it your **target audience**
+and **ideology / values** in Settings so the analysis judges the site by your
+goals.
+
+The profile is cached in your database and injected into every summary as
+authoritative context, so:
+
+- **Summaries never re-read source.** One scan, then pure digest + profile.
+- **The codebase is only touched again** when analytics mention a component the
+  profile doesn't cover — a tiny targeted read of just the files naming it —
+  or when you explicitly re-scan (the strip shows a hint when new components
+  appear).
+- On serverless hosts where source isn't on disk, scan in local dev; the saved
+  profile keeps serving in production.
+
+> **What the model sees.** A compact, server-side digest of the aggregated
+> analytics (page paths, element selectors, `data-component` names, sample
+> text, error messages), the cached project profile, and the description you
+> provide. Your source is read only during an explicit scan (or a targeted
+> gap-fill), and always under strict size budgets.
+
 ## Component-level tracking
 
 Wrap any element to track it explicitly. Interactive controls get hover + click
@@ -126,6 +194,17 @@ initBuffd(config);
 |---|---|---|
 | `BUFFD_DATABASE_URL` | production | Pooled Postgres connection string — enables capture |
 | `BUFFD_DB_PATH` | dev (optional) | Custom SQLite path (default `.buffd/analytics.db`) |
+| `BUFFD_AI_PROVIDER` | AI (optional) | `anthropic` \| `openai` \| `openai-compatible` \| `google` |
+| `BUFFD_AI_MODEL` | AI (optional) | Model id (defaults per provider, e.g. `claude-opus-4-8`) |
+| `BUFFD_AI_API_KEY` | AI (optional) | Model API key — preset instead of using the dashboard |
+| `BUFFD_AI_BASE_URL` | AI (optional) | Base URL for `openai-compatible` providers |
+| `BUFFD_AI_INSTRUCTIONS` / `BUFFD_AI_CONTEXT` | AI (optional) | Default instructions / site description |
+| `BUFFD_AI_AUDIENCE` / `BUFFD_AI_IDEOLOGY` | AI (optional) | Target audience / product values for the profile scan |
+| `BUFFD_AI_SOURCE_DIRS` | AI (optional) | Comma-separated folders to scan (default `src`/`app`/`components`/`pages`/`lib`) |
+| `BUFFD_AI_REFRESH_CADENCE` | AI (optional) | `manual` \| `daily` \| `weekly` — summary auto-refresh cadence |
+
+AI settings are optional — the dashboard's Settings panel configures the same
+fields, and what you save there overrides these env defaults.
 
 Local dev needs nothing. If no writable store is available the package degrades
 to a safe no-op (a console warning, dashboard notice) — your app never breaks.
