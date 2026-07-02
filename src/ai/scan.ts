@@ -232,6 +232,33 @@ export function collectSource(
   return { available: true, files, identifiers: [...identifiers].sort(), fingerprint, truncated };
 }
 
+/**
+ * Locate the first source file containing any of the given needles (most
+ * specific — longest — first). Used to verify that a loss the model reported
+ * points at something that really exists in the codebase. Returns the path
+ * relative to the project root, or null (including when source isn't on disk).
+ */
+export function findInSource(needles: string[], sourceDirs?: string): string | null {
+  const usable = needles.filter((n) => n.length >= 4);
+  if (!usable.length) return null;
+  const projectRoot = process.cwd();
+  const roots = resolveRoots(projectRoot, sourceDirs);
+  const ordered = [...usable].sort((a, b) => b.length - a.length);
+  for (const needle of ordered) {
+    const lower = needle.toLowerCase();
+    for (const abs of listFiles(projectRoot, roots)) {
+      let raw: string;
+      try {
+        raw = readFileSync(abs, "utf8");
+      } catch {
+        continue;
+      }
+      if (raw.toLowerCase().includes(lower)) return relative(projectRoot, abs);
+    }
+  }
+  return null;
+}
+
 /** Budget for the targeted gap-fill read at summary time — deliberately tiny. */
 const TARGETED_BUDGET_CHARS = 12_000;
 

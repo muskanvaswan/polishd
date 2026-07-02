@@ -90,10 +90,32 @@ export type GenerateProfileResult =
 
 export type GenerateProfileError = "no-key" | "no-source" | "provider-error";
 
+/**
+ * A specific problem the model found in the data. Losses are held to a higher
+ * bar than wins: each must cite evidence (a selector, component name, or page
+ * path) that appears in the digest we sent — uncited losses are dropped as
+ * hallucinations — and the server then tries to locate the cited element in
+ * the codebase (`location`/`verified`).
+ */
+export interface BuffdLossItem {
+  /** The specific problem, in plain English. */
+  issue: string;
+  /** The identifier from the data that shows it (selector / component / path). */
+  evidence: string;
+  /** Source file containing the cited element, when found on disk. */
+  location?: string;
+  /** True when the citation was matched to a file in the codebase. */
+  verified: boolean;
+}
+
 /** A generated narrative summary, cached in the store. */
 export interface BuffdSummary {
   /** The paragraph(s) of narrative. */
   text: string;
+  /** What's working — may be general. Absent on summaries from older versions. */
+  wins?: string[];
+  /** Specific, evidence-cited problems. Absent on summaries from older versions. */
+  losses?: BuffdLossItem[];
   /** Provider + model that produced it. */
   provider: BuffdAIProvider;
   model: string;

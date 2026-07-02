@@ -250,6 +250,7 @@ export default function SummaryCard({
             {hasSummary ? (
               <>
                 <p className="text-[14px] leading-relaxed text-[#e4e4e4]">{summary!.text}</p>
+                <WinsLosses wins={summary!.wins} losses={summary!.losses} />
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
                   <span>
                     Generated {relTime(summary!.generatedAt)} · {summary!.provider}/{summary!.model}
@@ -310,6 +311,68 @@ export default function SummaryCard({
         </>
       )}
     </section>
+  );
+}
+
+// ── Wins & losses ────────────────────────────────────────────────────────────
+function WinsLosses({
+  wins,
+  losses,
+}: {
+  wins: BuffdSummary["wins"];
+  losses: BuffdSummary["losses"];
+}) {
+  const hasWins = !!wins?.length;
+  const hasLosses = !!losses?.length;
+  if (!hasWins && !hasLosses) return null;
+  return (
+    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      {hasWins && (
+        <div>
+          <div className={`${labelCls} mb-2 text-emerald-500`}>Wins</div>
+          <ul className="space-y-1.5">
+            {wins!.map((w, i) => (
+              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
+                <span className="mt-px shrink-0 text-emerald-500">✓</span>
+                <span>{w}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {hasLosses && (
+        <div>
+          <div className={`${labelCls} mb-2 text-red-400`}>Losses</div>
+          <ul className="space-y-2.5">
+            {losses!.map((l, i) => (
+              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
+                <span className="mt-px shrink-0 text-red-400">✕</span>
+                <span>
+                  {l.issue}
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
+                      {l.evidence}
+                    </code>
+                    {l.location ? (
+                      <code className="rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
+                        {l.location}
+                      </code>
+                    ) : (
+                      <span
+                        className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
+                        title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
+                      >
+                        not matched to source
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -21,9 +21,14 @@ import { loadBuffdDashboardData, type BuffdDashboardData } from "../server/queri
 import { buildDigest, fingerprintDigest } from "./digest";
 import { callModel } from "./providers";
 import { coverageGaps, loadProjectProfile } from "./profile";
-import { collectTargeted } from "./scan";
+import { collectTargeted, findInSource } from "./scan";
 import { resolveSettings } from "./settings";
-import type { BuffdProjectProfile, BuffdSummary, GenerateSummaryResult } from "./types";
+import type {
+  BuffdLossItem,
+  BuffdProjectProfile,
+  BuffdSummary,
+  GenerateSummaryResult,
+} from "./types";
 
 // Settings live in ./settings; re-exported here so existing imports keep working.
 export {
@@ -51,13 +56,94 @@ const SYSTEM_PROMPT =
   "clicks, dead clicks, scroll depth, errors, per-page and per-element stats), " +
   "usually preceded by a project profile describing the site's purpose, pages, " +
   "and components — treat the profile as authoritative context for what every " +
-  "identifier means. Write a single tight paragraph (3-5 sentences) telling " +
-  "the site owner the story of how people are actually using their site: " +
-  "what's working best and what's frustrating or broken. Be concrete — name " +
-  "the specific pages and elements from the data, in the site's own terms from " +
-  "the profile. Lead with the strongest finding. No headings, no bullet lists, " +
-  "no preamble like 'Based on the data'. If the data is too sparse to be " +
-  "confident, say so plainly in one sentence.";
+  "identifier means.\n\n" +
+  "Respond with ONLY a JSON object (no markdown fences, no preamble):\n" +
+  '{ "story": string, "wins": string[], "losses": [{ "issue": string, "evidence": string }] }\n\n' +
+  "story: a single tight paragraph (3-5 sentences) telling the site owner how " +
+  "people are actually using their site — what's working best and what's " +
+  "frustrating or broken. Name specific pages and elements, in the site's own " +
+  "terms from the profile. Lead with the strongest finding. If the data is too " +
+  "sparse to be confident, say so plainly.\n" +
+  "wins: 2-4 things that are working. These may be general observations.\n" +
+  "losses: 0-4 real, specific problems visible in the data — a broken or " +
+  "frustrating element, an underperforming page, a recurring error. Each issue " +
+  "must be concrete (what is wrong, where, and what the numbers show), and " +
+  "evidence must be the exact page path, CSS selector, or component name " +
+  "copied verbatim from the digest that demonstrates it. Never invent a loss: " +
+  "if the data shows no real problems, return an empty array.";
+
+/** The model's raw loss shape, before server-side verification. */
+interface RawLoss {
+  issue?: unknown;
+  evidence?: unknown;
+}
+
+/**
+ * Parse the model's JSON reply, tolerating stray fences or prose around it.
+ * Falls back to treating the whole text as the story so a model that ignores
+ * the format still produces a usable card.
+ */
+function parseStructured(text: string): { story: string; wins: string[]; losses: RawLoss[] } {
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      const obj = JSON.parse(t.slice(start, end + 1)) as Record<string, unknown>;
+      const story = typeof obj.story === "string" ? obj.story.trim() : "";
+      if (story) {
+        const wins = Array.isArray(obj.wins)
+          ? obj.wins.filter((w): w is string => typeof w === "string" && w.trim().length > 0).slice(0, 4)
+          : [];
+        const losses = Array.isArray(obj.losses) ? (obj.losses as RawLoss[]).slice(0, 6) : [];
+        return { story, wins, losses };
+      }
+    } catch {
+      /* fall through to plain-text handling */
+    }
+  }
+  return { story: text.trim(), wins: [], losses: [] };
+}
+
+/** Tokens specific enough to ground a citation (drop generic words). */
+function citationTokens(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^\w/-]+/)
+    .filter((t) => t.length >= 4 && !/^(button|input|click|clicks|page|pages|http|https|with|from|that)$/.test(t));
+}
+
+/**
+ * Hold losses to their evidence bar. A loss survives only if its citation
+ * actually appears in the prompt we sent (so it can't be invented), and is
+ * then matched to a source file when the codebase is on disk.
+ */
+function verifyLosses(
+  raw: RawLoss[],
+  promptText: string,
+  sourceDirs: string | undefined,
+): BuffdLossItem[] {
+  const hay = promptText.toLowerCase();
+  const out: BuffdLossItem[] = [];
+  for (const l of raw) {
+    if (typeof l.issue !== "string" || !l.issue.trim()) continue;
+    const evidence = typeof l.evidence === "string" ? l.evidence.trim() : "";
+    if (!evidence) continue; // no citation, no loss
+    const tokens = citationTokens(evidence);
+    if (!tokens.length || !tokens.some((t) => hay.includes(t))) continue; // not in the data we sent
+    const location = findInSource(tokens, sourceDirs);
+    out.push({
+      issue: l.issue.trim(),
+      evidence,
+      location: location ?? undefined,
+      verified: location !== null,
+    });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
 
 /**
  * The exact user message for a summary call, plus its cache fingerprint.
@@ -172,8 +258,11 @@ export async function generateSummary(
     };
   }
 
+  const parsed = parseStructured(reply.text);
   const summary: BuffdSummary = {
-    text: reply.text,
+    text: parsed.story,
+    wins: parsed.wins,
+    losses: verifyLosses(parsed.losses, user, settings.sourceDirs),
     provider: settings.provider,
     model: settings.model,
     generatedAt: Date.now(),

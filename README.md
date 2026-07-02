@@ -84,7 +84,12 @@ export default createBuffdPage({
 ## AI summary
 
 The dashboard's top card turns the captured signals into a plain-English story
-of how people are actually using your site — its best and worst parts. It's
+of how people are actually using your site, followed by a **wins** list (what's
+working) and a **losses** list (specific problems). Losses are held to a higher
+bar: each must cite the exact page, selector, or component from the data —
+citations that don't appear in the analytics are discarded as hallucinations,
+and the rest are matched to your source files so every loss shows the file it
+lives in (or an honest "not matched to source" tag for dynamic content). It's
 **bring-your-own-key**: on first visit the card walks you through a four-step
 setup — connect a model (Anthropic, OpenAI, any OpenAI-compatible endpoint, or
 Google), describe your site, scan your codebase, and pick a refresh cadence.
