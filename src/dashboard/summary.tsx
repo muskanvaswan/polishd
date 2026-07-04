@@ -4,8 +4,9 @@
  * Buffd — AI summary card (client).
  *
  * Sits at the top of the dashboard. First visit walks the owner through a
- * four-step setup (connect a model → describe the site → scan the codebase →
- * pick a refresh cadence); after that the card is just the story: summary text,
+ * five-step setup (connect a model → describe the site → scan the codebase →
+ * connect GitHub → pick a refresh cadence); after that the card is just the
+ * story: summary text,
  * when it was generated, a refresh icon to force a regenerate, and a gear that
  * reveals the full settings (including the project profile) on demand.
  *
@@ -17,13 +18,17 @@
 import { useState, useTransition, type ReactNode } from "react";
 
 import {
+  createIssueFromLossAction,
   generateProfileAction,
   generateSummaryAction,
   saveAISettingsAction,
+  verifyGithubAction,
 } from "../ai/actions";
 import type {
   BuffdAIProvider,
   BuffdAISettingsPublic,
+  BuffdGithubStatus,
+  BuffdLossItem,
   BuffdProjectProfile,
   BuffdRefreshCadence,
   BuffdSummary,
@@ -189,7 +194,7 @@ export default function SummaryCard({
       {/* Header */}
       <div className={`flex items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}>
         <div className="flex items-center gap-2">
-          <span className={labelCls}>AI summary</span>
+          <span className={labelCls}>All you need to know</span>
           {settings.hasApiKey && (
             <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
               {settings.provider} · {settings.model}
@@ -250,7 +255,11 @@ export default function SummaryCard({
             {hasSummary ? (
               <>
                 <p className="text-[14px] leading-relaxed text-[#e4e4e4]">{summary!.text}</p>
-                <WinsLosses wins={summary!.wins} losses={summary!.losses} />
+                <WinsLosses
+                  wins={summary!.wins}
+                  losses={summary!.losses}
+                  githubConnected={settings.hasGithubToken && !!settings.githubRepo}
+                />
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
                   <span>
                     Generated {relTime(summary!.generatedAt)} · {summary!.provider}/{summary!.model}
@@ -315,12 +324,83 @@ export default function SummaryCard({
 }
 
 // ── Wins & losses ────────────────────────────────────────────────────────────
+
+/**
+ * One-click "loss → GitHub issue". The server action verifies the report
+ * against the repository's source first: confirmed reports become issues with
+ * the technical analysis and fix suggestions, disproved ones come back as
+ * `not-a-bug` with the reasoning — shown here instead of a link. Losses whose
+ * issue already exists (auto-filed, or filed on an earlier summary) render as
+ * the link straight away.
+ */
+function FileBugButton({ loss }: { loss: BuffdLossItem }) {
+  const [created, setCreated] = useState<{ url: string; number: number } | null>(
+    loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null,
+  );
+  const [failed, setFailed] = useState<{ notABug: boolean; message: string } | null>(null);
+  const [pending, startFile] = useTransition();
+
+  if (created) {
+    return (
+      <a
+        href={created.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="rounded bg-[#101c14] px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 hover:text-emerald-400"
+      >
+        Issue #{created.number} ↗
+      </a>
+    );
+  }
+
+  if (failed?.notABug) {
+    return (
+      <span
+        className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] text-amber-400"
+        title={failed.message}
+      >
+        Checked the source — not an actual bug: {failed.message}
+      </span>
+    );
+  }
+
+  const file = () =>
+    startFile(async () => {
+      setFailed(null);
+      const res = await createIssueFromLossAction({
+        issue: loss.issue,
+        evidence: loss.evidence,
+        location: loss.location,
+      });
+      if (res.ok) setCreated({ url: res.url, number: res.number });
+      else setFailed({ notABug: res.error === "not-a-bug", message: res.message });
+    });
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={file}
+        disabled={pending}
+        title="Verify this problem against the source code, then create a GitHub issue with the technical details"
+        className="rounded border border-[#2e2e2e] px-1.5 py-0.5 text-[10px] text-[#888] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {pending ? "Verifying…" : "File bug"}
+      </button>
+      {failed && <span className="text-[10px] text-red-400">{failed.message}</span>}
+    </>
+  );
+}
+
 function WinsLosses({
   wins,
   losses,
+  githubConnected,
 }: {
   wins: BuffdSummary["wins"];
   losses: BuffdSummary["losses"];
+  /** True when a GitHub repo + token are configured — enables "File bug". */
+  githubConnected: boolean;
 }) {
   const hasWins = !!wins?.length;
   const hasLosses = !!losses?.length;
@@ -365,6 +445,7 @@ function WinsLosses({
                         not matched to source
                       </span>
                     )}
+                    {(githubConnected || !!l.issueUrl) && <FileBugButton loss={l} />}
                   </span>
                 </span>
               </li>
@@ -377,7 +458,7 @@ function WinsLosses({
 }
 
 // ── Onboarding wizard ────────────────────────────────────────────────────────
-const STEPS = ["Model", "Your site", "Codebase", "Cadence"] as const;
+const STEPS = ["Model", "Your site", "Codebase", "GitHub", "Cadence"] as const;
 
 function StepShell({
   step,
@@ -451,7 +532,12 @@ function OnboardingWizard({
   // Step 3 — codebase
   const [sourceDirs, setSourceDirs] = useState(settings.sourceDirs ?? "");
   const [scanned, setScanned] = useState<BuffdProjectProfile | null>(null);
-  // Step 4 — cadence
+  // Step 4 — GitHub
+  const [githubRepo, setGithubRepo] = useState(settings.githubRepo ?? "");
+  const [githubToken, setGithubToken] = useState("");
+  const [githubStatus, setGithubStatus] = useState<BuffdGithubStatus | null>(null);
+  const [autoIssues, setAutoIssues] = useState(settings.githubAutoIssues ?? false);
+  // Step 5 — cadence
   const [cadence, setCadence] = useState<BuffdRefreshCadence>("manual");
 
   const [pending, startStep] = useTransition();
@@ -491,6 +577,28 @@ function OnboardingWizard({
       } else {
         setError(res.message);
       }
+    });
+
+  const connectGithub = () =>
+    startStep(async () => {
+      setError(null);
+      const saved = await saveAISettingsAction({
+        githubRepo,
+        githubToken,
+        githubAutoIssues: autoIssues,
+      });
+      onSettings(saved);
+      setGithubToken("");
+      const res = await verifyGithubAction();
+      if (res.ok) setGithubStatus(res.status);
+      else setError(res.message);
+    });
+
+  // The toggle stays visible after connecting — persist its latest state.
+  const finishGithub = () =>
+    startStep(async () => {
+      onSettings(await saveAISettingsAction({ githubAutoIssues: autoIssues }));
+      next();
     });
 
   const finish = () =>
@@ -699,6 +807,98 @@ function OnboardingWizard({
       {step === 3 && (
         <StepShell
           step={3}
+          title="Connect your GitHub repository"
+          intro="Optional. With the repo connected, problems the model finds are verified against your actual source code — real ones become GitHub issues with the technical analysis and fix suggestions, false alarms are dropped. A fine-grained token scoped to just this repo is all it needs."
+        >
+          {githubStatus ? (
+            <div className="rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2.5 text-[12px] text-emerald-400">
+              Connected to {githubStatus.repo} · default branch{" "}
+              <code className="font-mono">{githubStatus.defaultBranch}</code>
+              {!githubStatus.issuesEnabled && " · issues are disabled on this repo"}
+              {!githubStatus.canPush && " · token can't push (branches/PRs unavailable)"}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className={labelCls}>Repository</span>
+                <input
+                  value={githubRepo}
+                  onChange={(e) => setGithubRepo(e.target.value)}
+                  placeholder="owner/repo"
+                  className={`${inputCls} mt-1.5 font-mono`}
+                />
+              </label>
+              <label className="block">
+                <span className={labelCls}>Access token</span>
+                <input
+                  type="password"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder={settings.hasGithubToken ? "•••••••• (stored — leave blank to keep)" : "github_pat_…"}
+                  autoComplete="off"
+                  className={`${inputCls} mt-1.5`}
+                />
+                <span className="mt-1 block text-[11px] text-[#555]">
+                  Create a{" "}
+                  <a
+                    href="https://github.com/settings/personal-access-tokens/new"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+                  >
+                    fine-grained token
+                  </a>{" "}
+                  for this repo with Contents (read) and Issues &amp; Pull requests (write).
+                  Stored server-side; never sent to the browser.
+                </span>
+              </label>
+            </div>
+          )}
+          <label className="mt-4 flex max-w-xl cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={autoIssues}
+              onChange={(e) => setAutoIssues(e.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-white"
+            />
+            <span>
+              <span className="block text-[13px] font-medium text-white">
+                Allow creating issues automatically
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-[#666]">
+                Every new problem a summary finds is verified against the source and — when it
+                holds up — filed as a GitHub issue on its own, with technical details and fix
+                suggestions. The same problem is never filed twice.
+              </span>
+            </span>
+          </label>
+          <div className="mt-4 flex items-center gap-3">
+            {githubStatus ? (
+              <button type="button" onClick={finishGithub} disabled={pending} className={primaryBtn}>
+                {pending ? "Saving…" : "Continue"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={connectGithub}
+                  disabled={pending || !githubRepo.trim() || (!githubToken && !settings.hasGithubToken)}
+                  className={primaryBtn}
+                >
+                  {pending ? "Connecting…" : "Connect GitHub"}
+                </button>
+                <button type="button" onClick={next} className={ghostBtn}>
+                  Skip for now
+                </button>
+              </>
+            )}
+          </div>
+        </StepShell>
+      )}
+
+      {step === 4 && (
+        <StepShell
+          step={4}
           title="How often should the story refresh?"
           intro="With the profile cached, a refresh only spends tokens when there's new behavior to narrate — unchanged data is always free. Auto-refresh runs in the background when you open the dashboard past the cadence."
         >
@@ -836,6 +1036,9 @@ function SettingsPanel({
   const [ideology, setIdeology] = useState(settings.ideology ?? "");
   const [sourceDirs, setSourceDirs] = useState(settings.sourceDirs ?? "");
   const [cadence, setCadence] = useState<BuffdRefreshCadence>(settings.refreshCadence ?? "manual");
+  const [githubRepo, setGithubRepo] = useState(settings.githubRepo ?? "");
+  const [githubToken, setGithubToken] = useState("");
+  const [autoIssues, setAutoIssues] = useState(settings.githubAutoIssues ?? false);
   const [saved, setSaved] = useState(false);
   const [pending, startSave] = useTransition();
 
@@ -856,9 +1059,13 @@ function SettingsPanel({
         ideology,
         sourceDirs,
         refreshCadence: cadence,
+        githubRepo,
+        githubToken, // blank keeps the stored token
+        githubAutoIssues: autoIssues,
       });
       onSaved(next);
       setApiKey("");
+      setGithubToken("");
       setSaved(true);
     });
   };
@@ -991,6 +1198,43 @@ function SettingsPanel({
           placeholder="e.g. Focus on conversion blockers. Keep it blunt."
           className={`${inputCls} mt-1.5 resize-y`}
         />
+      </label>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className={labelCls}>GitHub repository</span>
+          <span className="ml-1 text-[11px] text-[#555]">— optional; enables filing bugs from losses.</span>
+          <input
+            value={githubRepo}
+            onChange={(e) => setGithubRepo(e.target.value)}
+            placeholder="owner/repo"
+            className={`${inputCls} mt-1.5 font-mono`}
+          />
+        </label>
+
+        <label className="block">
+          <span className={labelCls}>GitHub token</span>
+          <span className="ml-1 text-[11px] text-[#555]">— Contents (read), Issues &amp; Pull requests (write).</span>
+          <input
+            type="password"
+            value={githubToken}
+            onChange={(e) => setGithubToken(e.target.value)}
+            placeholder={settings.hasGithubToken ? "•••••••• (stored — leave blank to keep)" : "github_pat_…"}
+            autoComplete="off"
+            className={`${inputCls} mt-1.5`}
+          />
+        </label>
+      </div>
+
+      <label className="mt-4 flex cursor-pointer items-center gap-2.5">
+        <input
+          type="checkbox"
+          checked={autoIssues}
+          onChange={(e) => setAutoIssues(e.target.checked)}
+          className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-white"
+        />
+        <span className="text-[13px] text-white">Allow creating issues automatically</span>
+        <span className="text-[11px] text-[#555]">— new problems are verified against the source, then filed on their own; never twice.</span>
       </label>
 
       <label className="mt-4 block">

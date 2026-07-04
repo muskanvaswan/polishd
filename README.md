@@ -207,6 +207,9 @@ initBuffd(config);
 | `BUFFD_AI_AUDIENCE` / `BUFFD_AI_IDEOLOGY` | AI (optional) | Target audience / product values for the profile scan |
 | `BUFFD_AI_SOURCE_DIRS` | AI (optional) | Comma-separated folders to scan (default `src`/`app`/`components`/`pages`/`lib`) |
 | `BUFFD_AI_REFRESH_CADENCE` | AI (optional) | `manual` \| `daily` \| `weekly` — summary auto-refresh cadence |
+| `BUFFD_GITHUB_REPO` | GitHub (optional) | Repository as `owner/repo` — enables filing bugs from AI-found losses |
+| `BUFFD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
+| `BUFFD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 
 AI settings are optional — the dashboard's Settings panel configures the same
 fields, and what you save there overrides these env defaults.

@@ -19,6 +19,7 @@
 import { getMeta, setMeta } from "../server/store";
 import { loadBuffdDashboardData, type BuffdDashboardData } from "../server/queries";
 import { buildDigest, fingerprintDigest } from "./digest";
+import { attachGithubIssues } from "./issues";
 import { callModel } from "./providers";
 import { coverageGaps, loadProjectProfile } from "./profile";
 import { collectTargeted, findInSource } from "./scan";
@@ -259,10 +260,15 @@ export async function generateSummary(
   }
 
   const parsed = parseStructured(reply.text);
+  // Link losses to their GitHub issues — filing new ones when the owner
+  // enabled auto-filing, attaching already-filed ones either way.
+  const losses = await attachGithubIssues(
+    verifyLosses(parsed.losses, user, settings.sourceDirs),
+  );
   const summary: BuffdSummary = {
     text: parsed.story,
     wins: parsed.wins,
-    losses: verifyLosses(parsed.losses, user, settings.sourceDirs),
+    losses,
     provider: settings.provider,
     model: settings.model,
     generatedAt: Date.now(),
