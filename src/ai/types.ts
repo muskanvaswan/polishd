@@ -42,6 +42,12 @@ export interface BuffdAISettings {
   sourceDirs?: string;
   /** Auto-refresh cadence for the summary. Defaults to "manual". */
   refreshCadence?: BuffdRefreshCadence;
+  /** GitHub repository this site lives in, as "owner/repo". */
+  githubRepo?: string;
+  /** GitHub access token. Secret. Server-only — never serialized to the client. */
+  githubToken?: string;
+  /** File an issue automatically for each new problem a summary finds. */
+  githubAutoIssues?: boolean;
 }
 
 /** Client-safe view of the settings: same shape, key replaced by a boolean. */
@@ -57,6 +63,12 @@ export interface BuffdAISettingsPublic {
   ideology?: string;
   sourceDirs?: string;
   refreshCadence?: BuffdRefreshCadence;
+  /** GitHub repository ("owner/repo"), when connected. */
+  githubRepo?: string;
+  /** True when a GitHub token is configured (via the dashboard or env). */
+  hasGithubToken: boolean;
+  /** File an issue automatically for each new problem a summary finds. */
+  githubAutoIssues?: boolean;
   /** True when provider settings came from env vars (read-only defaults). */
   fromEnv: boolean;
 }
@@ -106,6 +118,9 @@ export interface BuffdLossItem {
   location?: string;
   /** True when the citation was matched to a file in the codebase. */
   verified: boolean;
+  /** GitHub issue filed for this problem (manually or automatically). */
+  issueUrl?: string;
+  issueNumber?: number;
 }
 
 /** A generated narrative summary, cached in the store. */
@@ -136,3 +151,35 @@ export type GenerateSummaryError =
   | "no-key" // no API key configured
   | "no-data" // store empty / not ready — nothing to summarize
   | "provider-error"; // the model call failed
+
+// ── GitHub connection ────────────────────────────────────────────────────────
+
+/**
+ * What the configured token can actually do against the configured repo,
+ * checked live during onboarding. `contents` (read) powers source reading;
+ * `issues` and `pullRequests` (write) power filing bugs and opening PRs.
+ */
+export interface BuffdGithubStatus {
+  /** The repo as GitHub reports it, e.g. "muskanvaswan/create". */
+  repo: string;
+  defaultBranch: string;
+  /** True when the token can push (create branches / PRs). */
+  canPush: boolean;
+  /** True when the repo has issues enabled. */
+  issuesEnabled: boolean;
+}
+
+/** Result of verifying the GitHub connection. */
+export type VerifyGithubResult =
+  | { ok: true; status: BuffdGithubStatus }
+  | { ok: false; error: GithubError; message: string };
+
+/** Result of creating an issue from a loss item. */
+export type CreateIssueResult =
+  | { ok: true; url: string; number: number }
+  | { ok: false; error: GithubError; message: string };
+
+export type GithubError =
+  | "not-connected" // no token / repo configured
+  | "not-a-bug" // source verification disproved the report — nothing filed
+  | "github-error"; // the GitHub API call failed

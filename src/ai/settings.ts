@@ -70,6 +70,10 @@ function envSettings(): SavedSettings {
   if (e.BUFFD_AI_SOURCE_DIRS) out.sourceDirs = e.BUFFD_AI_SOURCE_DIRS;
   const cadence = coerceCadence(e.BUFFD_AI_REFRESH_CADENCE);
   if (cadence) out.refreshCadence = cadence;
+  if (e.BUFFD_GITHUB_REPO) out.githubRepo = e.BUFFD_GITHUB_REPO;
+  if (e.BUFFD_GITHUB_TOKEN) out.githubToken = e.BUFFD_GITHUB_TOKEN;
+  if (e.BUFFD_GITHUB_AUTO_ISSUES)
+    out.githubAutoIssues = /^(1|true|yes)$/i.test(e.BUFFD_GITHUB_AUTO_ISSUES);
   return out;
 }
 
@@ -95,6 +99,9 @@ export async function resolveSettings(): Promise<{ settings: BuffdAISettings; fr
       ideology: merged.ideology,
       sourceDirs: merged.sourceDirs,
       refreshCadence: merged.refreshCadence ?? "manual",
+      githubRepo: merged.githubRepo,
+      githubToken: merged.githubToken,
+      githubAutoIssues: merged.githubAutoIssues ?? false,
     },
     fromEnv: Object.keys(saved).length === 0 && Object.keys(env).length > 0,
   };
@@ -114,6 +121,9 @@ export async function getAISettingsPublic(): Promise<BuffdAISettingsPublic> {
     ideology: settings.ideology,
     sourceDirs: settings.sourceDirs,
     refreshCadence: settings.refreshCadence,
+    githubRepo: settings.githubRepo,
+    hasGithubToken: (settings.githubToken ?? "").length > 0,
+    githubAutoIssues: settings.githubAutoIssues,
     fromEnv,
   };
 }
@@ -130,6 +140,9 @@ export interface SaveAISettingsInput {
   ideology?: string;
   sourceDirs?: string;
   refreshCadence?: string;
+  githubRepo?: string;
+  githubToken?: string;
+  githubAutoIssues?: boolean;
 }
 
 /** Persist owner settings. Returns the refreshed public view. */
@@ -154,6 +167,12 @@ export async function saveAISettings(
     next.sourceDirs = input.sourceDirs.trim() || undefined;
   const cadence = coerceCadence(input.refreshCadence);
   if (cadence) next.refreshCadence = cadence;
+  if (input.githubRepo !== undefined)
+    next.githubRepo = input.githubRepo.trim() || undefined;
+  // Like apiKey: blank keeps the stored token, a value replaces it.
+  if (input.githubToken) next.githubToken = input.githubToken.trim();
+  if (input.githubAutoIssues !== undefined)
+    next.githubAutoIssues = input.githubAutoIssues === true;
 
   await setMeta(SETTINGS_KEY, JSON.stringify(next));
   return getAISettingsPublic();
