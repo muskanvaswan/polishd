@@ -58,7 +58,6 @@ function eventValues(sessionId: string, e: BuffdEvent, now: number): unknown[] {
 
 // ── SQLite backend ───────────────────────────────────────────────────────────
 
-import { DatabaseSync } from "node:sqlite";
 import { dirname, isAbsolute, join } from "node:path";
 import { mkdirSync } from "node:fs";
 
@@ -70,7 +69,14 @@ function resolveDbPath(): string {
   return isAbsolute(configured) ? configured : join(process.cwd(), configured);
 }
 
-function openSqlite(): Backend {
+async function openSqlite(): Promise<Backend> {
+  // Imported dynamically, not at module scope: `node:sqlite` only exists on
+  // Node 22.5+, and a static import would throw while this module is being
+  // evaluated — before the caller's try/catch can degrade to the no-op backend.
+  // A host on an older Node would take down every route importing the package
+  // rather than simply losing analytics.
+  const { DatabaseSync } = await import("node:sqlite");
+
   const path = resolveDbPath();
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -244,7 +250,7 @@ async function getBackend(): Promise<Backend | null> {
         await pg.query("SELECT 1");
         backend = pg;
       } else {
-        backend = openSqlite();
+        backend = await openSqlite();
       }
     } catch (err) {
       console.warn(

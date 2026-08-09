@@ -5,10 +5,15 @@
  *
  * These are the only AI entry points the client touches. They run on the
  * server (Node runtime), so the API key never crosses to the browser, and they
- * return only serializable, non-secret data. The host app's dashboard page is
- * already auth-gated; these inherit that protection by being reachable only
- * from it.
+ * return only serializable, non-secret data.
+ *
+ * Every one of them gates on `requireBuffdAuth()` first. A server action is an
+ * addressable POST endpoint whose id ships in the public client bundle, so it
+ * is reachable directly regardless of whether the dashboard page rendered —
+ * the page's `authenticate` gate protects the render, not these. The guard
+ * re-runs that same callback against the caller's cookies on every call.
  */
+import { requireBuffdAuth } from "./guard";
 import { verifyGithubConnection } from "./github";
 import { createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
@@ -26,6 +31,7 @@ import type {
 
 /** Generate or refresh the narrative. `force` re-asks the model even if data is unchanged. */
 export async function generateSummaryAction(force = false): Promise<GenerateSummaryResult> {
+  await requireBuffdAuth();
   return generateSummary({ force });
 }
 
@@ -33,6 +39,7 @@ export async function generateSummaryAction(force = false): Promise<GenerateSumm
 export async function saveAISettingsAction(
   input: SaveAISettingsInput,
 ): Promise<BuffdAISettingsPublic> {
+  await requireBuffdAuth();
   return saveAISettings(input);
 }
 
@@ -41,6 +48,7 @@ export async function saveAISettingsAction(
  * step. Passes current analytics so known component names steer the scan.
  */
 export async function generateProfileAction(): Promise<GenerateProfileResult> {
+  await requireBuffdAuth();
   const data = await loadBuffdDashboardData();
   return generateProjectProfile(data);
 }
@@ -50,6 +58,7 @@ export async function generateProfileAction(): Promise<GenerateProfileResult> {
  * onboarding step right after saving, so a bad token fails at setup.
  */
 export async function verifyGithubAction(): Promise<VerifyGithubResult> {
+  await requireBuffdAuth();
   return verifyGithubConnection();
 }
 
@@ -61,5 +70,6 @@ export async function verifyGithubAction(): Promise<VerifyGithubResult> {
 export async function createIssueFromLossAction(
   loss: Pick<BuffdLossItem, "issue" | "evidence" | "location">,
 ): Promise<CreateIssueResult> {
+  await requireBuffdAuth();
   return createIssueFromLoss(loss);
 }
