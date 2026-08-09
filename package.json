@@ -18,14 +18,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/muskanvaswan/polishd-next.git"
+    "url": "git+https://github.com/muskanvaswan/polishd.git"
   },
-  "homepage": "https://github.com/muskanvaswan/polishd-next#readme",
+  "homepage": "https://github.com/muskanvaswan/polishd#readme",
   "bugs": {
-    "url": "https://github.com/muskanvaswan/polishd-next/issues"
+    "url": "https://github.com/muskanvaswan/polishd/issues"
   },
   "files": [
     "dist",
+    "docs",
+    "AGENTS.md",
     "DATABASE.md",
     "README.md",
     "LICENSE"

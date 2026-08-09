@@ -13,18 +13,37 @@ one httpOnly UUID cookie per session, no fingerprinting, no PII.
 
 ---
 
-## Install
+## Documentation
+
+| | |
+|---|---|
+| **[docs/SETUP.md](./docs/SETUP.md)** | Full walkthrough — every variant, verification, troubleshooting |
+| **[AGENTS.md](./AGENTS.md)** | Install procedure written for AI coding agents |
+| **[DATABASE.md](./DATABASE.md)** | Production database setup, schema, retention |
+
+## Requirements
+
+- Next.js **15+**, App Router (no Pages Router support)
+- Node **22.5+** (the dev store uses the built-in `node:sqlite`)
+- Tailwind CSS v3 or v4, if you want the dashboard styled — see [Styling](#styling-required)
+- Postgres in production; nothing extra for local development
+
+## Quickstart
 
 ```bash
 npm install @polishd/next
-npm install pg            # optional — only for Postgres in production
-npx @polishd/next init      # scaffolds the glue files below
+npx polishd init
+npm run dev          # then visit /polishd
 ```
 
-`init` detects your layout (`src/` or root), writes the four files, adds
-`.polishd/` to `.gitignore`, and skips anything that already exists
-(`--force` to overwrite, `--dry-run` to preview, `--config` to also emit a
-`polishd.config.ts`).
+That's it locally — events write to `.polishd/analytics.db` with no
+configuration. `init` detects your layout (`src/` or root), writes the four
+files below, adds `.polishd/` to `.gitignore`, wires Tailwind, and skips
+anything that already exists (`--force` to overwrite, `--dry-run` to preview,
+`--js` for JavaScript, `--config` to also emit a `polishd.config.ts`).
+
+`pg` installs automatically as an optional dependency and is loaded only when
+you point Polishd at a Postgres URL.
 
 ## What gets wired up
 
@@ -272,6 +291,20 @@ See [DATABASE.md](./DATABASE.md) for production setup.
 | `@polishd/next/proxy` | `proxy`, `config`, `withPolishdSession`, `polishdMatcher` |
 | `@polishd/next/dashboard` | `createPolishdPage`, `PolishdDashboard`, `loadPolishdDashboardData` |
 
+## Development
+
+This repository contains the package only. To work on it:
+
+```bash
+npm install
+npm run build        # tsc -> dist (ESM + .d.ts)
+npm run typecheck
+```
+
+To test a change against a real app, `npm pack` and install the tarball into a
+scratch Next.js project — that exercises the published `exports` map and the
+"use client"/"use server" boundaries the way a consumer will.
+
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE).
