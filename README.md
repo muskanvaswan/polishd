@@ -46,7 +46,10 @@ import { initBuffd } from "@buffd/next/client";
 initBuffd();
 
 // src/app/api/buffd/route.ts — the ingest endpoint
-export { POST, runtime, dynamic } from "@buffd/next/route";
+import { createBuffdRoute } from "@buffd/next/route";
+export const runtime = "nodejs";        // must be declared here, not re-exported
+export const dynamic = "force-dynamic";
+export const POST = createBuffdRoute();
 
 // src/app/buffd/page.tsx — the dashboard (unguarded by default)
 import { createBuffdPage } from "@buffd/next/dashboard";
@@ -55,11 +58,40 @@ export const dynamic = "force-dynamic";
 export default createBuffdPage();
 ```
 
+> **Route segment config can't be re-exported.** Next statically parses
+> `runtime` and `dynamic`, so `export { POST, runtime, dynamic } from
+> "@buffd/next/route"` fails the build — declare them inline as above. The same
+> applies to the dashboard page.
+
 > **Get the matcher right.** Next statically parses `config.matcher`, so it must
 > be an inline literal in your proxy file — it can't be imported. `npx @buffd/next
 > init` writes the correct one for you. Excluding all of `/api` is load-bearing:
 > under Next 16 + Turbopack, a proxy matcher that touches any `/api/*` route
 > breaks resolution for the entire `/api` segment.
+
+## Styling (required)
+
+The dashboard is built from Tailwind utility classes and ships **no stylesheet
+of its own**, so Tailwind has to scan the package's `dist` — it won't find it by
+default. `init` wires this up for you; if you're doing it by hand:
+
+```css
+/* Tailwind v4 — in the CSS file that imports tailwind */
+@import "tailwindcss";
+@source "../../node_modules/@buffd/next/dist";   /* relative to this file */
+```
+
+```ts
+/* Tailwind v3 — in tailwind.config.ts */
+content: [
+  "./src/**/*.{ts,tsx}",
+  "./node_modules/@buffd/next/dist/**/*.js",
+],
+```
+
+Skip this and `/buffd` renders as unstyled HTML. Tailwind v4's automatic content
+detection deliberately ignores `node_modules`, so the `@source` line is not
+optional.
 
 ## Protecting the dashboard
 
@@ -80,6 +112,17 @@ export default createBuffdPage({
   unauthorized: <MyLogin />,            // optional; a minimal screen otherwise
 });
 ```
+
+The same callback also guards the AI **server actions** (generate summary, save
+settings, scan codebase, file GitHub issues). That matters: a server action is
+an addressable POST endpoint whose id ships in the public client bundle, so
+gating only the page would leave those actions callable by anyone. They re-run
+`authenticate` against the caller's cookies on every call, and deny when no
+dashboard page has registered a policy.
+
+If you pass no `authenticate`, the dashboard **and** its actions are public —
+anyone who finds the URL can read your analytics, change the configured model
+and API base URL, and spend your model tokens. Always gate it in production.
 
 ## AI summary
 

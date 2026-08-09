@@ -24,6 +24,7 @@ import {
   type DeviceBucket,
   type MonitoredComponent,
 } from "../server/queries";
+import { registerBuffdAuth } from "../ai/guard";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import type {
@@ -553,6 +554,15 @@ let warnedUnguarded = false;
  * `app/buffd/page.tsx`.
  */
 export function createBuffdPage(opts: CreateBuffdPageOptions = {}) {
+  // Register the policy at module evaluation, not per render: the AI server
+  // actions are reachable without this page ever rendering, and they re-run
+  // `authenticate` themselves before doing any work. See ai/guard.ts.
+  registerBuffdAuth(
+    opts.authenticate
+      ? { mode: "guarded", authenticate: opts.authenticate }
+      : { mode: "open" },
+  );
+
   return async function BuffdPage() {
     if (opts.authenticate) {
       const ok = await opts.authenticate();

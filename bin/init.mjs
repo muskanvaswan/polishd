@@ -71,7 +71,16 @@ const files = [
   },
   {
     path: join(appDir, "api", "buffd", `route.${codeExt}`),
-    body: `export { POST, runtime, dynamic } from "@buffd/next/route";\n`,
+    // runtime/dynamic must be declared here, not re-exported: Next statically
+    // parses route segment config and rejects `export { runtime } from ...`
+    // ("Next.js can't recognize the exported `runtime` field in route").
+    body:
+      `import { createBuffdRoute } from "@buffd/next/route";\n\n` +
+      `// node:sqlite / pg need the Node runtime — never the Edge runtime.\n` +
+      `export const runtime = "nodejs";\n` +
+      `// This route mutates per-request; it must never be statically cached.\n` +
+      `export const dynamic = "force-dynamic";\n\n` +
+      `export const POST = createBuffdRoute();\n`,
   },
   {
     path: join(appDir, "buffd", `page.${pageExt}`),
@@ -136,6 +145,75 @@ if (!DRY) {
     console.log(c.ok("✔ Added .buffd/ to .gitignore"));
   }
 }
+
+// ── Tailwind ─────────────────────────────────────────────────────────────────
+// The dashboard is styled entirely with Tailwind utility classes and ships no
+// stylesheet of its own, so Tailwind has to be told to scan the package's dist.
+// Neither version finds it by default: v4's automatic content detection skips
+// node_modules, and v3 only scans the globs it is given. Without this the
+// dashboard renders completely unstyled.
+const DIST_GLOB = "node_modules/@buffd/next/dist";
+
+function wireTailwind() {
+  const v3Config = ["tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs"]
+    .map((f) => join(cwd, f))
+    .find((f) => existsSync(f));
+
+  if (v3Config) {
+    console.log(
+      c.warn(`⚠ Tailwind v3 config detected`) +
+        c.dim(" — add this to its `content` array:\n") +
+        `    "./${DIST_GLOB}/**/*.js"`,
+    );
+    return;
+  }
+
+  // Tailwind v4: find the entry stylesheet that imports tailwind.
+  const cssCandidates = [
+    join("src", "app", "globals.css"),
+    join("app", "globals.css"),
+    join("src", "styles", "globals.css"),
+    join("styles", "globals.css"),
+    join("src", "app", "global.css"),
+  ];
+  for (const rel of cssCandidates) {
+    const abs = join(cwd, rel);
+    if (!existsSync(abs)) continue;
+    const css = readFileSync(abs, "utf8");
+    if (!/@import\s+["']tailwindcss["']/.test(css)) continue;
+    if (css.includes("@buffd/next")) {
+      console.log(c.dim(`• ${rel} already sources Buffd's styles`));
+      return;
+    }
+    // `@source` is resolved relative to the stylesheet, so walk back up to root.
+    const depth = dirname(rel).split(/[\\/]/).filter(Boolean).length;
+    const source = `${"../".repeat(depth)}${DIST_GLOB}`;
+    if (DRY) {
+      console.log(c.dim(`• would add @source "${source}" to ${rel}`));
+      return;
+    }
+    writeFileSync(
+      abs,
+      css.replace(
+        /(@import\s+["']tailwindcss["'];?)/,
+        `$1\n/* Generate the Buffd dashboard's utility classes (Tailwind skips node_modules). */\n@source "${source}";`,
+      ),
+    );
+    console.log(c.ok(`✔ Added @source "${source}" to ${rel}`));
+    return;
+  }
+
+  console.log(
+    c.warn("⚠ No Tailwind entry stylesheet found") +
+      c.dim(" — the dashboard needs Tailwind to render styled.\n") +
+      c.dim("  v4: add to your CSS →  ") +
+      `@source "<path-to>/${DIST_GLOB}";\n` +
+      c.dim("  v3: add to content →  ") +
+      `"./${DIST_GLOB}/**/*.js"`,
+  );
+}
+
+wireTailwind();
 
 // ── Next steps ───────────────────────────────────────────────────────────────
 console.log(`
