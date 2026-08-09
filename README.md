@@ -1,11 +1,11 @@
-# @buffd/next
+# @polishd/next
 
 > **What gets measured gets improved.**
 
 Drop-in **product analytics** for Next.js (App Router). Capture real user
 behavioral signals — rage clicks, dead clicks, scroll depth, JS errors, web
 vitals, component engagement — and explore them on a built-in, Vercel-style
-dashboard at `/buffd`.
+dashboard at `/polishd`.
 
 No third-party service. Events go to your own database: **SQLite in dev**
 (zero-config, built into Node), **Postgres in production**. Anonymous by design —
@@ -16,25 +16,25 @@ one httpOnly UUID cookie per session, no fingerprinting, no PII.
 ## Install
 
 ```bash
-npm install @buffd/next
+npm install @polishd/next
 npm install pg            # optional — only for Postgres in production
-npx @buffd/next init      # scaffolds the glue files below
+npx @polishd/next init      # scaffolds the glue files below
 ```
 
 `init` detects your layout (`src/` or root), writes the four files, adds
-`.buffd/` to `.gitignore`, and skips anything that already exists
+`.polishd/` to `.gitignore`, and skips anything that already exists
 (`--force` to overwrite, `--dry-run` to preview, `--config` to also emit a
-`buffd.config.ts`).
+`polishd.config.ts`).
 
 ## What gets wired up
 
 ```ts
 // src/proxy.ts        (middleware.ts on Next 15) — sets the session cookie
 import type { NextRequest } from "next/server";
-import { withBuffdSession } from "@buffd/next/proxy";
+import { withPolishdSession } from "@polishd/next/proxy";
 
 export function proxy(request: NextRequest) {
-  return withBuffdSession(request);
+  return withPolishdSession(request);
 }
 // Must be an inline literal — Next can't import config.matcher.
 export const config = {
@@ -42,29 +42,29 @@ export const config = {
 };
 
 // src/instrumentation-client.ts — starts capture before hydration
-import { initBuffd } from "@buffd/next/client";
-initBuffd();
+import { initPolishd } from "@polishd/next/client";
+initPolishd();
 
-// src/app/api/buffd/route.ts — the ingest endpoint
-import { createBuffdRoute } from "@buffd/next/route";
+// src/app/api/polishd/route.ts — the ingest endpoint
+import { createPolishdRoute } from "@polishd/next/route";
 export const runtime = "nodejs";        // must be declared here, not re-exported
 export const dynamic = "force-dynamic";
-export const POST = createBuffdRoute();
+export const POST = createPolishdRoute();
 
-// src/app/buffd/page.tsx — the dashboard (unguarded by default)
-import { createBuffdPage } from "@buffd/next/dashboard";
+// src/app/polishd/page.tsx — the dashboard (unguarded by default)
+import { createPolishdPage } from "@polishd/next/dashboard";
 export const runtime = "nodejs";       // Next requires these inline in the page
 export const dynamic = "force-dynamic";
-export default createBuffdPage();
+export default createPolishdPage();
 ```
 
 > **Route segment config can't be re-exported.** Next statically parses
 > `runtime` and `dynamic`, so `export { POST, runtime, dynamic } from
-> "@buffd/next/route"` fails the build — declare them inline as above. The same
+> "@polishd/next/route"` fails the build — declare them inline as above. The same
 > applies to the dashboard page.
 
 > **Get the matcher right.** Next statically parses `config.matcher`, so it must
-> be an inline literal in your proxy file — it can't be imported. `npx @buffd/next
+> be an inline literal in your proxy file — it can't be imported. `npx @polishd/next
 > init` writes the correct one for you. Excluding all of `/api` is load-bearing:
 > under Next 16 + Turbopack, a proxy matcher that touches any `/api/*` route
 > breaks resolution for the entire `/api` segment.
@@ -78,36 +78,36 @@ default. `init` wires this up for you; if you're doing it by hand:
 ```css
 /* Tailwind v4 — in the CSS file that imports tailwind */
 @import "tailwindcss";
-@source "../../node_modules/@buffd/next/dist";   /* relative to this file */
+@source "../../node_modules/@polishd/next/dist";   /* relative to this file */
 ```
 
 ```ts
 /* Tailwind v3 — in tailwind.config.ts */
 content: [
   "./src/**/*.{ts,tsx}",
-  "./node_modules/@buffd/next/dist/**/*.js",
+  "./node_modules/@polishd/next/dist/**/*.js",
 ],
 ```
 
-Skip this and `/buffd` renders as unstyled HTML. Tailwind v4's automatic content
+Skip this and `/polishd` renders as unstyled HTML. Tailwind v4's automatic content
 detection deliberately ignores `node_modules`, so the `@source` line is not
 optional.
 
 ## Protecting the dashboard
 
-By default `/buffd` is **public** (a dev-only console warning reminds you).
+By default `/polishd` is **public** (a dev-only console warning reminds you).
 Gate it with an `authenticate` callback, and optionally render your own sign-in
 UI when it fails:
 
 ```tsx
-import { createBuffdPage } from "@buffd/next/dashboard";
+import { createPolishdPage } from "@polishd/next/dashboard";
 import { isAuthenticated } from "@/lib/auth";
 import { MyLogin } from "./login";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default createBuffdPage({
+export default createPolishdPage({
   authenticate: isAuthenticated,        // () => boolean | Promise<boolean>
   unauthorized: <MyLogin />,            // optional; a minimal screen otherwise
 });
@@ -172,7 +172,7 @@ settings take precedence.
 ### Project profile — the one-time setup scan
 
 To make the summary understand your *code* — not just the numbers — run the
-one-time **Scan codebase** step from the card's Project profile strip. Buffd
+one-time **Scan codebase** step from the card's Project profile strip. Polishd
 reads your app's source from disk (pages and layouts first, then component
 files, under a hard token budget), and asks the model to write a compact
 profile: what the site is for, a map of its routes, and every interactive
@@ -204,26 +204,26 @@ attribution; pass `content` for articles/regions to also measure viewport time,
 scroll depth, and rendered size.
 
 ```tsx
-import { BuffdMonitor } from "@buffd/next/client";
+import { PolishdMonitor } from "@polishd/next/client";
 
-<BuffdMonitor name="listen-button">
+<PolishdMonitor name="listen-button">
   <ListenButton />
-</BuffdMonitor>
+</PolishdMonitor>
 
-<BuffdMonitor name={slug} content className="block">
+<PolishdMonitor name={slug} content className="block">
   <Article />
-</BuffdMonitor>
+</PolishdMonitor>
 ```
 
 ## Configuration
 
-Defaults suit a low-traffic site. Override via `buffd.config.ts` and pass it to
-`initBuffd`:
+Defaults suit a low-traffic site. Override via `polishd.config.ts` and pass it to
+`initPolishd`:
 
 ```ts
-// buffd.config.ts
-import { defineBuffdConfig } from "@buffd/next";
-export default defineBuffdConfig({
+// polishd.config.ts
+import { definePolishdConfig } from "@polishd/next";
+export default definePolishdConfig({
   sampleRate: 1,
   rageClick: { count: 3, windowMs: 500 },
 });
@@ -231,28 +231,28 @@ export default defineBuffdConfig({
 
 ```ts
 // src/instrumentation-client.ts
-import { initBuffd } from "@buffd/next/client";
-import config from "../buffd.config";
-initBuffd(config);
+import { initPolishd } from "@polishd/next/client";
+import config from "../polishd.config";
+initPolishd(config);
 ```
 
 ## Environment variables
 
 | Var | When | Purpose |
 |---|---|---|
-| `BUFFD_DATABASE_URL` | production | Pooled Postgres connection string — enables capture |
-| `BUFFD_DB_PATH` | dev (optional) | Custom SQLite path (default `.buffd/analytics.db`) |
-| `BUFFD_AI_PROVIDER` | AI (optional) | `anthropic` \| `openai` \| `openai-compatible` \| `google` |
-| `BUFFD_AI_MODEL` | AI (optional) | Model id (defaults per provider, e.g. `claude-opus-4-8`) |
-| `BUFFD_AI_API_KEY` | AI (optional) | Model API key — preset instead of using the dashboard |
-| `BUFFD_AI_BASE_URL` | AI (optional) | Base URL for `openai-compatible` providers |
-| `BUFFD_AI_INSTRUCTIONS` / `BUFFD_AI_CONTEXT` | AI (optional) | Default instructions / site description |
-| `BUFFD_AI_AUDIENCE` / `BUFFD_AI_IDEOLOGY` | AI (optional) | Target audience / product values for the profile scan |
-| `BUFFD_AI_SOURCE_DIRS` | AI (optional) | Comma-separated folders to scan (default `src`/`app`/`components`/`pages`/`lib`) |
-| `BUFFD_AI_REFRESH_CADENCE` | AI (optional) | `manual` \| `daily` \| `weekly` — summary auto-refresh cadence |
-| `BUFFD_GITHUB_REPO` | GitHub (optional) | Repository as `owner/repo` — enables filing bugs from AI-found losses |
-| `BUFFD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
-| `BUFFD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
+| `POLISHD_DATABASE_URL` | production | Pooled Postgres connection string — enables capture |
+| `POLISHD_DB_PATH` | dev (optional) | Custom SQLite path (default `.polishd/analytics.db`) |
+| `POLISHD_AI_PROVIDER` | AI (optional) | `anthropic` \| `openai` \| `openai-compatible` \| `google` |
+| `POLISHD_AI_MODEL` | AI (optional) | Model id (defaults per provider, e.g. `claude-opus-4-8`) |
+| `POLISHD_AI_API_KEY` | AI (optional) | Model API key — preset instead of using the dashboard |
+| `POLISHD_AI_BASE_URL` | AI (optional) | Base URL for `openai-compatible` providers |
+| `POLISHD_AI_INSTRUCTIONS` / `POLISHD_AI_CONTEXT` | AI (optional) | Default instructions / site description |
+| `POLISHD_AI_AUDIENCE` / `POLISHD_AI_IDEOLOGY` | AI (optional) | Target audience / product values for the profile scan |
+| `POLISHD_AI_SOURCE_DIRS` | AI (optional) | Comma-separated folders to scan (default `src`/`app`/`components`/`pages`/`lib`) |
+| `POLISHD_AI_REFRESH_CADENCE` | AI (optional) | `manual` \| `daily` \| `weekly` — summary auto-refresh cadence |
+| `POLISHD_GITHUB_REPO` | GitHub (optional) | Repository as `owner/repo` — enables filing bugs from AI-found losses |
+| `POLISHD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
+| `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 
 AI settings are optional — the dashboard's Settings panel configures the same
 fields, and what you save there overrides these env defaults.
@@ -265,12 +265,12 @@ See [DATABASE.md](./DATABASE.md) for production setup.
 
 | Import | Contents |
 |---|---|
-| `@buffd/next` | config, `defineBuffdConfig`, event types (isomorphic) |
-| `@buffd/next/client` | `initBuffd`, `BuffdMonitor` |
-| `@buffd/next/server` | store, ingest, queries, `withBuffdSession` (Node only) |
-| `@buffd/next/route` | `POST`, `createBuffdRoute` |
-| `@buffd/next/proxy` | `proxy`, `config`, `withBuffdSession`, `buffdMatcher` |
-| `@buffd/next/dashboard` | `createBuffdPage`, `BuffdDashboard`, `loadBuffdDashboardData` |
+| `@polishd/next` | config, `definePolishdConfig`, event types (isomorphic) |
+| `@polishd/next/client` | `initPolishd`, `PolishdMonitor` |
+| `@polishd/next/server` | store, ingest, queries, `withPolishdSession` (Node only) |
+| `@polishd/next/route` | `POST`, `createPolishdRoute` |
+| `@polishd/next/proxy` | `proxy`, `config`, `withPolishdSession`, `polishdMatcher` |
+| `@polishd/next/dashboard` | `createPolishdPage`, `PolishdDashboard`, `loadPolishdDashboardData` |
 
 ## License
 

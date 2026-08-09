@@ -1,17 +1,17 @@
 /**
- * Buffd — AI summary types (shared between server and the dashboard UI).
+ * Polishd — AI summary types (shared between server and the dashboard UI).
  *
  * The AI layer reads the captured analytics, folds in an owner-supplied
  * description of the site, and asks a model to narrate "how are people actually
  * using this — what's working and what isn't" as one short paragraph.
  *
  * Bring-your-own-key: the owner picks a provider + model and supplies an API
- * key. Keys live server-side only (in the buffd_meta store / env) and are never
+ * key. Keys live server-side only (in the polishd_meta store / env) and are never
  * sent back to the browser — the client only ever sees whether one is set.
  */
 
 /** Supported model vendors. `openai-compatible` covers OpenRouter, Groq, etc. */
-export type BuffdAIProvider = "anthropic" | "openai" | "openai-compatible" | "google";
+export type PolishdAIProvider = "anthropic" | "openai" | "openai-compatible" | "google";
 
 /**
  * How often the summary refreshes itself. Evaluated when the dashboard loads
@@ -19,11 +19,11 @@ export type BuffdAIProvider = "anthropic" | "openai" | "openai-compatible" | "go
  * data actually changed, a regenerate runs in the background after the page is
  * served. Unchanged data never costs tokens regardless of cadence.
  */
-export type BuffdRefreshCadence = "manual" | "daily" | "weekly";
+export type PolishdRefreshCadence = "manual" | "daily" | "weekly";
 
 /** The full, server-side settings — includes the secret API key. */
-export interface BuffdAISettings {
-  provider: BuffdAIProvider;
+export interface PolishdAISettings {
+  provider: PolishdAIProvider;
   /** Model id, e.g. "claude-opus-4-8", "gpt-4o-mini", "gemini-1.5-flash". */
   model: string;
   /** Secret. Server-only — never serialized to the client. */
@@ -41,7 +41,7 @@ export interface BuffdAISettings {
   /** Comma-separated source folders to scan (relative to project root). */
   sourceDirs?: string;
   /** Auto-refresh cadence for the summary. Defaults to "manual". */
-  refreshCadence?: BuffdRefreshCadence;
+  refreshCadence?: PolishdRefreshCadence;
   /** GitHub repository this site lives in, as "owner/repo". */
   githubRepo?: string;
   /** GitHub access token. Secret. Server-only — never serialized to the client. */
@@ -51,8 +51,8 @@ export interface BuffdAISettings {
 }
 
 /** Client-safe view of the settings: same shape, key replaced by a boolean. */
-export interface BuffdAISettingsPublic {
-  provider: BuffdAIProvider;
+export interface PolishdAISettingsPublic {
+  provider: PolishdAIProvider;
   model: string;
   /** True when an API key is configured (via the dashboard or env). */
   hasApiKey: boolean;
@@ -62,7 +62,7 @@ export interface BuffdAISettingsPublic {
   audience?: string;
   ideology?: string;
   sourceDirs?: string;
-  refreshCadence?: BuffdRefreshCadence;
+  refreshCadence?: PolishdRefreshCadence;
   /** GitHub repository ("owner/repo"), when connected. */
   githubRepo?: string;
   /** True when a GitHub token is configured (via the dashboard or env). */
@@ -80,10 +80,10 @@ export interface BuffdAISettingsPublic {
  * summary, so the per-summary call never needs to read source again — only an
  * explicit re-scan does.
  */
-export interface BuffdProjectProfile {
+export interface PolishdProjectProfile {
   /** The profile prose. */
   text: string;
-  provider: BuffdAIProvider;
+  provider: PolishdAIProvider;
   model: string;
   generatedAt: number;
   /** Hash of the scanned source (paths + sizes) — detects source drift. */
@@ -97,7 +97,7 @@ export interface BuffdProjectProfile {
 
 /** Result of a profile scan attempt. */
 export type GenerateProfileResult =
-  | { ok: true; profile: BuffdProjectProfile }
+  | { ok: true; profile: PolishdProjectProfile }
   | { ok: false; error: GenerateProfileError; message: string };
 
 export type GenerateProfileError = "no-key" | "no-source" | "provider-error";
@@ -109,7 +109,7 @@ export type GenerateProfileError = "no-key" | "no-source" | "provider-error";
  * hallucinations — and the server then tries to locate the cited element in
  * the codebase (`location`/`verified`).
  */
-export interface BuffdLossItem {
+export interface PolishdLossItem {
   /** The specific problem, in plain English. */
   issue: string;
   /** The identifier from the data that shows it (selector / component / path). */
@@ -124,15 +124,15 @@ export interface BuffdLossItem {
 }
 
 /** A generated narrative summary, cached in the store. */
-export interface BuffdSummary {
+export interface PolishdSummary {
   /** The paragraph(s) of narrative. */
   text: string;
   /** What's working — may be general. Absent on summaries from older versions. */
   wins?: string[];
   /** Specific, evidence-cited problems. Absent on summaries from older versions. */
-  losses?: BuffdLossItem[];
+  losses?: PolishdLossItem[];
   /** Provider + model that produced it. */
-  provider: BuffdAIProvider;
+  provider: PolishdAIProvider;
   model: string;
   /** When it was generated, ms since epoch. */
   generatedAt: number;
@@ -144,7 +144,7 @@ export interface BuffdSummary {
 
 /** Result of a generate attempt, returned to the dashboard. */
 export type GenerateSummaryResult =
-  | { ok: true; summary: BuffdSummary; regenerated: boolean }
+  | { ok: true; summary: PolishdSummary; regenerated: boolean }
   | { ok: false; error: GenerateSummaryError; message: string };
 
 export type GenerateSummaryError =
@@ -159,7 +159,7 @@ export type GenerateSummaryError =
  * checked live during onboarding. `contents` (read) powers source reading;
  * `issues` and `pullRequests` (write) power filing bugs and opening PRs.
  */
-export interface BuffdGithubStatus {
+export interface PolishdGithubStatus {
   /** The repo as GitHub reports it, e.g. "muskanvaswan/create". */
   repo: string;
   defaultBranch: string;
@@ -171,7 +171,7 @@ export interface BuffdGithubStatus {
 
 /** Result of verifying the GitHub connection. */
 export type VerifyGithubResult =
-  | { ok: true; status: BuffdGithubStatus }
+  | { ok: true; status: PolishdGithubStatus }
   | { ok: false; error: GithubError; message: string };
 
 /** Result of creating an issue from a loss item. */

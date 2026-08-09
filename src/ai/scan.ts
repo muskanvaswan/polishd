@@ -1,5 +1,5 @@
 /**
- * Buffd — host-app source scanner (server only).
+ * Polishd — host-app source scanner (server only).
  *
  * Reads the consuming app's own source from disk (`process.cwd()`) so the
  * one-time project profile can be generated from real code. This is the ONLY
@@ -32,7 +32,7 @@ export interface SourceScan {
   /** False when no recognizable source tree exists on disk. */
   available: boolean;
   files: ScannedFile[];
-  /** BuffdMonitor / data-component identifiers found in the scanned source. */
+  /** PolishdMonitor / data-component identifiers found in the scanned source. */
   identifiers: string[];
   /** Hash of every candidate file's path+size — detects source drift cheaply. */
   fingerprint: string;
@@ -48,10 +48,10 @@ const IGNORE_DIRS = new Set([
   "build",
   "out",
   "coverage",
-  ".buffd",
+  ".polishd",
   ".vercel",
   ".turbo",
-  "buffd-next", // never scan ourselves when developed in-repo
+  "polishd-next", // never scan ourselves when developed in-repo
 ]);
 
 const CODE_EXT = /\.(tsx|ts|jsx|js|mjs)$/;
@@ -127,7 +127,7 @@ function priority(relPath: string, componentNames: string[]): number {
   return 4;
 }
 
-const MONITOR_NAME = /<BuffdMonitor[^>]*\sname\s*=\s*["']([^"']+)["']/g;
+const MONITOR_NAME = /<PolishdMonitor[^>]*\sname\s*=\s*["']([^"']+)["']/g;
 const DATA_COMPONENT = /data-component\s*=\s*["']([^"']+)["']/g;
 
 function extractIdentifiers(content: string, into: Set<string>): void {
@@ -142,7 +142,7 @@ function extractIdentifiers(content: string, into: Set<string>): void {
 function clipFile(content: string): { text: string; clipped: boolean } {
   const clean = content.replace(/\r\n/g, "\n");
   if (clean.length <= PER_FILE_CHARS) return { text: clean, clipped: false };
-  return { text: `${clean.slice(0, PER_FILE_CHARS)}\n/* …clipped by Buffd scan */`, clipped: true };
+  return { text: `${clean.slice(0, PER_FILE_CHARS)}\n/* …clipped by Polishd scan */`, clipped: true };
 }
 
 /**

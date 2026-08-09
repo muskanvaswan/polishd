@@ -1,5 +1,5 @@
 /**
- * Buffd — loss → verified GitHub issue (server only).
+ * Polishd — loss → verified GitHub issue (server only).
  *
  * A loss in the summary is a claim made from analytics data. Before it becomes
  * a bug in the tracker, this module makes it earn that status:
@@ -29,10 +29,10 @@ import {
 import { loadProjectProfile } from "./profile";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
-import type { BuffdLossItem, CreateIssueResult } from "./types";
+import type { PolishdLossItem, CreateIssueResult } from "./types";
 
 /** The slice of a loss the pipeline needs. */
-type Loss = Pick<BuffdLossItem, "issue" | "evidence" | "location">;
+type Loss = Pick<PolishdLossItem, "issue" | "evidence" | "location">;
 
 // ── Issue log (dedupe) ───────────────────────────────────────────────────────
 
@@ -275,8 +275,8 @@ function issueBody(
     "",
     "---",
     inv.verdict === "confirmed"
-      ? "_Filed from the Buffd analytics dashboard — observed in real user-behavior data and confirmed against the source code._"
-      : "_Filed from the Buffd analytics dashboard — observed in real user-behavior data._",
+      ? "_Filed from the Polishd analytics dashboard — observed in real user-behavior data and confirmed against the source code._"
+      : "_Filed from the Polishd analytics dashboard — observed in real user-behavior data._",
   );
   return lines.join("\n");
 }
@@ -341,12 +341,12 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
  * Never throws; a hiccup just leaves a loss undecorated, with the manual
  * "file bug" button as the fallback.
  */
-export async function attachGithubIssues(losses: BuffdLossItem[]): Promise<BuffdLossItem[]> {
+export async function attachGithubIssues(losses: PolishdLossItem[]): Promise<PolishdLossItem[]> {
   if (losses.length === 0) return losses;
   const { settings } = await resolveSettings();
   if (!(await isGithubConnected())) return losses;
 
-  const out: BuffdLossItem[] = [];
+  const out: PolishdLossItem[] = [];
   for (const loss of losses) {
     // Re-read per loss: auto-filing above may have just written new entries.
     let entry = (await loadIssueLog())[issueKey(loss.evidence)];

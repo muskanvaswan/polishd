@@ -1,5 +1,5 @@
 /**
- * Buffd — AI summary orchestration (server only).
+ * Polishd — AI summary orchestration (server only).
  *
  * Ties the pieces together: resolve the owner's model settings, build a compact
  * digest of the analytics, fold in the cached project profile, and — only when
@@ -17,7 +17,7 @@
  *   4. The system prompt is tight and the output is capped to a paragraph.
  */
 import { getMeta, setMeta } from "../server/store";
-import { loadBuffdDashboardData, type BuffdDashboardData } from "../server/queries";
+import { loadPolishdDashboardData, type PolishdDashboardData } from "../server/queries";
 import { buildDigest, fingerprintDigest } from "./digest";
 import { attachGithubIssues } from "./issues";
 import { callModel } from "./providers";
@@ -25,9 +25,9 @@ import { coverageGaps, loadProjectProfile } from "./profile";
 import { collectTargeted, findInSource } from "./scan";
 import { resolveSettings } from "./settings";
 import type {
-  BuffdLossItem,
-  BuffdProjectProfile,
-  BuffdSummary,
+  PolishdLossItem,
+  PolishdProjectProfile,
+  PolishdSummary,
   GenerateSummaryResult,
 } from "./types";
 
@@ -41,11 +41,11 @@ export {
 const SUMMARY_KEY = "ai_summary";
 
 /** The last generated summary, or null. Read-only — never calls a model. */
-export async function loadSummary(): Promise<BuffdSummary | null> {
+export async function loadSummary(): Promise<PolishdSummary | null> {
   const raw = await getMeta(SUMMARY_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as BuffdSummary;
+    return JSON.parse(raw) as PolishdSummary;
   } catch {
     return null;
   }
@@ -125,9 +125,9 @@ function verifyLosses(
   raw: RawLoss[],
   promptText: string,
   sourceDirs: string | undefined,
-): BuffdLossItem[] {
+): PolishdLossItem[] {
   const hay = promptText.toLowerCase();
-  const out: BuffdLossItem[] = [];
+  const out: PolishdLossItem[] = [];
   for (const l of raw) {
     if (typeof l.issue !== "string" || !l.issue.trim()) continue;
     const evidence = typeof l.evidence === "string" ? l.evidence.trim() : "";
@@ -152,8 +152,8 @@ function verifyLosses(
  * marks the cached summary stale too.
  */
 function composePrompt(
-  data: BuffdDashboardData,
-  profile: BuffdProjectProfile | null,
+  data: PolishdDashboardData,
+  profile: PolishdProjectProfile | null,
   context: string | undefined,
   sourceDirs: string | undefined,
 ): { user: string; fingerprint: string } {
@@ -203,7 +203,7 @@ export async function generateSummary(
     return { ok: false, error: "no-key", message: "No API key configured." };
   }
 
-  const data = await loadBuffdDashboardData();
+  const data = await loadPolishdDashboardData();
   if (!data.overview.ready || data.overview.totalEvents === 0) {
     return {
       ok: false,
@@ -265,7 +265,7 @@ export async function generateSummary(
   const losses = await attachGithubIssues(
     verifyLosses(parsed.losses, user, settings.sourceDirs),
   );
-  const summary: BuffdSummary = {
+  const summary: PolishdSummary = {
     text: parsed.story,
     wins: parsed.wins,
     losses,
@@ -285,15 +285,15 @@ export async function generateSummary(
  * Computing this only reads the store; it never calls a model.
  */
 export async function loadSummaryState(
-  preloaded?: BuffdDashboardData,
+  preloaded?: PolishdDashboardData,
 ): Promise<{
-  summary: BuffdSummary | null;
+  summary: PolishdSummary | null;
   stale: boolean;
   currentFingerprint: string | null;
 }> {
   const [summary, data] = await Promise.all([
     loadSummary(),
-    preloaded ? Promise.resolve(preloaded) : loadBuffdDashboardData(),
+    preloaded ? Promise.resolve(preloaded) : loadPolishdDashboardData(),
   ]);
   if (!data.overview.ready || data.overview.totalEvents === 0) {
     return { summary, stale: false, currentFingerprint: null };

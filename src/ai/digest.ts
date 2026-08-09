@@ -1,5 +1,5 @@
 /**
- * Buffd — analytics digest (server only).
+ * Polishd — analytics digest (server only).
  *
  * This is the token-saving heart of the AI layer. Instead of shipping raw
  * events (thousands of rows) to a model, we pre-aggregate everything on the
@@ -12,7 +12,7 @@
  */
 import { createHash } from "node:crypto";
 
-import type { BuffdDashboardData } from "../server/queries";
+import type { PolishdDashboardData } from "../server/queries";
 
 /** Round to keep digests stable across tiny float jitter. */
 const r = (n: number | null): string => (n === null ? "—" : String(Math.round(n)));
@@ -25,7 +25,7 @@ const clip = (s: string | null | undefined, max = 40): string =>
  * Render the captured analytics as a compact, model-readable brief. Sections
  * are omitted when empty so the prompt only ever contains real signal.
  */
-export function buildDigest(data: BuffdDashboardData, context?: string): string {
+export function buildDigest(data: PolishdDashboardData, context?: string): string {
   const { overview, pages, elements, devices, topUsed, errors, monitored } = data;
   const lines: string[] = [];
 

@@ -1,12 +1,12 @@
 /**
- * Buffd — ingest (server only).
+ * Polishd — ingest (server only).
  *
  * Validates and sanitizes an inbound batch, then hands clean events to the
  * store. The session id is taken from the request's cookie, never from the
  * body, so events are always attributed to the bearer of the cookie.
  */
-import { defaultBuffdConfig } from "../config";
-import { CLIENT_EVENT_TYPES, type BuffdEvent } from "../shared/types";
+import { defaultPolishdConfig } from "../config";
+import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { insertEvents } from "./store";
 
 const MAX_EVENTS_PER_BATCH = 200;
@@ -29,18 +29,18 @@ export function sessionIdFromCookie(cookieValue: string | undefined): string | n
 }
 
 /** Validate + clamp a single raw event. Returns null to drop it. */
-function sanitize(raw: unknown): BuffdEvent | null {
+function sanitize(raw: unknown): PolishdEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const e = raw as Record<string, unknown>;
 
   const type = e.type;
-  if (typeof type !== "string" || !CLIENT_EVENT_TYPES.has(type as BuffdEvent["type"])) {
+  if (typeof type !== "string" || !CLIENT_EVENT_TYPES.has(type as PolishdEvent["type"])) {
     return null;
   }
   const ts = typeof e.ts === "number" && Number.isFinite(e.ts) ? e.ts : Date.now();
   const path = typeof e.path === "string" ? e.path.slice(0, 512) : "/";
 
-  const out: BuffdEvent = { type: type as BuffdEvent["type"], ts, path };
+  const out: PolishdEvent = { type: type as PolishdEvent["type"], ts, path };
 
   if (typeof e.selector === "string") out.selector = e.selector.slice(0, MAX_SELECTOR_LEN);
   if (typeof e.component === "string") out.component = e.component.slice(0, 80);
@@ -48,7 +48,7 @@ function sanitize(raw: unknown): BuffdEvent | null {
   if (typeof e.value === "number" && Number.isFinite(e.value)) out.value = e.value;
 
   if (e.meta && typeof e.meta === "object") {
-    const meta: NonNullable<BuffdEvent["meta"]> = {};
+    const meta: NonNullable<PolishdEvent["meta"]> = {};
     for (const [k, v] of Object.entries(e.meta as Record<string, unknown>)) {
       if (k.length > 40) continue;
       if (typeof v === "string") meta[k] = v.slice(0, 500);
@@ -66,7 +66,7 @@ export async function ingest(
 ): Promise<IngestResult> {
   const sessionId = sessionIdFromCookie(cookieValue);
   if (!sessionId) return { ok: true, stored: 0, reason: "no_session" };
-  if (!defaultBuffdConfig.enabled) return { ok: true, stored: 0, reason: "disabled" };
+  if (!defaultPolishdConfig.enabled) return { ok: true, stored: 0, reason: "disabled" };
 
   const rawEvents = (body as { events?: unknown })?.events;
   if (!Array.isArray(rawEvents)) return { ok: false, stored: 0, reason: "no_events" };
@@ -74,7 +74,7 @@ export async function ingest(
   const events = rawEvents
     .slice(0, MAX_EVENTS_PER_BATCH)
     .map(sanitize)
-    .filter((e): e is BuffdEvent => e !== null);
+    .filter((e): e is PolishdEvent => e !== null);
 
   const stored = await insertEvents(sessionId, events);
   return { ok: true, stored };

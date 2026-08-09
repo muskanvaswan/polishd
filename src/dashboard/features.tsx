@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Buffd — "Most-used features" body (client).
+ * Polishd — "Most-used features" body (client).
  *
  * Renders the most-used (highest click-volume) interactive elements, collapsed
  * to the top three by default with a "Show more" toggle to reveal the rest.

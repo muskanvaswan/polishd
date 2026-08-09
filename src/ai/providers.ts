@@ -1,16 +1,16 @@
 /**
- * Buffd — model providers (server only).
+ * Polishd — model providers (server only).
  *
  * A deliberately tiny, dependency-free abstraction over the chat endpoints of
  * the common vendors. We use raw `fetch` rather than any vendor SDK so the
  * package keeps its zero-runtime-dependency footprint and so the owner can
- * point Buffd at whichever model they already pay for.
+ * point Polishd at whichever model they already pay for.
  *
  * Each call is a single non-streaming request: one system prompt, one user
  * message, a small token cap. That's all a one-paragraph summary needs, and it
  * keeps the owner's spend to the absolute minimum.
  */
-import type { BuffdAIProvider, BuffdAISettings } from "./types";
+import type { PolishdAIProvider, PolishdAISettings } from "./types";
 
 export interface ModelReply {
   text: string;
@@ -20,7 +20,7 @@ export interface ModelReply {
 }
 
 /** Sensible default model per provider, used when none is configured. */
-export const DEFAULT_MODEL: Record<BuffdAIProvider, string> = {
+export const DEFAULT_MODEL: Record<PolishdAIProvider, string> = {
   // Anthropic's most capable model; the owner can downgrade for cost.
   anthropic: "claude-opus-4-8",
   openai: "gpt-4o-mini",
@@ -80,7 +80,7 @@ function num(v: unknown): number | undefined {
 
 // ── Anthropic Messages API ───────────────────────────────────────────────────
 async function callAnthropic(
-  s: BuffdAISettings,
+  s: PolishdAISettings,
   system: string,
   user: string,
   maxTokens: number,
@@ -117,7 +117,7 @@ async function callAnthropic(
 
 // ── OpenAI (and OpenAI-compatible) Chat Completions ──────────────────────────
 async function callOpenAI(
-  s: BuffdAISettings,
+  s: PolishdAISettings,
   system: string,
   user: string,
   maxTokens: number,
@@ -152,7 +152,7 @@ async function callOpenAI(
 
 // ── Google Gemini generateContent ────────────────────────────────────────────
 async function callGoogle(
-  s: BuffdAISettings,
+  s: PolishdAISettings,
   system: string,
   user: string,
   maxTokens: number,
@@ -188,7 +188,7 @@ async function callGoogle(
 }
 
 function dispatch(
-  settings: BuffdAISettings,
+  settings: PolishdAISettings,
   system: string,
   user: string,
   maxTokens: number,
@@ -217,7 +217,7 @@ function dispatch(
  * are returned flagged; callers must not cache them.
  */
 export async function callModel(
-  settings: BuffdAISettings,
+  settings: PolishdAISettings,
   system: string,
   user: string,
   opts: CallOptions = {},
@@ -226,7 +226,7 @@ export async function callModel(
   const reply = await dispatch(settings, system, user, maxTokens);
   if (!reply.truncated) return reply;
   console.warn(
-    `[buffd] model hit the ${maxTokens}-token output cap — retrying once at ${maxTokens * 2}`,
+    `[polishd] model hit the ${maxTokens}-token output cap — retrying once at ${maxTokens * 2}`,
   );
   return dispatch(settings, system, user, maxTokens * 2);
 }

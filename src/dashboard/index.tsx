@@ -1,15 +1,15 @@
 /**
- * @buffd/next/dashboard — the Buffd dashboard.
+ * @polishd/next/dashboard — the Polishd dashboard.
  *
- *   // src/app/buffd/page.tsx
- *   import { createBuffdPage } from "@buffd/next/dashboard";
- *   export { runtime, dynamic, metadata } from "@buffd/next/dashboard";
- *   export default createBuffdPage();            // unguarded
+ *   // src/app/polishd/page.tsx
+ *   import { createPolishdPage } from "@polishd/next/dashboard";
+ *   export { runtime, dynamic, metadata } from "@polishd/next/dashboard";
+ *   export default createPolishdPage();            // unguarded
  *
  * Protect it by passing an `authenticate` callback (and optionally your own
  * login UI via `unauthorized`):
  *
- *   export default createBuffdPage({
+ *   export default createPolishdPage({
  *     authenticate: isAuthenticated,
  *     unauthorized: <MyLogin />,
  *   });
@@ -19,18 +19,18 @@ import { after } from "next/server";
 import type { ReactNode } from "react";
 
 import {
-  loadBuffdDashboardData,
-  type BuffdDashboardData,
+  loadPolishdDashboardData,
+  type PolishdDashboardData,
   type DeviceBucket,
   type MonitoredComponent,
 } from "../server/queries";
-import { registerBuffdAuth } from "../ai/guard";
+import { registerPolishdAuth } from "../ai/guard";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import type {
-  BuffdAISettingsPublic,
-  BuffdProjectProfile,
-  BuffdSummary,
+  PolishdAISettingsPublic,
+  PolishdProjectProfile,
+  PolishdSummary,
 } from "../ai/types";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
@@ -42,7 +42,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Buffd — What gets measured gets improved",
+  title: "Polishd — What gets measured gets improved",
   robots: { index: false, follow: false },
 };
 
@@ -226,17 +226,17 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
-// `loadBuffdDashboardData` + `BuffdDashboardData` now live in server/queries so
+// `loadPolishdDashboardData` + `PolishdDashboardData` now live in server/queries so
 // the AI summary layer can share them without importing React; re-export for
 // any existing callers of this module.
-export { loadBuffdDashboardData, type BuffdDashboardData } from "../server/queries";
+export { loadPolishdDashboardData, type PolishdDashboardData } from "../server/queries";
 
 /** The AI summary card's server-loaded inputs. */
-export interface BuffdAIBundle {
-  summary: BuffdSummary | null;
-  settings: BuffdAISettingsPublic;
+export interface PolishdAIBundle {
+  summary: PolishdSummary | null;
+  settings: PolishdAISettingsPublic;
   stale: boolean;
-  profile: BuffdProjectProfile | null;
+  profile: PolishdProjectProfile | null;
   /** Analytics component identifiers the profile doesn't cover. */
   gaps: string[];
   /** Whether the source tree is on disk here (codebase scan possible). */
@@ -244,12 +244,12 @@ export interface BuffdAIBundle {
 }
 
 // ── Dashboard (presentational) ───────────────────────────────────────────────
-export function BuffdDashboard({
+export function PolishdDashboard({
   data,
   ai,
 }: {
-  data: BuffdDashboardData;
-  ai: BuffdAIBundle;
+  data: PolishdDashboardData;
+  ai: PolishdAIBundle;
 }) {
   const { overview, pages, elements, devices, topUsed, journeys, errors, monitored } = data;
 
@@ -258,7 +258,7 @@ export function BuffdDashboard({
       {/* Header */}
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
         <div>
-          <p className={label}>Buffd</p>
+          <p className={label}>Polishd</p>
           <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-white">
             What gets measured gets improved
           </h1>
@@ -282,7 +282,7 @@ export function BuffdDashboard({
       {!overview.ready && (
         <div className={`mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400`}>
           The analytics store isn't writable in this environment. Run locally or configure a
-          database — see the <span className="font-mono text-amber-300">@buffd/next</span> DATABASE.md guide.
+          database — see the <span className="font-mono text-amber-300">@polishd/next</span> DATABASE.md guide.
         </div>
       )}
 
@@ -302,7 +302,7 @@ export function BuffdDashboard({
           <Stat
             label="Sessions"
             value={overview.sessions}
-            tip="Distinct anonymous visitors, counted by the buffd_session cookie. One cookie = one session; no fingerprinting."
+            tip="Distinct anonymous visitors, counted by the polishd_session cookie. One cookie = one session; no fingerprinting."
           />
           <Stat
             label="Page views"
@@ -380,7 +380,7 @@ export function BuffdDashboard({
             Monitored components
             <InfoTip
               anchor="left"
-              text="Components explicitly wrapped in <BuffdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
+              text="Components explicitly wrapped in <PolishdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
             />
           </>
         }
@@ -389,14 +389,14 @@ export function BuffdDashboard({
           {monitored.length === 0 ? (
             <p className="px-5 py-8 text-center text-[13px] text-[#555]">
               No monitored components yet — wrap elements with{" "}
-              <code className="font-mono text-[#777]">{"<BuffdMonitor name=\"…\">"}</code> to track them here.
+              <code className="font-mono text-[#777]">{"<PolishdMonitor name=\"…\">"}</code> to track them here.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[700px]">
                 <thead>
                   <tr>
-                    <Th align="left" tip="The name prop passed to <BuffdMonitor>. Sessions and pages shown beneath.">Component</Th>
+                    <Th align="left" tip="The name prop passed to <PolishdMonitor>. Sessions and pages shown beneath.">Component</Th>
                     <Th tip="Times this region rendered (mount events). Only content-tracked monitors emit these.">Mounts</Th>
                     <Th tip="Times this component entered the viewport for ≥500ms.">Views</Th>
                     <Th tip="Average time visible per viewport visit — a proxy for reading/engagement time.">Avg time</Th>
@@ -473,7 +473,7 @@ export function BuffdDashboard({
             Interactions by element
             <InfoTip
               anchor="left"
-              text="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <BuffdMonitor> are listed separately under Monitored components."
+              text="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <PolishdMonitor> are listed separately under Monitored components."
             />
           </>
         }
@@ -527,17 +527,17 @@ export function BuffdDashboard({
 function Unauthorized() {
   return (
     <main className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center text-white">
-      <p className={label}>Buffd</p>
+      <p className={label}>Polishd</p>
       <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Unauthorized</h1>
       <p className="mt-2 text-[13px] text-[#666]">
         This dashboard is protected. Pass an <code className="font-mono">unauthorized</code> element to
-        <code className="font-mono"> createBuffdPage()</code> to render your own sign-in UI here.
+        <code className="font-mono"> createPolishdPage()</code> to render your own sign-in UI here.
       </p>
     </main>
   );
 }
 
-export interface CreateBuffdPageOptions {
+export interface CreatePolishdPageOptions {
   /**
    * Gate access to the dashboard. Return `true` to allow. If omitted the
    * dashboard renders unguarded (a dev-only console warning is logged).
@@ -551,30 +551,30 @@ let warnedUnguarded = false;
 
 /**
  * Build the dashboard page component. Use as the default export of your
- * `app/buffd/page.tsx`.
+ * `app/polishd/page.tsx`.
  */
-export function createBuffdPage(opts: CreateBuffdPageOptions = {}) {
+export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   // Register the policy at module evaluation, not per render: the AI server
   // actions are reachable without this page ever rendering, and they re-run
   // `authenticate` themselves before doing any work. See ai/guard.ts.
-  registerBuffdAuth(
+  registerPolishdAuth(
     opts.authenticate
       ? { mode: "guarded", authenticate: opts.authenticate }
       : { mode: "open" },
   );
 
-  return async function BuffdPage() {
+  return async function PolishdPage() {
     if (opts.authenticate) {
       const ok = await opts.authenticate();
       if (!ok) return <>{opts.unauthorized ?? <Unauthorized />}</>;
     } else if (!warnedUnguarded && process.env.NODE_ENV !== "production") {
       warnedUnguarded = true;
       console.warn(
-        "[buffd] dashboard is unguarded — pass `authenticate` to createBuffdPage() to protect it.",
+        "[polishd] dashboard is unguarded — pass `authenticate` to createPolishdPage() to protect it.",
       );
     }
 
-    const data = await loadBuffdDashboardData();
+    const data = await loadPolishdDashboardData();
     const [summaryState, settings, profileState] = await Promise.all([
       loadSummaryState(data),
       getAISettingsPublic(),
@@ -603,14 +603,14 @@ export function createBuffdPage(opts: CreateBuffdPageOptions = {}) {
           try {
             await generateSummary();
           } catch (err) {
-            console.warn("[buffd] scheduled summary refresh failed:", err);
+            console.warn("[polishd] scheduled summary refresh failed:", err);
           }
         });
       }
     }
 
     return (
-      <BuffdDashboard
+      <PolishdDashboard
         data={data}
         ai={{
           summary: summaryState.summary,

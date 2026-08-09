@@ -1,5 +1,5 @@
 /**
- * Buffd — project profile (server only).
+ * Polishd — project profile (server only).
  *
  * The one-time setup step: scan the host app's source, ask the model to write
  * a compact "what this project is" brief — purpose, page map, every interactive
@@ -14,28 +14,28 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import type { BuffdDashboardData } from "../server/queries";
+import type { PolishdDashboardData } from "../server/queries";
 import { getMeta, setMeta } from "../server/store";
 import { callModel } from "./providers";
 import { collectSource, type SourceScan } from "./scan";
 import { resolveSettings } from "./settings";
-import type { BuffdProjectProfile, GenerateProfileResult } from "./types";
+import type { PolishdProjectProfile, GenerateProfileResult } from "./types";
 
 const PROFILE_KEY = "project_profile";
 
 /** The cached profile, or null. Read-only — never calls a model. */
-export async function loadProjectProfile(): Promise<BuffdProjectProfile | null> {
+export async function loadProjectProfile(): Promise<PolishdProjectProfile | null> {
   const raw = await getMeta(PROFILE_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as BuffdProjectProfile;
+    return JSON.parse(raw) as PolishdProjectProfile;
   } catch {
     return null;
   }
 }
 
 /** Component identifiers the analytics currently know about. */
-export function componentIdentifiers(data: BuffdDashboardData): string[] {
+export function componentIdentifiers(data: PolishdDashboardData): string[] {
   const ids = new Set<string>();
   for (const m of data.monitored) ids.add(m.name);
   for (const t of data.topUsed) if (t.isComponent) ids.add(t.label);
@@ -49,8 +49,8 @@ export function componentIdentifiers(data: BuffdDashboardData): string[] {
  * profile prose mentions it.
  */
 export function coverageGaps(
-  data: BuffdDashboardData,
-  profile: BuffdProjectProfile | null,
+  data: PolishdDashboardData,
+  profile: PolishdProjectProfile | null,
 ): string[] {
   if (!profile) return [];
   const covered = new Set(profile.coveredIdentifiers);
@@ -67,7 +67,7 @@ const PROFILE_SYSTEM_PROMPT =
   "your ONLY code context in future analyses, so make it self-sufficient: " +
   "(1) what the site is and its purpose; (2) a map of its pages/routes and what " +
   "each is for; (3) every interactive component and tracked element — name each " +
-  "identifier exactly as it appears (BuffdMonitor names, data-component values, " +
+  "identifier exactly as it appears (PolishdMonitor names, data-component values, " +
   "notable buttons/links) and say what it does and where it lives; (4) who the " +
   "site is for and what success looks like, if stated. Plain prose with short " +
   "paragraphs; no markdown headings, no code blocks. Be dense — under 450 words.";
@@ -81,7 +81,7 @@ const PROFILE_MAX_TOKENS = 3000;
  * model — this is an explicit owner action, not something that runs on load.
  */
 export async function generateProjectProfile(
-  data?: BuffdDashboardData,
+  data?: PolishdDashboardData,
 ): Promise<GenerateProfileResult> {
   const { settings } = await resolveSettings();
   if (!settings.apiKey) {
@@ -142,7 +142,7 @@ export async function generateProjectProfile(
     };
   }
 
-  const profile: BuffdProjectProfile = {
+  const profile: PolishdProjectProfile = {
     text: reply.text,
     provider: settings.provider,
     model: settings.model,
@@ -160,8 +160,8 @@ export async function generateProjectProfile(
 }
 
 /** What the dashboard needs on first paint. Reads only — no model, no scan. */
-export async function loadProfileState(data: BuffdDashboardData): Promise<{
-  profile: BuffdProjectProfile | null;
+export async function loadProfileState(data: PolishdDashboardData): Promise<{
+  profile: PolishdProjectProfile | null;
   gaps: string[];
   /** Whether a scan could run here (source tree present on disk). */
   sourceAvailable: boolean;

@@ -1,41 +1,41 @@
 /**
- * Buffd — client capture layer.
+ * Polishd — client capture layer.
  *
  * Vanilla DOM, no framework imports, so it drops cleanly into Next's
  * `instrumentation-client.ts` (runs before hydration) and is trivially
- * extractable into `@buffd/next`. It attaches global listeners, derives
+ * extractable into `@polishd/next`. It attaches global listeners, derives
  * behavioral signals (rage/dead clicks, scroll depth, web vitals), batches
  * events, and flushes on an interval, on soft navigation, and on pagehide.
  */
-import { defaultBuffdConfig, type BuffdConfig } from "../config";
-import type { BuffdEvent } from "../shared/types";
+import { defaultPolishdConfig, type PolishdConfig } from "../config";
+import type { PolishdEvent } from "../shared/types";
 
-type InitOptions = Partial<BuffdConfig>;
+type InitOptions = Partial<PolishdConfig>;
 
 let started = false;
 
-export function initBuffd(options: InitOptions = {}): void {
+export function initPolishd(options: InitOptions = {}): void {
   // Guard: client-only, run once, respect enable flag and Do Not Track.
   if (typeof window === "undefined" || started) return;
-  const cfg: BuffdConfig = { ...defaultBuffdConfig, ...options };
+  const cfg: PolishdConfig = { ...defaultPolishdConfig, ...options };
   if (!cfg.enabled) return;
   if (navigator.doNotTrack === "1") return;
   // Per-session sampling decision, stable for the page's lifetime.
   if (cfg.sampleRate < 1 && Math.random() > cfg.sampleRate) return;
   started = true;
 
-  const queue: BuffdEvent[] = [];
+  const queue: PolishdEvent[] = [];
   let currentPath = location.pathname;
   let maxScrollPct = 0;
 
-  const push = (e: Omit<BuffdEvent, "ts" | "path"> & Partial<Pick<BuffdEvent, "ts" | "path">>) => {
-    queue.push({ ts: Date.now(), path: currentPath, ...e } as BuffdEvent);
+  const push = (e: Omit<PolishdEvent, "ts" | "path"> & Partial<Pick<PolishdEvent, "ts" | "path">>) => {
+    queue.push({ ts: Date.now(), path: currentPath, ...e } as PolishdEvent);
     if (queue.length >= cfg.maxBatchSize) flush();
   };
 
   // Expose a track function so TrackingWrapper components can emit explicit
   // events (e.g. hover) without coupling to React internals.
-  (window as Window & { __buffdTrack?: typeof push }).__buffdTrack = push;
+  (window as Window & { __polishdTrack?: typeof push }).__polishdTrack = push;
 
   // ---- transport -----------------------------------------------------------
 

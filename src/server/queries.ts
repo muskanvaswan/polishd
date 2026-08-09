@@ -1,7 +1,7 @@
 /**
- * Buffd — dashboard aggregations (server only).
+ * Polishd — dashboard aggregations (server only).
  *
- * Read-side queries over the events table. These power the `/buffd` dashboard
+ * Read-side queries over the events table. These power the `/polishd` dashboard
  * and, later, feed the Stage-2 synthesis prompt. Everything degrades to empty
  * results when the store is in no-op mode, so the dashboard always renders.
  *
@@ -10,7 +10,7 @@
  * spelled `SUM(CASE WHEN … THEN 1 ELSE 0 END)` rather than SQLite's `SUM(x = y)`.
  */
 import { parseMeta, query, storeReady } from "./store";
-import type { BuffdEventType } from "../shared/types";
+import type { PolishdEventType } from "../shared/types";
 
 export interface OverviewStats {
   ready: boolean;
@@ -304,7 +304,7 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
  * data that makes Stage 2 synthesis possible: it tells you *which UI element*
  * the issues are, not just which page.
  *
- * Explicitly monitored components (those wrapped in <BuffdMonitor>, the only
+ * Explicitly monitored components (those wrapped in <PolishdMonitor>, the only
  * source of `data-component`) are excluded here — they get their own dedicated
  * "Monitored components" section, so this table covers the rest of the UI.
  */
@@ -421,7 +421,7 @@ export async function getTopInteractions(limit = 12): Promise<TopInteraction[]> 
 
 /** One action in a reconstructed session, in the order it happened. */
 export interface JourneyStep {
-  type: BuffdEventType;
+  type: PolishdEventType;
   /** Client clock for this action, ms since epoch. */
   ts: number;
   /** Pathname the action occurred on. */
@@ -466,7 +466,7 @@ export interface SessionJourney {
 }
 
 /** Event types that are user *actions* (the flow-chart nodes). */
-const JOURNEY_ACTION_TYPES: ReadonlySet<BuffdEventType> = new Set<BuffdEventType>([
+const JOURNEY_ACTION_TYPES: ReadonlySet<PolishdEventType> = new Set<PolishdEventType>([
   "page_view",
   "click",
   "rage_click",
@@ -564,7 +564,7 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
     const steps: JourneyStep[] = [];
 
     for (const e of events) {
-      const type = e.type as BuffdEventType;
+      const type = e.type as PolishdEventType;
 
       // The viewport event isn't an action — it carries device details.
       if (type === "viewport") {
@@ -612,9 +612,9 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
   });
 }
 
-/** One explicitly-monitored component (wrapped in <BuffdMonitor>). */
+/** One explicitly-monitored component (wrapped in <PolishdMonitor>). */
 export interface MonitoredComponent {
-  /** The name passed to <BuffdMonitor name="...">. */
+  /** The name passed to <PolishdMonitor name="...">. */
   name: string;
   /** Normal clicks attributed to this component. */
   clicks: number;
@@ -646,9 +646,9 @@ export interface MonitoredComponent {
 }
 
 /**
- * Fetch all components explicitly wrapped in <BuffdMonitor>. The definitive
+ * Fetch all components explicitly wrapped in <PolishdMonitor>. The definitive
  * marker is the presence of at least one "hover", "component_view", or "mount"
- * event for that component name (all three are only emitted by BuffdMonitor).
+ * event for that component name (all three are only emitted by PolishdMonitor).
  * We then pull all event types for those components so the table shows the
  * complete picture.
  *
@@ -738,7 +738,7 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
 // ── Aggregate loader ─────────────────────────────────────────────────────────
 
 /** Everything the dashboard (and the AI summary) reads, in one shape. */
-export interface BuffdDashboardData {
+export interface PolishdDashboardData {
   overview: Awaited<ReturnType<typeof getOverview>>;
   pages: Awaited<ReturnType<typeof getTopPages>>;
   elements: Awaited<ReturnType<typeof getElementStats>>;
@@ -753,7 +753,7 @@ export interface BuffdDashboardData {
  * Fetch every dashboard query in parallel. Server-only. Lives here (not in the
  * dashboard) so the AI summary layer can reuse it without importing React.
  */
-export async function loadBuffdDashboardData(): Promise<BuffdDashboardData> {
+export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> {
   const [overview, pages, elements, devices, topUsed, journeys, errors, monitored] =
     await Promise.all([
       getOverview(),

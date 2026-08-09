@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Buffd — sampled user journeys (client).
+ * Polishd — sampled user journeys (client).
  *
  * Renders the sampled sessions as a compact, scannable list of cards. Clicking
  * a card opens a right-side drawer with the full session summary: metadata plus
@@ -287,7 +287,7 @@ function JourneyDrawer({
                   value={`${journey.pages} ${journey.pages === 1 ? "page" : "pages"}`}
                 />
                 <MetaCell
-                  label="Buffd score"
+                  label="Polishd score"
                   value={String(journey.score)}
                   tone={scoreTone(journey.score)}
                 />

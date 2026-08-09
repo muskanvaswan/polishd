@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * `npx @buffd/next init` — scaffold the glue files a Next.js app needs to wire
- * up Buffd. Node builtins only; zero runtime dependencies.
+ * `npx @polishd/next init` — scaffold the glue files a Next.js app needs to wire
+ * up Polishd. Node builtins only; zero runtime dependencies.
  *
  * Flags:
  *   --force     overwrite existing files
  *   --dry-run   print what would happen, write nothing
  *   --js        emit .js/.jsx instead of TypeScript
- *   --config    also write a starter buffd.config.ts
+ *   --config    also write a starter polishd.config.ts
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -54,9 +54,9 @@ const files = [
     merge: join(base, `middleware.${codeExt}`),
     body:
       (JS ? "" : `import type { NextRequest } from "next/server";\n`) +
-      `import { withBuffdSession } from "@buffd/next/proxy";\n\n` +
+      `import { withPolishdSession } from "@polishd/next/proxy";\n\n` +
       `export function proxy(request${JS ? "" : ": NextRequest"}) {\n` +
-      `  return withBuffdSession(request);\n` +
+      `  return withPolishdSession(request);\n` +
       `}\n\n` +
       `// Next statically parses config.matcher, so it must be an inline literal\n` +
       `// here. Excluding all of /api is required — under Next 16 + Turbopack a\n` +
@@ -67,40 +67,40 @@ const files = [
   },
   {
     path: join(base, `instrumentation-client.${codeExt}`),
-    body: `import { initBuffd } from "@buffd/next/client";\n\ninitBuffd();\n`,
+    body: `import { initPolishd } from "@polishd/next/client";\n\ninitPolishd();\n`,
   },
   {
-    path: join(appDir, "api", "buffd", `route.${codeExt}`),
+    path: join(appDir, "api", "polishd", `route.${codeExt}`),
     // runtime/dynamic must be declared here, not re-exported: Next statically
     // parses route segment config and rejects `export { runtime } from ...`
     // ("Next.js can't recognize the exported `runtime` field in route").
     body:
-      `import { createBuffdRoute } from "@buffd/next/route";\n\n` +
+      `import { createPolishdRoute } from "@polishd/next/route";\n\n` +
       `// node:sqlite / pg need the Node runtime — never the Edge runtime.\n` +
       `export const runtime = "nodejs";\n` +
       `// This route mutates per-request; it must never be statically cached.\n` +
       `export const dynamic = "force-dynamic";\n\n` +
-      `export const POST = createBuffdRoute();\n`,
+      `export const POST = createPolishdRoute();\n`,
   },
   {
-    path: join(appDir, "buffd", `page.${pageExt}`),
+    path: join(appDir, "polishd", `page.${pageExt}`),
     body:
-      `import { createBuffdPage } from "@buffd/next/dashboard";\n\n` +
+      `import { createPolishdPage } from "@polishd/next/dashboard";\n\n` +
       `// Next requires these to be declared inline in the page module.\n` +
       `export const runtime = "nodejs";\n` +
       `export const dynamic = "force-dynamic";\n\n` +
       `// Unguarded by default. To protect it, pass an authenticate callback:\n` +
-      `//   export default createBuffdPage({ authenticate: isAuthenticated });\n` +
-      `export default createBuffdPage();\n`,
+      `//   export default createPolishdPage({ authenticate: isAuthenticated });\n` +
+      `export default createPolishdPage();\n`,
   },
 ];
 
 if (WANT_CONFIG) {
   files.push({
-    path: `buffd.config.${codeExt}`,
+    path: `polishd.config.${codeExt}`,
     body:
-      `import { defineBuffdConfig } from "@buffd/next";\n\n` +
-      `export default defineBuffdConfig({\n` +
+      `import { definePolishdConfig } from "@polishd/next";\n\n` +
+      `export default definePolishdConfig({\n` +
       `  // sampleRate: 1,\n` +
       `  // rageClick: { count: 3, windowMs: 500 },\n` +
       `});\n`,
@@ -119,9 +119,9 @@ function write(file) {
     console.log(
       c.warn(`⚠ ${file.merge} exists`) +
         c.dim(" — add this to it (and keep the matcher):\n") +
-        `    import { withBuffdSession, buffdMatcher } from "@buffd/next/proxy";\n` +
-        `    // call withBuffdSession(request) in your handler;\n` +
-        `    // and merge buffdMatcher into your config.matcher`,
+        `    import { withPolishdSession, polishdMatcher } from "@polishd/next/proxy";\n` +
+        `    // call withPolishdSession(request) in your handler;\n` +
+        `    // and merge polishdMatcher into your config.matcher`,
     );
     return;
   }
@@ -140,9 +140,9 @@ for (const f of files) write(f);
 const giPath = join(cwd, ".gitignore");
 if (!DRY) {
   const gi = existsSync(giPath) ? readFileSync(giPath, "utf8") : "";
-  if (!gi.includes(".buffd")) {
-    appendFileSync(giPath, `${gi.endsWith("\n") || gi === "" ? "" : "\n"}.buffd/\n`);
-    console.log(c.ok("✔ Added .buffd/ to .gitignore"));
+  if (!gi.includes(".polishd")) {
+    appendFileSync(giPath, `${gi.endsWith("\n") || gi === "" ? "" : "\n"}.polishd/\n`);
+    console.log(c.ok("✔ Added .polishd/ to .gitignore"));
   }
 }
 
@@ -152,7 +152,7 @@ if (!DRY) {
 // Neither version finds it by default: v4's automatic content detection skips
 // node_modules, and v3 only scans the globs it is given. Without this the
 // dashboard renders completely unstyled.
-const DIST_GLOB = "node_modules/@buffd/next/dist";
+const DIST_GLOB = "node_modules/@polishd/next/dist";
 
 function wireTailwind() {
   const v3Config = ["tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs"]
@@ -181,8 +181,8 @@ function wireTailwind() {
     if (!existsSync(abs)) continue;
     const css = readFileSync(abs, "utf8");
     if (!/@import\s+["']tailwindcss["']/.test(css)) continue;
-    if (css.includes("@buffd/next")) {
-      console.log(c.dim(`• ${rel} already sources Buffd's styles`));
+    if (css.includes("@polishd/next")) {
+      console.log(c.dim(`• ${rel} already sources Polishd's styles`));
       return;
     }
     // `@source` is resolved relative to the stylesheet, so walk back up to root.
@@ -196,7 +196,7 @@ function wireTailwind() {
       abs,
       css.replace(
         /(@import\s+["']tailwindcss["'];?)/,
-        `$1\n/* Generate the Buffd dashboard's utility classes (Tailwind skips node_modules). */\n@source "${source}";`,
+        `$1\n/* Generate the Polishd dashboard's utility classes (Tailwind skips node_modules). */\n@source "${source}";`,
       ),
     );
     console.log(c.ok(`✔ Added @source "${source}" to ${rel}`));
@@ -218,7 +218,7 @@ wireTailwind();
 // ── Next steps ───────────────────────────────────────────────────────────────
 console.log(`
 ${c.bold("Next steps:")}
-  1. Local dev needs nothing — events write to ${c.dim(".buffd/analytics.db")} (SQLite).
-  2. For production, set ${c.dim("BUFFD_DATABASE_URL")} (pooled Postgres). See DATABASE.md.
-  3. Visit ${c.bold("/buffd")} to see the dashboard.
+  1. Local dev needs nothing — events write to ${c.dim(".polishd/analytics.db")} (SQLite).
+  2. For production, set ${c.dim("POLISHD_DATABASE_URL")} (pooled Postgres). See DATABASE.md.
+  3. Visit ${c.bold("/polishd")} to see the dashboard.
 ${DRY ? c.warn("\n(dry run — nothing was written)") : ""}`);

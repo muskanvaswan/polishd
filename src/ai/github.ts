@@ -1,5 +1,5 @@
 /**
- * Buffd — GitHub API client (server only).
+ * Polishd — GitHub API client (server only).
  *
  * A thin client over GitHub's REST API for the repo the owner connected during
  * onboarding. Capabilities, all scoped to that one repo: read and search source
@@ -14,7 +14,7 @@
  * (write) on the one repo is all it needs.
  */
 import { resolveSettings } from "./settings";
-import type { BuffdGithubStatus, VerifyGithubResult } from "./types";
+import type { PolishdGithubStatus, VerifyGithubResult } from "./types";
 
 const API = "https://api.github.com";
 
@@ -107,7 +107,7 @@ export async function verifyGithubConnection(): Promise<VerifyGithubResult> {
 }
 
 /** The verified connection status, or null when not connected / unreachable. */
-export async function getGithubStatus(): Promise<BuffdGithubStatus | null> {
+export async function getGithubStatus(): Promise<PolishdGithubStatus | null> {
   const res = await verifyGithubConnection();
   return res.ok ? res.status : null;
 }

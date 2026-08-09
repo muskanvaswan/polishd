@@ -1,13 +1,13 @@
-# Buffd — Database setup
+# Polishd — Database setup
 
-Buffd captures a high-frequency stream of behavioral events. In **local
+Polishd captures a high-frequency stream of behavioral events. In **local
 development** it writes them to a SQLite file with zero configuration. In
 **production** you must point it at a writable, network-accessible database,
 because most modern hosts (Vercel, Netlify, Cloudflare) run your app on a
 **read-only, ephemeral filesystem** — a local SQLite file there either fails to
 open or is wiped on every cold start.
 
-Crucially, Buffd events must **not** go through the same GitHub-commit storage
+Crucially, Polishd events must **not** go through the same GitHub-commit storage
 the notes content uses: a commit (and redeploy) per event would be catastrophic.
 Analytics needs a real database.
 
@@ -18,11 +18,11 @@ Analytics needs a real database.
 `src/server/store.ts` opens its backend lazily and picks it in this
 order:
 
-1. **`BUFFD_DATABASE_URL`** is set → use that Postgres database (production).
-2. Otherwise → use SQLite at **`BUFFD_DB_PATH`** (defaults to
-   `.buffd/analytics.db`), good for local dev.
+1. **`POLISHD_DATABASE_URL`** is set → use that Postgres database (production).
+2. Otherwise → use SQLite at **`POLISHD_DB_PATH`** (defaults to
+   `.polishd/analytics.db`), good for local dev.
 3. If neither can be opened (read-only FS, bad URL) → the store **latches to a
-   safe no-op**: capture silently drops, the `/buffd` dashboard shows a notice,
+   safe no-op**: capture silently drops, the `/polishd` dashboard shows a notice,
    and the host app is never taken down.
 
 > Both backends sit behind one async interface (`storeReady`, `insertEvents`,
@@ -44,15 +44,15 @@ order:
 npm run dev
 ```
 
-Events land in `.buffd/analytics.db` (gitignored). Inspect them directly:
+Events land in `.polishd/analytics.db` (gitignored). Inspect them directly:
 
 ```bash
 node -e "const {DatabaseSync}=require('node:sqlite'); \
-  const db=new DatabaseSync('.buffd/analytics.db'); \
+  const db=new DatabaseSync('.polishd/analytics.db'); \
   console.log(db.prepare('SELECT type, count(*) c FROM events GROUP BY type').all())"
 ```
 
-To use a custom path (e.g. a tmpfs-backed location), set `BUFFD_DB_PATH`.
+To use a custom path (e.g. a tmpfs-backed location), set `POLISHD_DB_PATH`.
 
 ---
 
@@ -69,7 +69,7 @@ serverless invocation opens its own connection.
 
    ```bash
    # Vercel: Project → Settings → Environment Variables
-   BUFFD_DATABASE_URL=postgres://user:password@ep-xxx-pooler.region.aws.neon.tech/buffd?sslmode=require
+   POLISHD_DATABASE_URL=postgres://user:password@ep-xxx-pooler.region.aws.neon.tech/polishd?sslmode=require
    ```
 
 4. Redeploy. The store creates the `events` table on first write.
@@ -99,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 
 ## Production — Option B: Turso (edge SQLite) — not yet wired up
 
-> **Not implemented.** `BUFFD_DATABASE_URL` currently selects the **Postgres**
+> **Not implemented.** `POLISHD_DATABASE_URL` currently selects the **Postgres**
 > backend only (via the `pg` driver). A `libsql://` URL will fail to connect and
 > the store will latch to no-op. The libSQL adapter is a follow-up; until then,
 > use Option A. The interface is backend-agnostic, so adding it is isolated to
@@ -109,9 +109,9 @@ If you prefer to keep SQLite semantics at the edge, the plan is to use
 [Turso](https://turso.tech) (libSQL):
 
 ```bash
-turso db create buffd
-turso db show buffd --url        # → BUFFD_DATABASE_URL (libsql://...)
-turso db tokens create buffd     # → BUFFD_DATABASE_AUTH_TOKEN
+turso db create polishd
+turso db show polishd --url        # → POLISHD_DATABASE_URL (libsql://...)
+turso db tokens create polishd     # → POLISHD_DATABASE_AUTH_TOKEN
 ```
 
 The same `events` schema applies (SQLite types, as in `store.ts`).
@@ -122,11 +122,11 @@ The same `events` schema applies (SQLite types, as in `store.ts`).
 
 | Variable                     | Required          | Purpose                                                       |
 | ---------------------------- | ----------------- | ------------------------------------------------------------- |
-| `BUFFD_DATABASE_URL`        | Production        | Postgres or libSQL connection string. Presence selects it.    |
-| `BUFFD_DATABASE_AUTH_TOKEN` | Turso only        | Auth token for the libSQL database.                           |
-| `BUFFD_DB_PATH`             | No                | Custom local SQLite path (dev). Default `.buffd/analytics.db`. |
+| `POLISHD_DATABASE_URL`        | Production        | Postgres or libSQL connection string. Presence selects it.    |
+| `POLISHD_DATABASE_AUTH_TOKEN` | Turso only        | Auth token for the libSQL database.                           |
+| `POLISHD_DB_PATH`             | No                | Custom local SQLite path (dev). Default `.polishd/analytics.db`. |
 
-No secrets ever live in `buffd.config.ts` — that file is imported by the
+No secrets ever live in `polishd.config.ts` — that file is imported by the
 browser. Connection strings and tokens are read from `process.env` on the
 server only.
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Buffd — AI summary card (client).
+ * Polishd — AI summary card (client).
  *
  * Sits at the top of the dashboard. First visit walks the owner through a
  * five-step setup (connect a model → describe the site → scan the codebase →
@@ -25,13 +25,13 @@ import {
   verifyGithubAction,
 } from "../ai/actions";
 import type {
-  BuffdAIProvider,
-  BuffdAISettingsPublic,
-  BuffdGithubStatus,
-  BuffdLossItem,
-  BuffdProjectProfile,
-  BuffdRefreshCadence,
-  BuffdSummary,
+  PolishdAIProvider,
+  PolishdAISettingsPublic,
+  PolishdGithubStatus,
+  PolishdLossItem,
+  PolishdProjectProfile,
+  PolishdRefreshCadence,
+  PolishdSummary,
 } from "../ai/types";
 
 const border = "border-[#2e2e2e]";
@@ -47,7 +47,7 @@ const iconBtn =
   "flex h-7 w-7 items-center justify-center rounded-md border border-[#2e2e2e] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
 
 const PROVIDERS: {
-  value: BuffdAIProvider;
+  value: PolishdAIProvider;
   label: string;
   modelHint: string;
   keyUrl: string;
@@ -83,7 +83,7 @@ const PROVIDERS: {
   },
 ];
 
-const CADENCES: { value: BuffdRefreshCadence; label: string; hint: string }[] = [
+const CADENCES: { value: PolishdRefreshCadence; label: string; hint: string }[] = [
   { value: "manual", label: "Manual", hint: "Only when you press refresh" },
   { value: "daily", label: "Daily", hint: "Refreshes on your first dashboard visit each day, if data changed" },
   { value: "weekly", label: "Weekly", hint: "Refreshes at most once a week, if data changed" },
@@ -140,10 +140,10 @@ function GearIcon() {
 }
 
 export interface SummaryCardProps {
-  initialSummary: BuffdSummary | null;
-  initialSettings: BuffdAISettingsPublic;
+  initialSummary: PolishdSummary | null;
+  initialSettings: PolishdAISettingsPublic;
   initialStale: boolean;
-  initialProfile: BuffdProjectProfile | null;
+  initialProfile: PolishdProjectProfile | null;
   /** Component identifiers in the analytics that the profile doesn't cover. */
   initialGaps: string[];
   /** Whether the app's source tree is on disk here (scan possible). */
@@ -158,10 +158,10 @@ export default function SummaryCard({
   initialGaps,
   sourceAvailable,
 }: SummaryCardProps) {
-  const [summary, setSummary] = useState<BuffdSummary | null>(initialSummary);
-  const [settings, setSettings] = useState<BuffdAISettingsPublic>(initialSettings);
+  const [summary, setSummary] = useState<PolishdSummary | null>(initialSummary);
+  const [settings, setSettings] = useState<PolishdAISettingsPublic>(initialSettings);
   const [stale, setStale] = useState(initialStale);
-  const [profile, setProfile] = useState<BuffdProjectProfile | null>(initialProfile);
+  const [profile, setProfile] = useState<PolishdProjectProfile | null>(initialProfile);
   const [gaps, setGaps] = useState<string[]>(initialGaps);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -333,7 +333,7 @@ export default function SummaryCard({
  * issue already exists (auto-filed, or filed on an earlier summary) render as
  * the link straight away.
  */
-function FileBugButton({ loss }: { loss: BuffdLossItem }) {
+function FileBugButton({ loss }: { loss: PolishdLossItem }) {
   const [created, setCreated] = useState<{ url: string; number: number } | null>(
     loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null,
   );
@@ -397,8 +397,8 @@ function WinsLosses({
   losses,
   githubConnected,
 }: {
-  wins: BuffdSummary["wins"];
-  losses: BuffdSummary["losses"];
+  wins: PolishdSummary["wins"];
+  losses: PolishdSummary["losses"];
   /** True when a GitHub repo + token are configured — enables "File bug". */
   githubConnected: boolean;
 }) {
@@ -508,11 +508,11 @@ function OnboardingWizard({
   onError,
   onDone,
 }: {
-  settings: BuffdAISettingsPublic;
+  settings: PolishdAISettingsPublic;
   sourceAvailable: boolean;
-  onSettings: (next: BuffdAISettingsPublic) => void;
-  onProfile: (p: BuffdProjectProfile) => void;
-  onSummary: (s: BuffdSummary) => void;
+  onSettings: (next: PolishdAISettingsPublic) => void;
+  onProfile: (p: PolishdProjectProfile) => void;
+  onSummary: (s: PolishdSummary) => void;
   /** Errors raised as the wizard closes — shown by the card, which outlives it. */
   onError: (msg: string) => void;
   onDone: () => void;
@@ -521,7 +521,7 @@ function OnboardingWizard({
   const [error, setError] = useState<string | null>(null);
 
   // Step 1 — model
-  const [provider, setProvider] = useState<BuffdAIProvider>(settings.provider);
+  const [provider, setProvider] = useState<PolishdAIProvider>(settings.provider);
   const [model, setModel] = useState(settings.model);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl ?? "");
@@ -531,14 +531,14 @@ function OnboardingWizard({
   const [ideology, setIdeology] = useState(settings.ideology ?? "");
   // Step 3 — codebase
   const [sourceDirs, setSourceDirs] = useState(settings.sourceDirs ?? "");
-  const [scanned, setScanned] = useState<BuffdProjectProfile | null>(null);
+  const [scanned, setScanned] = useState<PolishdProjectProfile | null>(null);
   // Step 4 — GitHub
   const [githubRepo, setGithubRepo] = useState(settings.githubRepo ?? "");
   const [githubToken, setGithubToken] = useState("");
-  const [githubStatus, setGithubStatus] = useState<BuffdGithubStatus | null>(null);
+  const [githubStatus, setGithubStatus] = useState<PolishdGithubStatus | null>(null);
   const [autoIssues, setAutoIssues] = useState(settings.githubAutoIssues ?? false);
   // Step 5 — cadence
-  const [cadence, setCadence] = useState<BuffdRefreshCadence>("manual");
+  const [cadence, setCadence] = useState<PolishdRefreshCadence>("manual");
 
   const [pending, startStep] = useTransition();
   const prov = PROVIDERS.find((p) => p.value === provider);
@@ -629,7 +629,7 @@ function OnboardingWizard({
               <span className={labelCls}>Provider</span>
               <select
                 value={provider}
-                onChange={(e) => setProvider(e.target.value as BuffdAIProvider)}
+                onChange={(e) => setProvider(e.target.value as PolishdAIProvider)}
                 className={`${inputCls} mt-1.5`}
               >
                 {PROVIDERS.map((p) => (
@@ -939,11 +939,11 @@ function ProfileStrip({
   onScanned,
   onError,
 }: {
-  profile: BuffdProjectProfile | null;
+  profile: PolishdProjectProfile | null;
   gaps: string[];
   hasApiKey: boolean;
   sourceAvailable: boolean;
-  onScanned: (p: BuffdProjectProfile) => void;
+  onScanned: (p: PolishdProjectProfile) => void;
   onError: (msg: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1023,10 +1023,10 @@ function SettingsPanel({
   settings,
   onSaved,
 }: {
-  settings: BuffdAISettingsPublic;
-  onSaved: (next: BuffdAISettingsPublic) => void;
+  settings: PolishdAISettingsPublic;
+  onSaved: (next: PolishdAISettingsPublic) => void;
 }) {
-  const [provider, setProvider] = useState<BuffdAIProvider>(settings.provider);
+  const [provider, setProvider] = useState<PolishdAIProvider>(settings.provider);
   const [model, setModel] = useState(settings.model);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl ?? "");
@@ -1035,7 +1035,7 @@ function SettingsPanel({
   const [audience, setAudience] = useState(settings.audience ?? "");
   const [ideology, setIdeology] = useState(settings.ideology ?? "");
   const [sourceDirs, setSourceDirs] = useState(settings.sourceDirs ?? "");
-  const [cadence, setCadence] = useState<BuffdRefreshCadence>(settings.refreshCadence ?? "manual");
+  const [cadence, setCadence] = useState<PolishdRefreshCadence>(settings.refreshCadence ?? "manual");
   const [githubRepo, setGithubRepo] = useState(settings.githubRepo ?? "");
   const [githubToken, setGithubToken] = useState("");
   const [autoIssues, setAutoIssues] = useState(settings.githubAutoIssues ?? false);
@@ -1077,7 +1077,7 @@ function SettingsPanel({
           <span className={labelCls}>Provider</span>
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value as BuffdAIProvider)}
+            onChange={(e) => setProvider(e.target.value as PolishdAIProvider)}
             className={`${inputCls} mt-1.5`}
           >
             {PROVIDERS.map((p) => (
@@ -1128,7 +1128,7 @@ function SettingsPanel({
           <span className={labelCls}>Auto-refresh</span>
           <select
             value={cadence}
-            onChange={(e) => setCadence(e.target.value as BuffdRefreshCadence)}
+            onChange={(e) => setCadence(e.target.value as PolishdRefreshCadence)}
             className={`${inputCls} mt-1.5`}
           >
             {CADENCES.map((c) => (

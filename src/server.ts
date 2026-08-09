@@ -1,5 +1,5 @@
 /**
- * @buffd/next/server — storage, ingest, and read-side queries.
+ * @polishd/next/server — storage, ingest, and read-side queries.
  *
  * Node runtime only (uses `node:sqlite` in dev, `pg` in production). Never
  * import this from a client component — it will pull database drivers into the
@@ -8,7 +8,7 @@
 export * from "./server/store";
 export * from "./server/ingest";
 export * from "./server/queries";
-export { withBuffdSession } from "./session";
+export { withPolishdSession } from "./session";
 
 // AI summary layer (server-only — calls model providers).
 export {
@@ -24,11 +24,11 @@ export {
   loadProfileState,
 } from "./ai/profile";
 export type {
-  BuffdAIProvider,
-  BuffdAISettings,
-  BuffdAISettingsPublic,
-  BuffdProjectProfile,
-  BuffdSummary,
+  PolishdAIProvider,
+  PolishdAISettings,
+  PolishdAISettingsPublic,
+  PolishdProjectProfile,
+  PolishdSummary,
   GenerateProfileResult,
   GenerateSummaryResult,
 } from "./ai/types";

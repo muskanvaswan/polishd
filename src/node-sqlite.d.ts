@@ -2,7 +2,7 @@
  * Minimal ambient types for Node's built-in `node:sqlite` module.
  *
  * Node 24 ships this module at runtime, but `@types/node@20` doesn't declare
- * it yet. This covers only the synchronous surface Buffd uses; remove once the
+ * it yet. This covers only the synchronous surface Polishd uses; remove once the
  * installed @types/node includes node:sqlite.
  */
 declare module "node:sqlite" {

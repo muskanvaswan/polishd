@@ -1,8 +1,8 @@
 /**
- * Buffd — AI settings resolution (server only).
+ * Polishd — AI settings resolution (server only).
  *
  * One place that decides "which model, with which key, and what the owner told
- * us about the site". Saved dashboard settings win over `BUFFD_AI_*` env
+ * us about the site". Saved dashboard settings win over `POLISHD_AI_*` env
  * defaults. Lives in its own module so both the summary and the project-profile
  * orchestrators can share it without importing each other.
  *
@@ -12,37 +12,37 @@
 import { getMeta, setMeta } from "../server/store";
 import { DEFAULT_MODEL } from "./providers";
 import type {
-  BuffdAIProvider,
-  BuffdAISettings,
-  BuffdAISettingsPublic,
-  BuffdRefreshCadence,
+  PolishdAIProvider,
+  PolishdAISettings,
+  PolishdAISettingsPublic,
+  PolishdRefreshCadence,
 } from "./types";
 
 const SETTINGS_KEY = "ai_settings";
 
-const VALID_PROVIDERS: BuffdAIProvider[] = [
+const VALID_PROVIDERS: PolishdAIProvider[] = [
   "anthropic",
   "openai",
   "openai-compatible",
   "google",
 ];
 
-function coerceProvider(v: unknown): BuffdAIProvider | undefined {
+function coerceProvider(v: unknown): PolishdAIProvider | undefined {
   return typeof v === "string" && (VALID_PROVIDERS as string[]).includes(v)
-    ? (v as BuffdAIProvider)
+    ? (v as PolishdAIProvider)
     : undefined;
 }
 
-const VALID_CADENCES: BuffdRefreshCadence[] = ["manual", "daily", "weekly"];
+const VALID_CADENCES: PolishdRefreshCadence[] = ["manual", "daily", "weekly"];
 
-function coerceCadence(v: unknown): BuffdRefreshCadence | undefined {
+function coerceCadence(v: unknown): PolishdRefreshCadence | undefined {
   return typeof v === "string" && (VALID_CADENCES as string[]).includes(v)
-    ? (v as BuffdRefreshCadence)
+    ? (v as PolishdRefreshCadence)
     : undefined;
 }
 
 /** Settings the owner saved via the dashboard (may be partial). */
-type SavedSettings = Partial<BuffdAISettings>;
+type SavedSettings = Partial<PolishdAISettings>;
 
 async function readSaved(): Promise<SavedSettings> {
   const raw = await getMeta(SETTINGS_KEY);
@@ -54,26 +54,49 @@ async function readSaved(): Promise<SavedSettings> {
   }
 }
 
-/** Non-secret env defaults — handy for CI / shared deploys. */
+/**
+ * Non-secret env defaults — handy for CI / shared deploys.
+ *
+ * Each key is read as `POLISHD_*` first, then the pre-rename `BUFFD_*` name, so
+ * deployments configured before the rename keep working without anyone having
+ * to touch their host's environment settings.
+ */
 function envSettings(): SavedSettings {
   const e = process.env;
+  /** POLISHD_<name>, falling back to the legacy BUFFD_<name>. */
+  const read = (name: string): string | undefined =>
+    e[`POLISHD_${name}`] || e[`BUFFD_${name}`];
   const out: SavedSettings = {};
-  const provider = coerceProvider(e.BUFFD_AI_PROVIDER);
+
+  const provider = coerceProvider(read("AI_PROVIDER"));
   if (provider) out.provider = provider;
-  if (e.BUFFD_AI_MODEL) out.model = e.BUFFD_AI_MODEL;
-  if (e.BUFFD_AI_API_KEY) out.apiKey = e.BUFFD_AI_API_KEY;
-  if (e.BUFFD_AI_BASE_URL) out.baseUrl = e.BUFFD_AI_BASE_URL;
-  if (e.BUFFD_AI_INSTRUCTIONS) out.instructions = e.BUFFD_AI_INSTRUCTIONS;
-  if (e.BUFFD_AI_CONTEXT) out.context = e.BUFFD_AI_CONTEXT;
-  if (e.BUFFD_AI_AUDIENCE) out.audience = e.BUFFD_AI_AUDIENCE;
-  if (e.BUFFD_AI_IDEOLOGY) out.ideology = e.BUFFD_AI_IDEOLOGY;
-  if (e.BUFFD_AI_SOURCE_DIRS) out.sourceDirs = e.BUFFD_AI_SOURCE_DIRS;
-  const cadence = coerceCadence(e.BUFFD_AI_REFRESH_CADENCE);
+  const cadence = coerceCadence(read("AI_REFRESH_CADENCE"));
   if (cadence) out.refreshCadence = cadence;
-  if (e.BUFFD_GITHUB_REPO) out.githubRepo = e.BUFFD_GITHUB_REPO;
-  if (e.BUFFD_GITHUB_TOKEN) out.githubToken = e.BUFFD_GITHUB_TOKEN;
-  if (e.BUFFD_GITHUB_AUTO_ISSUES)
-    out.githubAutoIssues = /^(1|true|yes)$/i.test(e.BUFFD_GITHUB_AUTO_ISSUES);
+
+  const model = read("AI_MODEL");
+  if (model) out.model = model;
+  const apiKey = read("AI_API_KEY");
+  if (apiKey) out.apiKey = apiKey;
+  const baseUrl = read("AI_BASE_URL");
+  if (baseUrl) out.baseUrl = baseUrl;
+  const instructions = read("AI_INSTRUCTIONS");
+  if (instructions) out.instructions = instructions;
+  const context = read("AI_CONTEXT");
+  if (context) out.context = context;
+  const audience = read("AI_AUDIENCE");
+  if (audience) out.audience = audience;
+  const ideology = read("AI_IDEOLOGY");
+  if (ideology) out.ideology = ideology;
+  const sourceDirs = read("AI_SOURCE_DIRS");
+  if (sourceDirs) out.sourceDirs = sourceDirs;
+
+  const githubRepo = read("GITHUB_REPO");
+  if (githubRepo) out.githubRepo = githubRepo;
+  const githubToken = read("GITHUB_TOKEN");
+  if (githubToken) out.githubToken = githubToken;
+  const autoIssues = read("GITHUB_AUTO_ISSUES");
+  if (autoIssues) out.githubAutoIssues = /^(1|true|yes)$/i.test(autoIssues);
+
   return out;
 }
 
@@ -82,7 +105,7 @@ function envSettings(): SavedSettings {
  * settings (with key) for server use, plus whether the *provider config* came
  * purely from env (so the UI can show it as a read-only default).
  */
-export async function resolveSettings(): Promise<{ settings: BuffdAISettings; fromEnv: boolean }> {
+export async function resolveSettings(): Promise<{ settings: PolishdAISettings; fromEnv: boolean }> {
   const env = envSettings();
   const saved = await readSaved();
   const merged: SavedSettings = { ...env, ...saved };
@@ -108,7 +131,7 @@ export async function resolveSettings(): Promise<{ settings: BuffdAISettings; fr
 }
 
 /** Public (no-secret) settings for the dashboard. */
-export async function getAISettingsPublic(): Promise<BuffdAISettingsPublic> {
+export async function getAISettingsPublic(): Promise<PolishdAISettingsPublic> {
   const { settings, fromEnv } = await resolveSettings();
   return {
     provider: settings.provider,
@@ -148,7 +171,7 @@ export interface SaveAISettingsInput {
 /** Persist owner settings. Returns the refreshed public view. */
 export async function saveAISettings(
   input: SaveAISettingsInput,
-): Promise<BuffdAISettingsPublic> {
+): Promise<PolishdAISettingsPublic> {
   const prev = await readSaved();
   const next: SavedSettings = { ...prev };
 

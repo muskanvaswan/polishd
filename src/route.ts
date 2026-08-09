@@ -1,16 +1,16 @@
 /**
- * @buffd/next/route — the ingest endpoint.
+ * @polishd/next/route — the ingest endpoint.
  *
  * Consumers wire this up with a one-line re-export:
  *
- *   // src/app/api/buffd/route.ts
- *   export { POST, runtime, dynamic } from "@buffd/next/route";
+ *   // src/app/api/polishd/route.ts
+ *   export { POST, runtime, dynamic } from "@polishd/next/route";
  *
- * Or build a configured handler with `createBuffdRoute({ sessionCookie })`.
+ * Or build a configured handler with `createPolishdRoute({ sessionCookie })`.
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { defaultBuffdConfig, type BuffdConfig } from "./config";
+import { defaultPolishdConfig, type PolishdConfig } from "./config";
 import { ingest } from "./server/ingest";
 
 // node:sqlite / pg need the Node runtime — never the Edge runtime.
@@ -18,8 +18,8 @@ export const runtime = "nodejs";
 // This route mutates per-request; it must never be statically cached.
 export const dynamic = "force-dynamic";
 
-export function createBuffdRoute(config: Partial<BuffdConfig> = {}) {
-  const cfg = { ...defaultBuffdConfig, ...config };
+export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
+  const cfg = { ...defaultPolishdConfig, ...config };
 
   return async function POST(req: NextRequest) {
     let body: unknown;
@@ -39,4 +39,4 @@ export function createBuffdRoute(config: Partial<BuffdConfig> = {}) {
 }
 
 /** Default handler — used by the one-line re-export. */
-export const POST = createBuffdRoute();
+export const POST = createPolishdRoute();

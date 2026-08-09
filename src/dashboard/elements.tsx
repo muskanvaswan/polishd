@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Buffd — "Interactions by element" body (client).
+ * Polishd — "Interactions by element" body (client).
  *
  * Renders the element rows for the element-issues table, collapsed to the
  * three most recently interacted-with elements by default with a "Show more"
