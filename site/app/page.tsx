@@ -1,7 +1,6 @@
 import ScrollFX from "@/components/scroll-fx";
 import SiteHeader from "@/components/site-header";
 import Hero from "@/components/sections/hero";
-import Premise from "@/components/sections/premise";
 import Loop from "@/components/sections/loop";
 import Proof from "@/components/sections/proof";
 import Frontier from "@/components/sections/frontier";
@@ -19,7 +18,6 @@ export default function Page() {
 
       <main className="relative z-2">
         <Hero />
-        <Premise />
         <Loop />
         <Proof />
         <Frontier />

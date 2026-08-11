@@ -31,8 +31,7 @@ API for the unshipped half isn't settled. Nothing claims to exist that doesn't.
 
 | Section | Does |
 |---|---|
-| `hero` | The thesis — *taste starts with finishing* |
-| `premise` | Why: cheap builds, rough edges, silent users |
+| `hero` | The thesis — *Build fast, refine relentlessly* |
 | `loop` | The centrepiece — the six-stage ring |
 | `proof` | The shipped half, as real dashboard output |
 | `frontier` | Stages 05–06, drawn dashed |
