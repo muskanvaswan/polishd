@@ -29,15 +29,19 @@ export function proxy(request: NextRequest) {
   return withPolishdSession(request);
 }
 
-export const config = { matcher: polishdMatcher };
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],
+};
 
 /**
  * Build a configured proxy — use when you need a non-default cookie name (e.g.
  * preserving a legacy `session` cookie across a migration):
  *
- *   const { proxy, matcher } = createPolishdProxy({ sessionCookie: "polish_session" });
+ *   const { proxy } = createPolishdProxy({ sessionCookie: "polish_session" });
  *   export { proxy };
- *   export const config = { matcher };
+ *   export const config = {
+ *     matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],
+ *   };
  */
 export function createPolishdProxy(config: Partial<PolishdConfig> = {}) {
   return {
