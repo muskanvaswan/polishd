@@ -10,7 +10,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { defaultPolishdConfig, type PolishdConfig } from "./config";
+import { resolveSessionCookie, type PolishdConfig } from "./config";
 import { ingest } from "./server/ingest";
 
 // node:sqlite / pg need the Node runtime — never the Edge runtime.
@@ -19,7 +19,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
-  const cfg = { ...defaultPolishdConfig, ...config };
+  // The cookie name is the only setting this handler reads, and it is resolved
+  // the same way the proxy resolves it, so a `POLISHD_SESSION_COOKIE` set once
+  // reaches both sides rather than half of them.
+  const sessionCookie = resolveSessionCookie(config.sessionCookie);
 
   return async function POST(req: NextRequest) {
     let body: unknown;
@@ -29,7 +32,7 @@ export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
       return NextResponse.json({ ok: false, reason: "bad_json" }, { status: 400 });
     }
 
-    const cookieValue = req.cookies.get(cfg.sessionCookie)?.value;
+    const cookieValue = req.cookies.get(sessionCookie)?.value;
     const result = await ingest(body, cookieValue);
 
     // Always succeed for valid requests so the beacon never retries on the
