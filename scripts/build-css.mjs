@@ -14,6 +14,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -127,24 +128,53 @@ const flattenLayersPlugin = {
   },
 };
 
+/**
+ * Locate the Tailwind CLI without assuming a directory layout.
+ *
+ * A hardcoded `node_modules/@tailwindcss/cli/dist/index.mjs` only holds for a
+ * flat npm install — pnpm and Yarn put it elsewhere — and when it is simply not
+ * installed it fails with a bare MODULE_NOT_FOUND that says nothing about what
+ * to do. Since this runs from `prepublishOnly`, that stack trace is the last
+ * thing between someone and a release.
+ *
+ * The package exports only its own package.json, so its `bin` entry is the
+ * supported way in.
+ */
+function resolveTailwindCli() {
+  const require = createRequire(join(root, "package.json"));
+  let pkgPath;
+  try {
+    pkgPath = require.resolve("@tailwindcss/cli/package.json");
+  } catch {
+    console.error(
+      "\n✗ Cannot find @tailwindcss/cli, which builds the dashboard stylesheet.\n" +
+        "  It is a devDependency, so this usually means dependencies are stale:\n\n" +
+        "      npm install\n\n" +
+        "  Then retry. (If you are publishing, `npm publish` runs this build via\n" +
+        "  prepublishOnly, so install first.)\n",
+    );
+    process.exit(1);
+  }
+  const { bin } = JSON.parse(readFileSync(pkgPath, "utf8"));
+  const rel = typeof bin === "string" ? bin : Object.values(bin ?? {})[0];
+  if (!rel) {
+    console.error("\n✗ @tailwindcss/cli is installed but exposes no bin entry.\n");
+    process.exit(1);
+  }
+  return join(dirname(pkgPath), rel);
+}
+
 mkdirSync(dirname(OUT), { recursive: true });
 
 // 1. Compile with the Tailwind CLI. `--optimize` minifies and drops unused
 //    theme variables; without it the theme block alone is ~30KB of unused
 //    custom properties.
+const cli = resolveTailwindCli();
 console.log("• compiling dashboard.css");
-execFileSync(
-  process.execPath,
-  [
-    join(root, "node_modules", "@tailwindcss", "cli", "dist", "index.mjs"),
-    "--input",
-    SRC,
-    "--output",
-    OUT,
-    "--optimize",
-  ],
-  { stdio: ["ignore", "inherit", "inherit"], cwd: root },
-);
+execFileSync(process.execPath, [cli, "--input", SRC, "--output", OUT, "--optimize"], {
+  stdio: ["ignore", "inherit", "inherit"],
+  cwd: root,
+});
 
 // 2. Scope every rule to the dashboard's subtree.
 console.log(`• scoping to ${SCOPE_CLASS} and flattening cascade layers`);
