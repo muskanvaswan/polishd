@@ -1,0 +1,148 @@
+/*
+ * Polishd — the dashboard's own stylesheet.
+ *
+ * Compiled at publish time into `dist/dashboard.css` and imported by consumers
+ * with one line. Before this existed, the dashboard was styled by *the host's*
+ * Tailwind compiler, which meant a mandatory `@source` step that failed to a
+ * completely unstyled page, a hard Tailwind dependency for an app that might
+ * not use Tailwind at all, and the host's preflight bleeding into the
+ * dashboard's markup.
+ *
+ * Two deliberate choices keep this from fighting the host app it lands in:
+ *
+ * 1. **No global preflight.** Tailwind's reset is imported as three separate
+ *    parts, and `tailwindcss/preflight.css` — the one that restyles every
+ *    element on the page — is left out. A package has no business resetting
+ *    its host's `<body>`. The scoped reset below does the same job for the
+ *    dashboard's own subtree instead.
+ *
+ * 2. **Everything is scoped to `.polishd-root`** by the build step, so a host
+ *    class named `hidden`, `container` or `grid` cannot collide with ours in
+ *    either direction. See scripts/build-css.mjs.
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Scan the compiled dashboard for the utilities it actually uses. */
+@source "../../dist/dashboard";
+@source "../../src/dashboard";
+
+/*
+ * A scoped stand-in for Tailwind's preflight.
+ *
+ * Only what the dashboard's own markup relies on, applied only inside the
+ * dashboard: box-sizing, zeroed margins, inherited typography, and unstyled
+ * headings/lists/buttons. Deliberately not `*, ::before, ::after { margin: 0 }`
+ * at the document level, which is what a global preflight would do to the host.
+ */
+@layer base {
+  .polishd-root {
+    /* Set explicitly rather than inherited. Inheriting sounds friendlier, but
+       a global preflight is what normally puts a sans stack on `html`, and
+       this file deliberately ships without one — so in a host that never sets
+       a font, inheriting lands on the browser default and the whole dashboard
+       renders in serif. Naming the stack is what makes it look the same in
+       every host, which is the point of shipping the stylesheet at all. */
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    color: #fff;
+  }
+
+  .polishd-root *,
+  .polishd-root *::before,
+  .polishd-root *::after {
+    box-sizing: border-box;
+    border: 0 solid;
+  }
+
+  .polishd-root h1,
+  .polishd-root h2,
+  .polishd-root h3,
+  .polishd-root h4,
+  .polishd-root p,
+  .polishd-root figure,
+  .polishd-root blockquote,
+  .polishd-root dl,
+  .polishd-root dd,
+  .polishd-root pre {
+    margin: 0;
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  .polishd-root ol,
+  .polishd-root ul,
+  .polishd-root menu {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .polishd-root table {
+    border-collapse: collapse;
+    border-color: inherit;
+    text-indent: 0;
+  }
+
+  .polishd-root button,
+  .polishd-root input,
+  .polishd-root select,
+  .polishd-root textarea {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    border-radius: 0;
+  }
+
+  .polishd-root button {
+    cursor: pointer;
+    -webkit-appearance: button;
+    appearance: button;
+  }
+
+  .polishd-root button:disabled {
+    cursor: default;
+  }
+
+  .polishd-root :is(input, textarea)::placeholder {
+    opacity: 1;
+    color: color-mix(in oklab, currentColor 50%, transparent);
+  }
+
+  .polishd-root :is(img, svg, video, canvas) {
+    display: block;
+    vertical-align: middle;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .polishd-root a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  .polishd-root code,
+  .polishd-root pre {
+    font-family:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    font-size: 1em;
+  }
+
+  .polishd-root hr {
+    height: 0;
+    color: inherit;
+    border-top-width: 1px;
+  }
+}

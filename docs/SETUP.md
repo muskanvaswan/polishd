@@ -15,8 +15,6 @@ instead.
 - **Node 22.5 or later.** The development store uses Node's built-in
   `node:sqlite`. On older Node, Polishd degrades to a no-op rather than
   crashing, but you won't capture anything locally.
-- **Tailwind CSS** (v3 or v4) if you want the dashboard styled. See
-  [Styling](#4-styling) — this step is easy to miss.
 - **Postgres** for production. Not needed for local development.
 
 ## 1. Install
@@ -36,7 +34,7 @@ npx @polishd/next init
 
 This detects whether your app uses `src/` or the repo root, detects your
 installed Next major so the proxy file gets the right name, writes four files,
-adds `.polishd/` to `.gitignore`, and wires Tailwind. Useful flags:
+and adds `.polishd/` to `.gitignore`. Useful flags:
 
 | Flag | Effect |
 |---|---|
@@ -193,6 +191,7 @@ export const POST = createPolishdRoute();
 ### `src/app/polishd/page.tsx` — the dashboard
 
 ```tsx
+import "@polishd/next/dashboard.css";
 import { createPolishdPage } from "@polishd/next/dashboard";
 
 export const runtime = "nodejs";
@@ -241,34 +240,52 @@ reload. Reach for it only for a host with genuinely hostile global CSS.
 
 ## 4. Styling
 
-The dashboard is built entirely from Tailwind utility classes and ships no
-stylesheet of its own. Tailwind has to be told to scan the package — it will not
-find it by default. Miss this and `/polishd` loads fine but renders as unstyled
-HTML.
+The dashboard ships its own stylesheet, compiled at publish time. One import,
+which `init` writes for you:
 
-**Tailwind v4** (no config file; your CSS starts with `@import "tailwindcss"`):
-
-```css
-@import "tailwindcss";
-@source "../../node_modules/@polishd/next/dist";
+```tsx
+// app/polishd/page.tsx
+import "@polishd/next/dashboard.css";
 ```
 
-The path is relative to the stylesheet. From `src/app/globals.css` that's
-`../../`. v4's automatic content detection deliberately skips `node_modules`, so
-this line is not optional.
+**Tailwind is not required in your app.** The dashboard renders identically
+whether or not you use it, and whichever version you use.
 
-**Tailwind v3** — add the glob to `content` in `tailwind.config.ts`:
+The stylesheet is built so it cannot interfere with the app it lands in, and so
+the app cannot interfere with it:
 
-```ts
-content: [
-  "./src/**/*.{ts,tsx}",
-  "./node_modules/@polishd/next/dist/**/*.js",
-],
-```
+- **No global preflight.** Tailwind's reset is the part that restyles every
+  element on a page, and it is deliberately left out. A scoped equivalent covers
+  the dashboard's own subtree instead, so your headings, lists, buttons and form
+  controls are untouched.
+- **Every rule is scoped to `.polishd-root`**, checked at build time — no
+  selector in the file can match your markup.
+- **The scope is written twice** (`.polishd-root.polishd-root`) so the dashboard
+  wins specificity ties. Tailwind class names are a global namespace: a host with
+  its own `.flex` or `.hidden` would otherwise style the dashboard's markup, and
+  which one won would depend on stylesheet order.
+- **No cascade layers.** Unlayered CSS beats layered CSS outright regardless of
+  specificity, so a plain `h1 { color: … }` in your app would override the
+  dashboard's typography if its utilities stayed in `@layer utilities`.
+- **An explicit font stack**, rather than inheriting yours — with no global
+  preflight, inheriting would land on the browser default and render the whole
+  dashboard in serif.
 
-**Not using Tailwind?** Everything works, but the dashboard will be unstyled.
-The colors are self-contained (no dependency on your theme), so adding Tailwind
-purely for the dashboard is a reasonable option if you want it to look right.
+The one thing it cannot win is a host `!important` rule targeting the same
+property. Nothing short of `!important` on our side would, and a package
+shouting over its host is worse than a rare collision. If you hit one, the
+route-group layout in [The dashboard's own shell](#the-dashboards-own-shell)
+isolates the dashboard completely.
+
+### Upgrading from 0.1.x
+
+The `@source "…/node_modules/@polishd/next/dist"` line in your Tailwind entry
+stylesheet (or the `content` glob in `tailwind.config.*`) is now obsolete. It
+still works, so nothing breaks — but you can delete it and stop compiling
+utilities you no longer use. `npx @polishd/next doctor` flags it if it finds one.
+
+Add the stylesheet import to your dashboard page; that is the only required
+change.
 
 ## 5. Protecting the dashboard
 
@@ -379,7 +396,7 @@ npx @polishd/next doctor --url http://localhost:3000
 
 It catches the failures that produce no error: a proxy named for the wrong Next
 major, `config.matcher` that isn't an inline literal, route segment config
-re-exported rather than declared, Tailwind not scanning the package, and events
+re-exported rather than declared, the dashboard stylesheet not imported, and events
 being dropped for want of a session cookie.
 
 By hand:
@@ -514,7 +531,7 @@ this should be handled; if it persists, an ancestor with `transform`, `filter`,
 Your proxy matcher is matching `/api`. Restore the `(?!api|...)` exclusion.
 
 **The dashboard is unstyled**
-Tailwind isn't scanning the package. See [Styling](#4-styling).
+The page is missing `import "@polishd/next/dashboard.css";`. See [Styling](#4-styling).
 
 **`ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`**
 Node is older than 22.5. Upgrade, or configure Postgres.

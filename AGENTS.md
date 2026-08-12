@@ -18,7 +18,6 @@ Read these from the target app before changing anything.
 | Next.js App Router | an `app/` or `src/app/` directory exists | Stop. Polishd has no Pages Router support. |
 | Next.js ≥ 15 | `next` version in `package.json` | Stop and report. |
 | Node ≥ 22.5 | `node -v`, plus `engines`/`.nvmrc`/host setting | Capture silently no-ops on older Node. Warn the user and continue only if they accept that. |
-| Tailwind CSS | `tailwindcss` in dependencies | The dashboard renders unstyled. See Phase 4. |
 | Package manager | lockfile name | Use it consistently; don't mix. |
 
 Record two facts you will need throughout:
@@ -44,8 +43,8 @@ Postgres URL is configured. No separate install is needed.
 
 ## Phase 3 — Scaffold
 
-Prefer the CLI. It detects `BASE` and `NEXT_MAJOR` itself and wires Tailwind
-(Phase 4), so you do not have to branch on them:
+Prefer the CLI. It detects `BASE` and `NEXT_MAJOR` itself, so you do not have
+to branch on them:
 
 ```bash
 npx @polishd/next init
@@ -55,7 +54,7 @@ Flags: `--dry-run` (preview), `--force` (regenerate files the CLI itself wrote,
 backing each up to `.bak` first), `--js` (JavaScript output), `--config` (also
 emit `polishd.config.ts`).
 
-It writes four files, appends `.polishd/` to `.gitignore`, and wires Tailwind.
+It writes four files and appends `.polishd/` to `.gitignore`.
 It names the proxy file for the detected Next major and reports which it chose;
 if it could not determine the version it says so — check that against Phase 1
 and rename by hand if it guessed wrong.
@@ -108,6 +107,7 @@ export const POST = createPolishdRoute();
 **4. `{BASE}/app/polishd/page.tsx`** — the dashboard.
 
 ```tsx
+import "@polishd/next/dashboard.css";
 import { createPolishdPage } from "@polishd/next/dashboard";
 
 export const runtime = "nodejs";
@@ -153,29 +153,22 @@ must be named `middleware`.
 `matcher` accepts Next's matcher strings or a `RegExp`. The union literal itself
 must still be written by hand — Next statically parses it (Invariant 1).
 
-## Phase 4 — Wire Tailwind
+## Phase 4 — Styling
 
-The dashboard is built from Tailwind utility classes and ships **no stylesheet**.
-Tailwind will not find it on its own — v4's content detection deliberately
-ignores `node_modules`, and v3 only scans the globs you give it. Skipping this
-step produces a dashboard that returns HTTP 200 and is completely unstyled.
+One import in the dashboard page, which the CLI writes for you:
 
-**Tailwind v4** (no `tailwind.config.*`; CSS has `@import "tailwindcss"`) — add
-to that CSS file, with the path relative to the file itself:
-
-```css
-@import "tailwindcss";
-@source "../../node_modules/@polishd/next/dist";
+```tsx
+import "@polishd/next/dashboard.css";
 ```
 
-**Tailwind v3** — add to `content` in `tailwind.config.*`:
+The stylesheet is compiled at publish time and self-contained. **Do not add
+Tailwind to the app, and do not add an `@source` line** — neither is needed, and
+the host's Tailwind version is irrelevant to how the dashboard renders.
 
-```ts
-content: ["./src/**/*.{ts,tsx}", "./node_modules/@polishd/next/dist/**/*.js"],
-```
-
-**No Tailwind** — tell the user the dashboard will be unstyled. Do not add
-Tailwind to their app to fix this unless they ask.
+It carries no global preflight and every rule is scoped to `.polishd-root`, so
+it cannot restyle the host app. If you find a leftover
+`@source ".../@polishd/next/dist"` from an older install, it is harmless but
+obsolete — remove it.
 
 ## Phase 5 — Invariants
 
@@ -277,7 +270,7 @@ npx @polishd/next doctor
 It verifies the proxy is named and exported for the detected Next major, that
 `config.matcher` is an inline literal excluding `/api`, that `runtime` and
 `dynamic` are declared rather than re-exported, that capture and ingest exist,
-that Tailwind scans the package, and the access posture. Fix everything it
+that the dashboard stylesheet is imported, and the access posture. Fix everything it
 reports before continuing.
 
 With the app running, add live checks — this is the only way to confirm the
@@ -312,7 +305,7 @@ curl -s -X POST http://localhost:3000/api/polishd \
 #    expect: {"ok":true,"stored":1}
 
 # 6. Styling is present — the stylesheet must contain dashboard utilities.
-#    Fetch the dashboard's CSS chunk and grep for `tabular-nums`.
+#    The dashboard page must import "@polishd/next/dashboard.css".
 ```
 
 In development the store writes `.polishd/analytics.db` (SQLite). Its presence
@@ -348,7 +341,7 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 |---|---|---|
 | *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline (Phase 3b) |
 | Every `/api/*` route 404s | Proxy matcher matches `/api` | Restore the `api` exclusion in the matcher |
-| Dashboard renders unstyled | Tailwind isn't scanning `dist` | Phase 4 |
+| Dashboard renders unstyled | `@polishd/next/dashboard.css` not imported in the page | Phase 4 |
 | Dashboard is empty, warning about the store | No writable backend | Set `POLISHD_DATABASE_URL`, or check Node ≥ 22.5 in dev |
 | Dashboard shows *"no session cookie — your proxy isn't running"* | Proxy missing, misnamed for the Next major, matcher not covering the path, or a botched merge | Phase 3c and `doctor --url` |
 | Beacons return 200 but nothing is stored | Same as above — ingest answers `{ok:true,stored:0,reason:"no_session"}` so the client cannot see a failure | `doctor --url http://localhost:3000` |

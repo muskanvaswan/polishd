@@ -35,8 +35,8 @@ Finish by running `npx @polishd/next doctor` and fixing everything it reports.
 
 `npx @polishd/next doctor` is the ground truth: it checks the wiring that fails
 quietly — the proxy named for the wrong Next major, route segment config
-re-exported instead of declared, a matcher that isn't an inline literal,
-Tailwind not scanning the package. Add `--url http://localhost:3000` to also
+re-exported instead of declared, a matcher that isn't an inline literal, the
+dashboard stylesheet not imported. Add `--url http://localhost:3000` to also
 verify live that the session cookie is minted and events actually store.
 
 ## Documentation
@@ -51,7 +51,6 @@ verify live that the session cookie is minted and events actually store.
 
 - Next.js **15+**, App Router (no Pages Router support)
 - Node **22.5+** (the dev store uses the built-in `node:sqlite`)
-- Tailwind CSS v3 or v4, if you want the dashboard styled — see [Styling](#styling-required)
 - Postgres in production; nothing extra for local development
 
 ## Quickstart
@@ -69,7 +68,7 @@ npx @polishd/next doctor     # confirm the wiring
 That's it locally — events write to `.polishd/analytics.db` with no
 configuration. `init` detects your layout (`src/` or root), detects your
 installed Next major to name the proxy file correctly, writes the four files
-below, adds `.polishd/` to `.gitignore`, and wires Tailwind.
+below, and adds `.polishd/` to `.gitignore`.
 
 Files it already wrote are skipped unless you pass `--force`, which backs them
 up to `.bak` first. **Files it did not write are never overwritten**, with or
@@ -106,6 +105,7 @@ export const dynamic = "force-dynamic";
 export const POST = createPolishdRoute();
 
 // src/app/polishd/page.tsx — the dashboard
+import "@polishd/next/dashboard.css";   // self-contained; no Tailwind needed
 import { createPolishdPage } from "@polishd/next/dashboard";
 export const runtime = "nodejs";       // Next requires these inline in the page
 export const dynamic = "force-dynamic";
@@ -168,29 +168,42 @@ Widening the matcher is safe from Polishd's side: `withPolishdSession` returns
 early once the cookie is present, so the extra paths cost a cookie lookup and
 nothing else.
 
-## Styling (required)
+## Styling
 
-The dashboard is built from Tailwind utility classes and ships **no stylesheet
-of its own**, so Tailwind has to scan the package's `dist` — it won't find it by
-default. `init` wires this up for you; if you're doing it by hand:
+The dashboard ships its own stylesheet. One import, no configuration:
 
-```css
-/* Tailwind v4 — in the CSS file that imports tailwind */
-@import "tailwindcss";
-@source "../../node_modules/@polishd/next/dist";   /* relative to this file */
+```tsx
+// app/polishd/page.tsx — `init` writes this for you
+import "@polishd/next/dashboard.css";
 ```
 
-```ts
-/* Tailwind v3 — in tailwind.config.ts */
-content: [
-  "./src/**/*.{ts,tsx}",
-  "./node_modules/@polishd/next/dist/**/*.js",
-],
-```
+**Tailwind is not required in your app.** The stylesheet is compiled at publish
+time, so it doesn't depend on your build setup, your Tailwind version, or
+whether you use Tailwind at all.
 
-Skip this and `/polishd` renders as unstyled HTML. Tailwind v4's automatic content
-detection deliberately ignores `node_modules`, so the `@source` line is not
-optional.
+It is built not to interfere with the app it lands in:
+
+- **No global preflight.** Tailwind's reset is what would restyle every element
+  on your page; it's left out. A scoped equivalent applies to the dashboard's
+  own subtree instead, so your headings, lists and buttons are untouched.
+- **Every rule is scoped to `.polishd-root`**, verified at build time — nothing
+  in the file can match your markup.
+- **The scope is doubled (`.polishd-root.polishd-root`)** so the dashboard wins
+  specificity ties against a host that happens to have its own `.flex`,
+  `.hidden` or `.container`, rather than the winner depending on stylesheet
+  order.
+- **No cascade layers**, because unlayered host CSS beats layered CSS outright —
+  a plain `h1 { color: … }` in your app would otherwise override the dashboard's
+  own typography.
+
+The one thing it can't win is a host `!important` rule aimed at the same
+property. Nothing short of `!important` on our side would, and a package
+shouting over its host is worse than a rare collision.
+
+> **Upgrading from 0.1.x?** The `@source "…/@polishd/next/dist"` line in your
+> Tailwind config is now obsolete. It still works, so nothing breaks — but you
+> can delete it and stop compiling utilities you don't use. `polishd doctor`
+> points this out if it finds one.
 
 ## Protecting the dashboard
 
@@ -435,7 +448,7 @@ Run `npx @polishd/next doctor` first — it catches most of these by name, and
 | Dashboard empty, beacons all return 200 | The proxy isn't running, so no session cookie is minted and ingest drops every batch | Check the file is named for your Next major — `proxy.ts` on 16+, `middleware.ts` on 15 — and exports a function of the same name. The dashboard shows a banner when it detects this |
 | Every `/api/*` route 404s | The proxy matcher touches `/api` | Restore the `(?!api…)` exclusion. Under Next 16 + Turbopack this breaks the whole `/api` segment |
 | Build fails: *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline in the module |
-| Dashboard renders unstyled | Tailwind isn't scanning `dist` | See [Styling](#styling-required) |
+| Dashboard renders unstyled | `@polishd/next/dashboard.css` isn't imported | See [Styling](#styling) |
 | Dashboard content cut off below the fold | A host `body` that doesn't scroll | Fixed by default; if an ancestor sets `transform`/`filter`/`contain`, pass `shell: false` and see [docs/SETUP.md](./docs/SETUP.md) |
 | `ExperimentalWarning: SQLite is an experimental feature` | Node's built-in `node:sqlite` | **Expected and harmless.** Node prints this for its own SQLite module on 22.x. Not a sign the package is unstable, and it disappears in production where Postgres is used |
 | `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` | Node < 22.5 | Upgrade Node, or configure Postgres |

@@ -618,6 +618,21 @@ function PolishdShell({ children }: { children: ReactNode }) {
 }
 
 /**
+ * The scope root for the shipped stylesheet.
+ *
+ * `dist/dashboard.css` scopes every rule to `.polishd-root`, so nothing in it
+ * can reach the host app's markup. This element deliberately carries no utility
+ * classes of its own: keeping it a bare wrapper is what makes plain descendant
+ * scoping complete, and halves the size of the generated selectors.
+ *
+ * Rendered whether or not the shell is used, since the stylesheet is scoped
+ * either way.
+ */
+function PolishdRoot({ children }: { children: ReactNode }) {
+  return <div className="polishd-root">{children}</div>;
+}
+
+/**
  * Props Next passes to a page. Only `searchParams` is used — the unlock form
  * reports failures through the URL so the whole flow stays server-rendered,
  * with no client component and no token in the query string.
@@ -804,8 +819,11 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
   // Applied to the unauthorized screen as well: a sign-in prompt stranded
   // below a non-scrolling fold is the same bug with higher stakes.
-  const wrap = (node: ReactNode) =>
-    opts.shell === false ? <>{node}</> : <PolishdShell>{node}</PolishdShell>;
+  const wrap = (node: ReactNode) => (
+    <PolishdRoot>
+      {opts.shell === false ? node : <PolishdShell>{node}</PolishdShell>}
+    </PolishdRoot>
+  );
 
   // Whether the *package* is supplying the gate, which is what decides between
   // the unlock form and the "wire up your own UI" placeholder.

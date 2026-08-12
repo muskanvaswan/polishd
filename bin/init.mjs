@@ -13,7 +13,6 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } fr
 import { dirname, join } from "node:path";
 
 import {
-  DIST_GLOB,
   c,
   detectLayout,
   detectNextMajor,
@@ -134,6 +133,10 @@ export function runInit(argv, cwd) {
     {
       path: join(appDir, "polishd", `page.${pageExt}`),
       body:
+        `// The dashboard's own stylesheet. Self-contained and scoped to\n` +
+        `// .polishd-root, so it needs no Tailwind in this app and cannot\n` +
+        `// affect anything outside the dashboard.\n` +
+        `import "@polishd/next/dashboard.css";\n` +
         `import { createPolishdPage } from "@polishd/next/dashboard";\n\n` +
         `// Next requires these to be declared inline in the page module.\n` +
         `export const runtime = "nodejs";\n` +
@@ -235,8 +238,6 @@ export function runInit(argv, cwd) {
     }
   }
 
-  wireTailwind(cwd, DRY);
-
   console.log(`
 ${c.bold("Next steps:")}
   1. Local dev needs nothing — events write to ${c.dim(".polishd/analytics.db")} (SQLite).
@@ -247,69 +248,4 @@ ${c.bold("Next steps:")}
 ${DRY ? c.warn("\n(dry run — nothing was written)") : ""}`);
 
   return 0;
-}
-
-// ── Tailwind ─────────────────────────────────────────────────────────────────
-// The dashboard is styled entirely with Tailwind utility classes and ships no
-// stylesheet of its own, so Tailwind has to be told to scan the package's dist.
-// Neither version finds it by default: v4's automatic content detection skips
-// node_modules, and v3 only scans the globs it is given. Without this the
-// dashboard renders completely unstyled.
-function wireTailwind(cwd, DRY) {
-  const v3Config = ["tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs"]
-    .map((f) => join(cwd, f))
-    .find((f) => existsSync(f));
-
-  if (v3Config) {
-    console.log(
-      c.warn(`⚠ Tailwind v3 config detected`) +
-        c.dim(" — add this to its `content` array:\n") +
-        `    "./${DIST_GLOB}/**/*.js"`,
-    );
-    return;
-  }
-
-  // Tailwind v4: find the entry stylesheet that imports tailwind.
-  const cssCandidates = [
-    join("src", "app", "globals.css"),
-    join("app", "globals.css"),
-    join("src", "styles", "globals.css"),
-    join("styles", "globals.css"),
-    join("src", "app", "global.css"),
-  ];
-  for (const rel of cssCandidates) {
-    const abs = join(cwd, rel);
-    const css = readText(abs);
-    if (css === null) continue;
-    if (!/@import\s+["']tailwindcss["']/.test(css)) continue;
-    if (css.includes("@polishd/next")) {
-      console.log(c.dim(`• ${rel} already sources Polishd's styles`));
-      return;
-    }
-    // `@source` is resolved relative to the stylesheet, so walk back up to root.
-    const depth = dirname(rel).split(/[\\/]/).filter(Boolean).length;
-    const source = `${"../".repeat(depth)}${DIST_GLOB}`;
-    if (DRY) {
-      console.log(c.dim(`• would add @source "${source}" to ${rel}`));
-      return;
-    }
-    writeFileSync(
-      abs,
-      css.replace(
-        /(@import\s+["']tailwindcss["'];?)/,
-        `$1\n/* Generate the Polishd dashboard's utility classes (Tailwind skips node_modules). */\n@source "${source}";`,
-      ),
-    );
-    console.log(c.ok(`✔ Added @source "${source}" to ${rel}`));
-    return;
-  }
-
-  console.log(
-    c.warn("⚠ No Tailwind entry stylesheet found") +
-      c.dim(" — the dashboard needs Tailwind to render styled.\n") +
-      c.dim("  v4: add to your CSS →  ") +
-      `@source "<path-to>/${DIST_GLOB}";\n` +
-      c.dim("  v3: add to content →  ") +
-      `"./${DIST_GLOB}/**/*.js"`,
-  );
 }

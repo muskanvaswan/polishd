@@ -193,29 +193,36 @@ export async function runDoctor(argv, cwd) {
   }
 
   // ── Styling ────────────────────────────────────────────────────────────────
-  const v3Config = ["tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs"]
-    .map((f) => join(cwd, f))
-    .find((f) => existsSync(f));
-  const cssCandidates = [
+  if (pageSrc && /@polishd\/next\/dashboard\.css/.test(pageSrc)) {
+    add(PASS, "Dashboard stylesheet is imported", "the dashboard will render styled");
+  } else if (pageSrc) {
+    add(
+      WARN,
+      "Dashboard stylesheet is not imported",
+      `The dashboard renders as unstyled HTML. Add \`import "@polishd/next/dashboard.css";\` to ` +
+        `${pagePath}. The stylesheet is self-contained and scoped to .polishd-root, so it needs ` +
+        "no Tailwind in this app and cannot affect anything outside the dashboard.",
+    );
+  }
+
+  // A leftover @source from a pre-stylesheet install still works, but it makes
+  // the host recompile utilities it no longer needs.
+  const legacySources = [
+    "tailwind.config.ts",
+    "tailwind.config.js",
+    "tailwind.config.mjs",
     join("src", "app", "globals.css"),
     join("app", "globals.css"),
     join("src", "styles", "globals.css"),
     join("styles", "globals.css"),
-    join("src", "app", "global.css"),
-  ];
-  const cssFile = cssCandidates.find((rel) => existsSync(join(cwd, rel)));
-  const cssSrc = cssFile ? readText(join(cwd, cssFile)) : null;
+  ].filter((rel) => readText(join(cwd, rel))?.includes(DIST_GLOB));
 
-  if (v3Config && readText(v3Config)?.includes("@polishd/next")) {
-    add(PASS, "Tailwind v3 scans the Polishd dist", "the dashboard will render styled");
-  } else if (cssSrc?.includes("@polishd/next")) {
-    add(PASS, `${cssFile} sources the Polishd dist`, "the dashboard will render styled");
-  } else {
+  if (legacySources.length > 0) {
     add(
       WARN,
-      "Tailwind is not scanning the Polishd dist",
-      `The dashboard renders as unstyled HTML. v4: add \`@source "<path>/${DIST_GLOB}";\` to your ` +
-        `Tailwind entry stylesheet. v3: add "./${DIST_GLOB}/**/*.js" to \`content\`.`,
+      `Obsolete Tailwind wiring in ${legacySources.join(", ")}`,
+      `Polishd now ships its own stylesheet, so scanning ${DIST_GLOB} is no longer needed. ` +
+        "Harmless, but you can remove that line and stop compiling utilities you don't use.",
     );
   }
 
