@@ -33,6 +33,32 @@ ${c.bold("init options")}
 ${c.bold("doctor options")}
   --url <origin> also run live checks against a running server
   --js           inspect .js/.jsx files instead of TypeScript
+
+${c.bold("Installing with a coding agent")}
+  Polishd ships a machine-readable install procedure. Paste this to Claude Code,
+  Cursor, Copilot, or any other coding agent and let it do the whole install:
+
+${c.dim("  ───────────────────────────────────────────────────────────────────────")}
+  Install @polishd/next into this Next.js app.
+
+  Follow the procedure in AGENTS.md from the package exactly — after
+  installing, read node_modules/@polishd/next/AGENTS.md. If the package
+  isn't installed yet, read it at
+  https://github.com/muskanvaswan/polishd/blob/main/AGENTS.md
+
+  Work through its phases in order and do not skip Phase 7 (verification).
+  Several of its constraints fail silently at runtime rather than at build
+  time, so a passing build does not mean the install worked.
+
+  Finish by running \`npx @polishd/next doctor\` and fixing everything it
+  reports.
+${c.dim("  ───────────────────────────────────────────────────────────────────────")}
+
+${c.bold("Docs")}
+  AGENTS.md     the install procedure (agent-oriented, and the most precise)
+  README.md     overview, protecting the dashboard, configuration
+  docs/SETUP.md full walkthrough, every variant, troubleshooting
+  DATABASE.md   production database setup, schema, retention
 `);
   process.exit(0);
 }

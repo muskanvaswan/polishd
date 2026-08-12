@@ -13,6 +13,32 @@ one httpOnly UUID cookie per session, no fingerprinting, no PII.
 
 ---
 
+## Installing with a coding agent
+
+Polishd ships a machine-readable install procedure. If you use Claude Code,
+Cursor, Copilot, or any other coding agent, **paste this prompt** and let it do
+the whole install:
+
+```text
+Install @polishd/next into this Next.js app.
+
+Follow the procedure in AGENTS.md from the package exactly — after installing,
+read node_modules/@polishd/next/AGENTS.md. If the package isn't installed yet,
+read it at https://github.com/muskanvaswan/polishd/blob/main/AGENTS.md
+
+Work through its phases in order and do not skip Phase 7 (verification).
+Several of its constraints fail silently at runtime rather than at build time,
+so a passing build does not mean the install worked.
+
+Finish by running `npx @polishd/next doctor` and fixing everything it reports.
+```
+
+`npx @polishd/next doctor` is the ground truth: it checks the wiring that fails
+quietly — the proxy named for the wrong Next major, route segment config
+re-exported instead of declared, a matcher that isn't an inline literal,
+Tailwind not scanning the package. Add `--url http://localhost:3000` to also
+verify live that the session cookie is minted and events actually store.
+
 ## Documentation
 
 | | |
@@ -32,15 +58,24 @@ one httpOnly UUID cookie per session, no fingerprinting, no PII.
 
 ```bash
 npm install @polishd/next
-npx polishd init
-npm run dev          # then visit /polishd
+npx @polishd/next init
+npm run dev                  # then visit /polishd
+npx @polishd/next doctor     # confirm the wiring
 ```
 
+(`npx polishd init` is the shorter form once the package is installed;
+`npx @polishd/next init` also works before it is.)
+
 That's it locally — events write to `.polishd/analytics.db` with no
-configuration. `init` detects your layout (`src/` or root), writes the four
-files below, adds `.polishd/` to `.gitignore`, wires Tailwind, and skips
-anything that already exists (`--force` to overwrite, `--dry-run` to preview,
-`--js` for JavaScript, `--config` to also emit a `polishd.config.ts`).
+configuration. `init` detects your layout (`src/` or root), detects your
+installed Next major to name the proxy file correctly, writes the four files
+below, adds `.polishd/` to `.gitignore`, and wires Tailwind.
+
+Files it already wrote are skipped unless you pass `--force`, which backs them
+up to `.bak` first. **Files it did not write are never overwritten**, with or
+without `--force` — if you already have a proxy, it prints how to merge instead
+of clobbering your code. Other flags: `--dry-run` to preview, `--js` for
+JavaScript, `--config` to also emit a `polishd.config.ts`.
 
 `pg` installs automatically as an optional dependency and is loaded only when
 you point Polishd at a Postgres URL.
@@ -70,11 +105,11 @@ export const runtime = "nodejs";        // must be declared here, not re-exporte
 export const dynamic = "force-dynamic";
 export const POST = createPolishdRoute();
 
-// src/app/polishd/page.tsx — the dashboard (unguarded by default)
+// src/app/polishd/page.tsx — the dashboard
 import { createPolishdPage } from "@polishd/next/dashboard";
 export const runtime = "nodejs";       // Next requires these inline in the page
 export const dynamic = "force-dynamic";
-export default createPolishdPage();
+export default createPolishdPage();    // see Protecting the dashboard
 ```
 
 > **Route segment config can't be re-exported.** Next statically parses
@@ -87,6 +122,51 @@ export default createPolishdPage();
 > init` writes the correct one for you. Excluding all of `/api` is load-bearing:
 > under Next 16 + Turbopack, a proxy matcher that touches any `/api/*` route
 > breaks resolution for the entire `/api` segment.
+
+## Composing with an existing proxy
+
+Next allows exactly **one** proxy module per app (`proxy.ts` on Next 16+,
+`middleware.ts` on Next 15), so if you already have one, Polishd has to go
+inside it. `init` detects this and prints instructions rather than overwriting.
+
+The subtle part is the matcher. One file means one `config.matcher`, so adding
+Polishd means widening it to the union — and Polishd's matcher is near-total.
+Your handler, which you deliberately scoped to a couple of routes, would
+silently start running on every request in the app. Nothing errors; your
+redirects and rewrites just begin firing where they never did before.
+
+Declare your original scope and `composePolishd` re-applies it as an internal
+guard:
+
+```ts
+// proxy.ts        (middleware.ts on Next 15, with the function named `middleware`)
+import { composePolishd } from "@polishd/next/proxy";
+import type { NextRequest } from "next/server";
+
+function myProxy(request: NextRequest) {
+  if (!hasSession(request)) return NextResponse.redirect(new URL("/login", request.url));
+}
+
+// Your handler still only runs on /admin/*, even though the matcher below
+// now feeds Polishd every page request.
+export const proxy = composePolishd(myProxy, { matcher: "/admin/:path*" });
+
+// Written by hand: Next statically parses this and it must be an inline
+// literal, so no helper can generate it. The union of your paths and Polishd's.
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],
+};
+```
+
+Your handler runs first and its response is threaded through, so a redirect or
+rewrite you return **carries the analytics cookie** rather than losing it.
+Returning nothing is fine. `matcher` accepts Next's matcher strings
+(`"/admin/:path*"`, `"/((?!api).*)"`) or a `RegExp` when you want to be exact;
+omit it only if your handler genuinely did run on everything.
+
+Widening the matcher is safe from Polishd's side: `withPolishdSession` returns
+early once the cookie is present, so the extra paths cost a cookie lookup and
+nothing else.
 
 ## Styling (required)
 
@@ -114,9 +194,39 @@ optional.
 
 ## Protecting the dashboard
 
-By default `/polishd` is **public** (a dev-only console warning reminds you).
-Gate it with an `authenticate` callback, and optionally render your own sign-in
-UI when it fails:
+The dashboard is not a read-only report. Its settings change the configured
+model and **API base URL**, so anyone who can reach it can point your requests
+at their own endpoint and spend your key. Treat it as a credential-adjacent
+surface.
+
+In **development** it is open and says so once in the console. In
+**production** Polishd refuses to serve it until you have made a decision.
+There are three ways to make one.
+
+### 1. A token — no code, works with no auth of your own
+
+```bash
+POLISHD_DASHBOARD_TOKEN=$(openssl rand -hex 32)
+```
+
+That is the whole integration. The locked screen shows a password field; the
+token is exchanged for an httpOnly, path-scoped cookie by a server action, so
+it never appears in a URL, in browser history, in server logs, or in a
+`Referer` header. The cookie holds an HMAC of the token rather than the token
+itself, comparison is constant-time, expiry is enforced server-side, and the
+unlock form is rate-limited per IP.
+
+Tune it if you moved the dashboard off `/polishd`:
+
+```tsx
+import { createPolishdPage, polishdTokenAuth } from "@polishd/next/dashboard";
+
+export default createPolishdPage({
+  authenticate: polishdTokenAuth({ basePath: "/admin/polishd" }),
+});
+```
+
+### 2. Your app's own auth
 
 ```tsx
 import { createPolishdPage } from "@polishd/next/dashboard";
@@ -127,21 +237,37 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default createPolishdPage({
-  authenticate: isAuthenticated,        // () => boolean | Promise<boolean>
-  unauthorized: <MyLogin />,            // optional; a minimal screen otherwise
+  authenticate: isAuthenticated,   // (ctx) => boolean | Promise<boolean>
+  unauthorized: <MyLogin />,       // optional; a minimal screen otherwise
 });
 ```
 
-The same callback also guards the AI **server actions** (generate summary, save
-settings, scan codebase, file GitHub issues). That matters: a server action is
-an addressable POST endpoint whose id ships in the public client bundle, so
-gating only the page would leave those actions callable by anyone. They re-run
-`authenticate` against the caller's cookies on every call, and deny when no
-dashboard page has registered a policy.
+`authenticate` receives the request's `cookies` and `headers`, so it is an
+ordinary function of its inputs and can be unit tested without a live request:
 
-If you pass no `authenticate`, the dashboard **and** its actions are public —
-anyone who finds the URL can read your analytics, change the configured model
-and API base URL, and spend your model tokens. Always gate it in production.
+```ts
+const authenticate = (ctx) => ctx.cookies.get("session")?.value === expected;
+```
+
+A zero-argument callback still works unchanged.
+
+### 3. Public on purpose
+
+```bash
+POLISHD_DASHBOARD_PUBLIC=true
+```
+
+An explicit, grep-able opt-in. You will still get one console warning per boot,
+in production, because that is the only place it is worth acting on.
+
+> **The gate covers the server actions, not just the page.** The AI actions
+> (generate summary, save settings, scan codebase, file GitHub issues) are
+> independently addressable POST endpoints whose ids ship in the public client
+> bundle, so gating only the page would leave them callable by anyone. They
+> re-run your check against the caller's cookies on every call, and deny when
+> no dashboard page has registered a policy — including when you delete
+> `app/polishd/page.tsx` but keep the package, in which case the actions stay
+> routable and always deny.
 
 ## AI summary
 
@@ -236,8 +362,7 @@ import { PolishdMonitor } from "@polishd/next/client";
 
 ## Configuration
 
-Defaults suit a low-traffic site. Override via `polishd.config.ts` and pass it to
-`initPolishd`:
+Defaults suit a low-traffic site. Override via `polishd.config.ts`:
 
 ```ts
 // polishd.config.ts
@@ -248,11 +373,28 @@ export default definePolishdConfig({
 });
 ```
 
+> **Nothing imports this file for you.** It cannot be auto-loaded: the three
+> places that read config run in three different runtimes — the browser, the
+> Edge proxy, and the Node route handler — and the Edge one has no filesystem.
+> Pass it to each explicitly:
+
 ```ts
-// src/instrumentation-client.ts
-import { initPolishd } from "@polishd/next/client";
 import config from "../polishd.config";
-initPolishd(config);
+
+initPolishd(config);                             // instrumentation-client.ts
+export const POST = createPolishdRoute(config);  // app/api/polishd/route.ts
+const { proxy } = createPolishdProxy(config);    // proxy.ts
+```
+
+Thread it into one but not another and the layers disagree silently — a proxy
+minting cookie `a` while ingest looks for `b` produces exactly the empty
+dashboard described below.
+
+For **`sessionCookie` specifically, prefer the environment variable**. It is the
+one channel every runtime can read, so it cannot go half-applied:
+
+```bash
+POLISHD_SESSION_COOKIE=my_session
 ```
 
 ## Environment variables
@@ -261,6 +403,9 @@ initPolishd(config);
 |---|---|---|
 | `POLISHD_DATABASE_URL` | production | Pooled Postgres connection string — enables capture |
 | `POLISHD_DB_PATH` | dev (optional) | Custom SQLite path (default `.polishd/analytics.db`) |
+| `POLISHD_DASHBOARD_TOKEN` | production | Protects `/polishd` with the built-in gate. Generate with `openssl rand -hex 32` |
+| `POLISHD_DASHBOARD_PUBLIC` | production (optional) | `true` — serve the dashboard unguarded on purpose |
+| `POLISHD_SESSION_COOKIE` | optional | Rename the anonymous session cookie. Read by both the proxy and ingest, so they cannot disagree |
 | `POLISHD_AI_PROVIDER` | AI (optional) | `anthropic` \| `openai` \| `openai-compatible` \| `google` |
 | `POLISHD_AI_MODEL` | AI (optional) | Model id (defaults per provider, e.g. `claude-opus-4-8`) |
 | `POLISHD_AI_API_KEY` | AI (optional) | Model API key — preset instead of using the dashboard |
@@ -280,16 +425,39 @@ Local dev needs nothing. If no writable store is available the package degrades
 to a safe no-op (a console warning, dashboard notice) — your app never breaks.
 See [DATABASE.md](./DATABASE.md) for production setup.
 
+## Troubleshooting
+
+Run `npx @polishd/next doctor` first — it catches most of these by name, and
+`--url http://localhost:3000` checks the live path as well.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Dashboard empty, beacons all return 200 | The proxy isn't running, so no session cookie is minted and ingest drops every batch | Check the file is named for your Next major — `proxy.ts` on 16+, `middleware.ts` on 15 — and exports a function of the same name. The dashboard shows a banner when it detects this |
+| Every `/api/*` route 404s | The proxy matcher touches `/api` | Restore the `(?!api…)` exclusion. Under Next 16 + Turbopack this breaks the whole `/api` segment |
+| Build fails: *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline in the module |
+| Dashboard renders unstyled | Tailwind isn't scanning `dist` | See [Styling](#styling-required) |
+| Dashboard content cut off below the fold | A host `body` that doesn't scroll | Fixed by default; if an ancestor sets `transform`/`filter`/`contain`, pass `shell: false` and see [docs/SETUP.md](./docs/SETUP.md) |
+| `ExperimentalWarning: SQLite is an experimental feature` | Node's built-in `node:sqlite` | **Expected and harmless.** Node prints this for its own SQLite module on 22.x. Not a sign the package is unstable, and it disappears in production where Postgres is used |
+| `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` | Node < 22.5 | Upgrade Node, or configure Postgres |
+| Server actions fail with an opaque digest | No dashboard page registered a policy | Expected if you deleted `app/polishd/page.tsx` — the actions fail closed by design |
+
 ## Entry points
 
 | Import | Contents |
 |---|---|
-| `@polishd/next` | config, `definePolishdConfig`, event types (isomorphic) |
+| `@polishd/next` | config, `definePolishdConfig`, `resolveSessionCookie`, event types (isomorphic) |
 | `@polishd/next/client` | `initPolishd`, `PolishdMonitor` |
 | `@polishd/next/server` | store, ingest, queries, `withPolishdSession` (Node only) |
 | `@polishd/next/route` | `POST`, `createPolishdRoute` |
-| `@polishd/next/proxy` | `proxy`, `config`, `withPolishdSession`, `polishdMatcher` |
-| `@polishd/next/dashboard` | `createPolishdPage`, `PolishdDashboard`, `loadPolishdDashboardData` |
+| `@polishd/next/proxy` | `proxy`, `config`, `withPolishdSession`, `polishdMatcher`, `composePolishd` |
+| `@polishd/next/dashboard` | `createPolishdPage`, `polishdTokenAuth`, `PolishdDashboard`, `loadPolishdDashboardData` |
+
+## CLI
+
+| Command | Purpose |
+|---|---|
+| `npx @polishd/next init` | Scaffold the glue files. `--dry-run`, `--force`, `--js`, `--config` |
+| `npx @polishd/next doctor` | Check an install. `--url <origin>` adds live checks |
 
 ## Development
 
