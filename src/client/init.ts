@@ -14,6 +14,11 @@ type InitOptions = Partial<PolishdConfig>;
 
 let started = false;
 
+// Next inlines this at build time. Guarded for any bundler that doesn't define
+// `process`, in which case we simply stay quiet.
+const IS_DEV =
+  typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production";
+
 export function initPolishd(options: InitOptions = {}): void {
   // Guard: client-only, run once, respect enable flag and Do Not Track.
   if (typeof window === "undefined" || started) return;
@@ -39,6 +44,33 @@ export function initPolishd(options: InitOptions = {}): void {
 
   // ---- transport -----------------------------------------------------------
 
+  // Ingest answers a missing session cookie with `ok: true` and HTTP 200 — on
+  // purpose, so beacons never retry — and `sendBeacon` cannot read a response
+  // at all. So a proxy that isn't running is invisible from the browser unless
+  // we deliberately look. Inspect the first fetch flush of the page; if the
+  // proxy is down every flush fails the same way, so one check is enough.
+  let diagnosed = false;
+  const diagnose = (res: Response) => {
+    if (diagnosed || !IS_DEV) return;
+    diagnosed = true;
+    res
+      .json()
+      .then((body: { stored?: number; reason?: string }) => {
+        if (body?.reason !== "no_session") return;
+        console.warn(
+          "[polishd] events are being dropped: the request carried no session cookie, " +
+            "so the proxy that mints it isn't running on this path.\n" +
+            "  Expected `proxy.ts` (Next 16+) or `middleware.ts` (Next 15) at the project " +
+            "root, exporting a function of the same name.\n" +
+            "  `config.matcher` must be an inline literal and must cover this path.\n" +
+            "  Run `npx @polishd/next doctor` to check.",
+        );
+      })
+      .catch(() => {
+        // A body we can't parse is not a diagnosis; stay quiet.
+      });
+  };
+
   const flush = (useBeacon = false) => {
     if (queue.length === 0) return;
     const batch = queue.splice(0, queue.length);
@@ -54,10 +86,12 @@ export function initPolishd(options: InitOptions = {}): void {
       headers: { "Content-Type": "application/json" },
       body,
       keepalive: true,
-    }).catch(() => {
-      // Network hiccup: put events back so the next flush retries them.
-      queue.unshift(...batch);
-    });
+    })
+      .then(diagnose)
+      .catch(() => {
+        // Network hiccup: put events back so the next flush retries them.
+        queue.unshift(...batch);
+      });
   };
 
   // ---- DOM helpers ---------------------------------------------------------

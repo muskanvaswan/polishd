@@ -251,7 +251,16 @@ export function PolishdDashboard({
   data: PolishdDashboardData;
   ai: PolishdAIBundle;
 }) {
-  const { overview, pages, elements, devices, topUsed, journeys, errors, monitored } = data;
+  const { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored } =
+    data;
+
+  // Events are arriving but landing without a session cookie, which means the
+  // proxy isn't running on those requests. Shown while it's still happening
+  // (or while nothing at all has been stored), so a fixed proxy clears the
+  // banner on its own rather than leaving a permanent scold.
+  const proxyBroken =
+    health.lastNoSessionAt !== null &&
+    (overview.totalEvents === 0 || Date.now() - health.lastNoSessionAt < 3_600_000);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 text-white">
@@ -283,6 +292,29 @@ export function PolishdDashboard({
         <div className={`mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400`}>
           The analytics store isn't writable in this environment. Run locally or configure a
           database — see the <span className="font-mono text-amber-300">@polishd/next</span> DATABASE.md guide.
+        </div>
+      )}
+
+      {proxyBroken && (
+        <div className="mb-8 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-[13px] text-red-400">
+          <p className="font-medium text-red-300">
+            Receiving events, but no session cookie — your proxy isn't running.
+          </p>
+          <p className="mt-1.5">
+            {health.noSessionCount.toLocaleString()}{" "}
+            {health.noSessionCount === 1 ? "batch has" : "batches have"} been dropped. Polishd
+            attributes every event to the anonymous cookie the proxy mints, so nothing is being
+            stored. Check that you have a{" "}
+            <span className="font-mono text-red-300">proxy.ts</span> (Next 16+) or{" "}
+            <span className="font-mono text-red-300">middleware.ts</span> (Next 15) at your project
+            root — matching your installed Next major — exporting a function of the same name, with{" "}
+            <span className="font-mono text-red-300">config.matcher</span> written as an inline
+            literal that covers the pages you're capturing.
+          </p>
+          <p className="mt-1.5 text-red-500/80">
+            Run <span className="font-mono text-red-300">npx @polishd/next doctor</span> to check
+            this automatically.
+          </p>
         </div>
       )}
 

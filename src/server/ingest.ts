@@ -7,11 +7,59 @@
  */
 import { defaultPolishdConfig } from "../config";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
-import { insertEvents } from "./store";
+import { getMeta, insertEvents, setMeta } from "./store";
 
 const MAX_EVENTS_PER_BATCH = 200;
 const MAX_TEXT_LEN = 120;
 const MAX_SELECTOR_LEN = 300;
+
+/**
+ * Beacons dropped for want of a session cookie, recorded in `polishd_meta`.
+ *
+ * A missing cookie means the proxy isn't running — a misnamed proxy file, a
+ * matcher that excludes the path, or a botched merge with an existing handler.
+ * Left uncounted this is the worst failure mode in the package: ingest returns
+ * `ok: true` with HTTP 200, the client cannot read the reason (`sendBeacon`
+ * has no response), and the only symptom is an empty dashboard with nothing
+ * anywhere pointing at the cause. Counting it is what lets the dashboard say
+ * so out loud.
+ */
+export const NO_SESSION_META_KEY = "no_session_rejects";
+
+/** Shape stored under {@link NO_SESSION_META_KEY}. */
+export interface NoSessionRecord {
+  count: number;
+  lastAt: number;
+}
+
+// A broken proxy means *every* beacon is rejected, so writing per rejection
+// would answer a diagnostic with a write storm. Collapse them instead: count
+// in memory, persist at most once a minute.
+const RECORD_INTERVAL_MS = 60_000;
+let lastPersistedAt = 0;
+let unpersisted = 0;
+
+async function recordNoSession(): Promise<void> {
+  unpersisted++;
+  const now = Date.now();
+  if (now - lastPersistedAt < RECORD_INTERVAL_MS) return;
+  lastPersistedAt = now;
+  const batch = unpersisted;
+  unpersisted = 0;
+  try {
+    let count = 0;
+    const raw = await getMeta(NO_SESSION_META_KEY);
+    if (raw) {
+      const prev = JSON.parse(raw) as Partial<NoSessionRecord>;
+      if (typeof prev.count === "number" && Number.isFinite(prev.count)) count = prev.count;
+    }
+    const next: NoSessionRecord = { count: count + batch, lastAt: now };
+    await setMeta(NO_SESSION_META_KEY, JSON.stringify(next));
+  } catch {
+    // Diagnostics must never take ingest down with them. A store that can't
+    // record the rejection still returns a clean result to the beacon.
+  }
+}
 
 export interface IngestResult {
   ok: boolean;
@@ -65,7 +113,10 @@ export async function ingest(
   cookieValue: string | undefined,
 ): Promise<IngestResult> {
   const sessionId = sessionIdFromCookie(cookieValue);
-  if (!sessionId) return { ok: true, stored: 0, reason: "no_session" };
+  if (!sessionId) {
+    await recordNoSession();
+    return { ok: true, stored: 0, reason: "no_session" };
+  }
   if (!defaultPolishdConfig.enabled) return { ok: true, stored: 0, reason: "disabled" };
 
   const rawEvents = (body as { events?: unknown })?.events;
