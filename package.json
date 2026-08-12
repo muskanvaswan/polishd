@@ -1,6 +1,6 @@
 {
   "name": "@polishd/next",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Drop-in product analytics for Next.js \u2014 capture real user behavioral signals (rage/dead clicks, scroll depth, errors, web vitals) and explore them on a built-in dashboard. What gets measured gets improved.",
   "type": "module",
   "license": "MIT",
@@ -34,7 +34,8 @@
     "AGENTS.md",
     "DATABASE.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "bin": {
     "polishd": "./bin/polishd.mjs"

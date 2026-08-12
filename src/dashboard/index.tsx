@@ -611,7 +611,11 @@ function Unauthorized() {
  */
 function PolishdShell({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-[2147483000] overflow-y-auto overscroll-contain bg-[#050505]">
+    // `text-white` is set here as a utility as well as on `.polishd-root` in
+    // the stylesheet, so the shell looks right in a 0.1.x app that upgraded
+    // without adding the stylesheet import and is still styled by its own
+    // Tailwind scanning our dist.
+    <div className="fixed inset-0 z-[2147483000] overflow-y-auto overscroll-contain bg-[#050505] text-white">
       {children}
     </div>
   );

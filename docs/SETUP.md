@@ -279,13 +279,27 @@ isolates the dashboard completely.
 
 ### Upgrading from 0.1.x
 
-The `@source "…/node_modules/@polishd/next/dist"` line in your Tailwind entry
-stylesheet (or the `content` glob in `tailwind.config.*`) is now obsolete. It
-still works, so nothing breaks — but you can delete it and stop compiling
-utilities you no longer use. `npx @polishd/next doctor` flags it if it finds one.
+**No change is required.** Your existing `@source
+"…/node_modules/@polishd/next/dist"` (or the `content` glob in
+`tailwind.config.*`) still compiles the dashboard's utilities exactly as it did
+in 0.1.x, so the dashboard stays styled after upgrading. Both paths were
+rendered side by side and compared across 491 elements with no visible
+difference.
 
-Add the stylesheet import to your dashboard page; that is the only required
-change.
+Moving to the shipped stylesheet is recommended but optional, and **the order
+matters**:
+
+1. Add `import "@polishd/next/dashboard.css";` to your dashboard page.
+2. Check the dashboard still looks right.
+3. *Then* remove the `@source` line or `content` glob.
+
+Removing the old wiring before adding the import is the one sequence that
+leaves the dashboard unstyled, which is why the steps are in this order.
+
+The payoff is that Tailwind stops being a requirement for your app at all, and
+your build stops compiling utilities that only the dashboard uses.
+`npx @polishd/next doctor` reports which of the two setups it finds and will not
+report a working 0.1.x install as broken.
 
 ## 5. Protecting the dashboard
 

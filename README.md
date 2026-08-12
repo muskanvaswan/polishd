@@ -46,6 +46,7 @@ verify live that the session cookie is minted and events actually store.
 | **[docs/SETUP.md](./docs/SETUP.md)** | Full walkthrough — every variant, verification, troubleshooting |
 | **[AGENTS.md](./AGENTS.md)** | Install procedure written for AI coding agents |
 | **[DATABASE.md](./DATABASE.md)** | Production database setup, schema, retention |
+| **[CHANGELOG.md](./CHANGELOG.md)** | Release notes — **start here if you're upgrading from 0.1.x** |
 
 ## Requirements
 
@@ -200,10 +201,14 @@ The one thing it can't win is a host `!important` rule aimed at the same
 property. Nothing short of `!important` on our side would, and a package
 shouting over its host is worse than a rare collision.
 
-> **Upgrading from 0.1.x?** The `@source "…/@polishd/next/dist"` line in your
-> Tailwind config is now obsolete. It still works, so nothing breaks — but you
-> can delete it and stop compiling utilities you don't use. `polishd doctor`
-> points this out if it finds one.
+> **Upgrading from 0.1.x?** Nothing to do — your existing `@source
+> "…/@polishd/next/dist"` keeps compiling the dashboard's utilities exactly as
+> before, so the dashboard stays styled whether or not you add the import.
+>
+> To move over at your own pace, **add the import first, then** delete the
+> `@source` line — in that order, so the dashboard is never unstyled in between.
+> `polishd doctor` reports which setup it finds and won't call a working 0.1.x
+> install broken.
 
 ## Protecting the dashboard
 
