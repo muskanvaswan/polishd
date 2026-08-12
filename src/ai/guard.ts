@@ -17,10 +17,22 @@
  */
 
 export type PolishdAuthPolicy =
-  /** `createPolishdPage()` with no `authenticate` — deliberately public. */
+  /** Deliberately public: dev, or an explicit `POLISHD_DASHBOARD_PUBLIC=true`. */
   | { mode: "open" }
   /** `createPolishdPage({ authenticate })` — re-checked per action call. */
-  | { mode: "guarded"; authenticate: () => boolean | Promise<boolean> };
+  | { mode: "guarded"; authenticate: () => boolean | Promise<boolean> }
+  /**
+   * Production with no access decision made by the host at all. Denied like a
+   * failed check rather than waved through.
+   *
+   * This mode has to exist at the *policy* level, not just as a screen the page
+   * renders. The actions are independently addressable and re-check the policy
+   * themselves, so a page that renders a lockout while still registering
+   * `open` would leave every action — including the AI settings write, which
+   * redirects the model base URL and spends the owner's key — wide open behind
+   * a locked-looking door.
+   */
+  | { mode: "setup-required" };
 
 let policy: PolishdAuthPolicy | null = null;
 
@@ -50,6 +62,7 @@ export async function requirePolishdAuth(): Promise<void> {
   // guess. Reaching an action without the page module loaded is not a flow the
   // dashboard produces.
   if (!policy) throw new PolishdUnauthorizedError();
+  if (policy.mode === "setup-required") throw new PolishdUnauthorizedError();
   if (policy.mode === "open") return;
 
   let ok = false;

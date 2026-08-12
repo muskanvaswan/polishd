@@ -24,7 +24,7 @@ import {
   type DeviceBucket,
   type MonitoredComponent,
 } from "../server/queries";
-import { registerPolishdAuth } from "../ai/guard";
+import { registerPolishdAuth, type PolishdAuthPolicy } from "../ai/guard";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import type {
@@ -615,7 +615,78 @@ export interface CreatePolishdPageOptions {
   shell?: boolean;
 }
 
-let warnedUnguarded = false;
+/** Shown in production when the host never made an access decision. */
+function SetupRequired() {
+  return (
+    <main className="mx-auto flex min-h-[60vh] max-w-lg flex-col justify-center px-6 text-white">
+      <p className={label}>Polishd</p>
+      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Dashboard locked</h1>
+      <p className="mt-2 text-[13px] leading-relaxed text-[#888]">
+        This dashboard is unprotected and running in production, so Polishd is refusing to serve
+        it. It exposes your analytics, and its settings can change the model and API base URL —
+        which means anyone who finds this URL can point your requests at their own endpoint and
+        spend your API key.
+      </p>
+      <p className="mt-4 text-[13px] text-[#888]">Choose one:</p>
+      <ul className="mt-2 space-y-2 text-[13px] text-[#888]">
+        <li>
+          Pass your app's own check:{" "}
+          <code className="font-mono text-[#aaa]">createPolishdPage(&#123; authenticate &#125;)</code>
+        </li>
+        <li>
+          Or make it public on purpose:{" "}
+          <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_PUBLIC=true</code>
+        </li>
+      </ul>
+      <p className="mt-4 text-[12px] text-[#555]">
+        Local development is unaffected — this only applies when{" "}
+        <code className="font-mono">NODE_ENV=production</code>.
+      </p>
+    </main>
+  );
+}
+
+/**
+ * Decide the access policy from the host's configuration and environment.
+ *
+ * The default used to be `open` everywhere, which meant the dashboard shipped
+ * unguarded to production unless the host thought to stop it. Nothing is
+ * silently locked in development, where an open dashboard is harmless; the
+ * change is that production now requires the host to have said something,
+ * either by wiring a check or by opting out in so many words.
+ */
+function resolvePolicy(opts: CreatePolishdPageOptions): PolishdAuthPolicy {
+  if (opts.authenticate) return { mode: "guarded", authenticate: opts.authenticate };
+  if (process.env.NODE_ENV === "production" && process.env.POLISHD_DASHBOARD_PUBLIC !== "true") {
+    return { mode: "setup-required" };
+  }
+  return { mode: "open" };
+}
+
+let announcedPolicy = false;
+
+/** Say what was decided, once, at module evaluation. */
+function announcePolicy(policy: PolishdAuthPolicy): void {
+  if (announcedPolicy) return;
+  announcedPolicy = true;
+  const production = process.env.NODE_ENV === "production";
+  if (policy.mode === "setup-required") {
+    console.warn(
+      "[polishd] dashboard is locked: running in production with no `authenticate` " +
+        "callback. Pass one to createPolishdPage(), or set POLISHD_DASHBOARD_PUBLIC=true " +
+        "to serve it publicly on purpose.",
+    );
+  } else if (policy.mode === "open") {
+    // Deliberately not suppressed in production. Production is the *only*
+    // environment where an unguarded dashboard is actionable news; warning
+    // solely on the developer's laptop, where it is harmless, was backwards.
+    console.warn(
+      `[polishd] dashboard is unguarded${production ? " IN PRODUCTION" : ""} — anyone who ` +
+        "finds the URL can read your analytics, change the configured model and API base " +
+        "URL, and spend your model tokens. Pass `authenticate` to createPolishdPage().",
+    );
+  }
+}
 
 /**
  * Build the dashboard page component. Use as the default export of your
@@ -625,11 +696,9 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   // Register the policy at module evaluation, not per render: the AI server
   // actions are reachable without this page ever rendering, and they re-run
   // `authenticate` themselves before doing any work. See ai/guard.ts.
-  registerPolishdAuth(
-    opts.authenticate
-      ? { mode: "guarded", authenticate: opts.authenticate }
-      : { mode: "open" },
-  );
+  const policy = resolvePolicy(opts);
+  registerPolishdAuth(policy);
+  announcePolicy(policy);
 
   // Applied to the unauthorized screen as well: a sign-in prompt stranded
   // below a non-scrolling fold is the same bug with higher stakes.
@@ -637,14 +706,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     opts.shell === false ? <>{node}</> : <PolishdShell>{node}</PolishdShell>;
 
   return async function PolishdPage() {
-    if (opts.authenticate) {
-      const ok = await opts.authenticate();
+    if (policy.mode === "setup-required") return wrap(<SetupRequired />);
+    if (policy.mode === "guarded") {
+      const ok = await policy.authenticate();
       if (!ok) return wrap(opts.unauthorized ?? <Unauthorized />);
-    } else if (!warnedUnguarded && process.env.NODE_ENV !== "production") {
-      warnedUnguarded = true;
-      console.warn(
-        "[polishd] dashboard is unguarded — pass `authenticate` to createPolishdPage() to protect it.",
-      );
     }
 
     const data = await loadPolishdDashboardData();
