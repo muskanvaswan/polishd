@@ -13,14 +13,47 @@
  * about the decision is trusted from the client.
  *
  * Fails closed: an action reached before any dashboard page has registered a
- * policy is denied.
+ * policy is denied. That includes an app which deletes `app/polishd/page.tsx`
+ * while keeping the package installed — the actions remain routable but now
+ * always deny, which is the right outcome and a confusing one to debug, so it
+ * is called out in the docs.
  */
+import { cookies, headers } from "next/headers";
+
+/**
+ * What an `authenticate` callback is handed.
+ *
+ * Without this a callback has to reach for `cookies()`/`headers()` itself,
+ * which couples it to Next's request-scoped storage and makes it awkward to
+ * unit test — you can only exercise it inside a request. Taking the request
+ * state as an argument instead makes the callback an ordinary function of its
+ * inputs, so a test can pass whatever it likes.
+ *
+ * Resolved once per check and shared between the page render and the action
+ * guard, so both see exactly the same request.
+ */
+export interface PolishdAuthContext {
+  cookies: Awaited<ReturnType<typeof cookies>>;
+  headers: Awaited<ReturnType<typeof headers>>;
+}
+
+/**
+ * A host's access check. The context argument is optional in practice — a
+ * zero-argument callback is assignable here and keeps working unchanged.
+ */
+export type PolishdAuthenticate = (ctx: PolishdAuthContext) => boolean | Promise<boolean>;
+
+/** Build the context handed to `authenticate`. */
+export async function polishdAuthContext(): Promise<PolishdAuthContext> {
+  const [c, h] = await Promise.all([cookies(), headers()]);
+  return { cookies: c, headers: h };
+}
 
 export type PolishdAuthPolicy =
   /** Deliberately public: dev, or an explicit `POLISHD_DASHBOARD_PUBLIC=true`. */
   | { mode: "open" }
   /** `createPolishdPage({ authenticate })` — re-checked per action call. */
-  | { mode: "guarded"; authenticate: () => boolean | Promise<boolean> }
+  | { mode: "guarded"; authenticate: PolishdAuthenticate }
   /**
    * Production with no access decision made by the host at all. Denied like a
    * failed check rather than waved through.
@@ -67,7 +100,7 @@ export async function requirePolishdAuth(): Promise<void> {
 
   let ok = false;
   try {
-    ok = await policy.authenticate();
+    ok = await policy.authenticate(await polishdAuthContext());
   } catch (err) {
     console.warn(
       "[polishd] authenticate() threw during an action call, denying:",

@@ -24,7 +24,9 @@
  * rather than trusting the browser to forget it.
  */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
+
+import type { PolishdAuthContext, PolishdAuthenticate } from "../ai/guard";
 
 /** Name of the grant cookie. Distinct from the anonymous analytics session. */
 export const POLISHD_DASHBOARD_COOKIE = "polishd_dashboard";
@@ -134,15 +136,20 @@ export function verifyGrant(
  * Used automatically when the env var is set and no other `authenticate` is
  * passed, so most hosts never name it explicitly.
  */
-export function polishdTokenAuth(opts: PolishdTokenAuthOptions = {}) {
+export function polishdTokenAuth(opts: PolishdTokenAuthOptions = {}): PolishdAuthenticate {
   registerPolishdTokenOptions(opts);
-  return async function authenticate(): Promise<boolean> {
+  // Reads the cookie off the context rather than calling `cookies()` itself,
+  // which is what makes it exercisable outside a live request.
+  return async function authenticate(ctx: PolishdAuthContext): Promise<boolean> {
     const token = polishdDashboardToken();
     // No token configured means no grant can ever be valid. Denying is the
     // only safe reading — an unset secret must not mean "let everyone in".
     if (!token) return false;
-    const jar = await cookies();
-    return verifyGrant(jar.get(POLISHD_DASHBOARD_COOKIE)?.value, token, options.maxAgeSeconds);
+    return verifyGrant(
+      ctx.cookies.get(POLISHD_DASHBOARD_COOKIE)?.value,
+      token,
+      options.maxAgeSeconds,
+    );
   };
 }
 

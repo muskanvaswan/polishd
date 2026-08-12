@@ -24,7 +24,12 @@ import {
   type DeviceBucket,
   type MonitoredComponent,
 } from "../server/queries";
-import { registerPolishdAuth, type PolishdAuthPolicy } from "../ai/guard";
+import {
+  polishdAuthContext,
+  registerPolishdAuth,
+  type PolishdAuthenticate,
+  type PolishdAuthPolicy,
+} from "../ai/guard";
 import {
   polishdDashboardToken,
   polishdTokenAuth,
@@ -623,10 +628,16 @@ export interface PolishdPageProps {
 
 export interface CreatePolishdPageOptions {
   /**
-   * Gate access to the dashboard. Return `true` to allow. If omitted the
-   * dashboard renders unguarded (a dev-only console warning is logged).
+   * Gate access to the dashboard. Return `true` to allow.
+   *
+   * Receives the request's cookies and headers, so the callback is an ordinary
+   * function of its inputs rather than something that only works inside a
+   * request. A zero-argument callback is still valid and unchanged.
+   *
+   * If omitted, POLISHD_DASHBOARD_TOKEN guards the dashboard when set;
+   * otherwise it renders unguarded in development and refuses in production.
    */
-  authenticate?: () => boolean | Promise<boolean>;
+  authenticate?: PolishdAuthenticate;
   /**
    * Rendered when `authenticate` resolves false. Defaults to a minimal screen,
    * or to the token unlock form when `POLISHD_DASHBOARD_TOKEN` is in use.
@@ -803,7 +814,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   return async function PolishdPage(props: PolishdPageProps = {}) {
     if (policy.mode === "setup-required") return wrap(<SetupRequired />);
     if (policy.mode === "guarded") {
-      const ok = await policy.authenticate();
+      const ok = await policy.authenticate(await polishdAuthContext());
       if (!ok) {
         if (opts.unauthorized) return wrap(opts.unauthorized);
         if (usingTokenAuth) {
