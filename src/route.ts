@@ -10,7 +10,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { defaultPolishdConfig, type PolishdConfig } from "./config";
+import { defaultPolishdConfig, resolveSessionCookie, type PolishdConfig } from "./config";
 import { ingest } from "./server/ingest";
 
 // node:sqlite / pg need the Node runtime — never the Edge runtime.
@@ -19,7 +19,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
-  const cfg = { ...defaultPolishdConfig, ...config };
+  // The cookie name is resolved the way the proxy resolves it, so a
+  // `POLISHD_SESSION_COOKIE` set once reaches both sides rather than half of
+  // them — and it is folded into `cfg` so everything downstream, ingest
+  // included, sees the same name this handler reads.
+  const cfg = {
+    ...defaultPolishdConfig,
+    ...config,
+    sessionCookie: resolveSessionCookie(config.sessionCookie),
+  };
 
   return async function POST(req: NextRequest) {
     let body: unknown;

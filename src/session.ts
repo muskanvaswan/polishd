@@ -12,7 +12,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { defaultPolishdConfig, type PolishdConfig } from "./config";
+import { resolveSessionCookie, type PolishdConfig } from "./config";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
@@ -21,7 +21,9 @@ export function withPolishdSession(
   response: NextResponse = NextResponse.next(),
   config: Partial<PolishdConfig> = {},
 ): NextResponse {
-  const cookieName = config.sessionCookie ?? defaultPolishdConfig.sessionCookie;
+  // Resolved through the shared helper so the Edge proxy and the Node ingest
+  // route cannot end up disagreeing about the name.
+  const cookieName = resolveSessionCookie(config.sessionCookie);
   if (request.cookies.get(cookieName)) return response;
 
   response.cookies.set(cookieName, crypto.randomUUID(), {

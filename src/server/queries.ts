@@ -9,7 +9,8 @@
  * placeholders (the store rewrites them per dialect) and boolean aggregates
  * spelled `SUM(CASE WHEN … THEN 1 ELSE 0 END)` rather than SQLite's `SUM(x = y)`.
  */
-import { parseMeta, query, storeReady } from "./store";
+import { getMeta, parseMeta, query, storeReady } from "./store";
+import { NO_SESSION_META_KEY, type NoSessionRecord } from "./ingest";
 import { defaultPolishdConfig } from "../config";
 import type { PolishdEventType } from "../shared/types";
 
@@ -772,11 +773,47 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
   });
 }
 
+// ── Capture health ───────────────────────────────────────────────────────────
+
+/** Whether capture itself is wired up, as opposed to what it captured. */
+export interface CaptureHealth {
+  /** Beacons dropped because the request carried no session cookie. */
+  noSessionCount: number;
+  /** When the most recent such drop happened (ms epoch), or null for none. */
+  lastNoSessionAt: number | null;
+}
+
+/**
+ * Read the proxy-health counter recorded by ingest.
+ *
+ * This is the one number that distinguishes "nobody has visited yet" from
+ * "everybody has visited and every event was thrown away", which otherwise
+ * look identical on the dashboard: an empty page with no error.
+ */
+export async function getCaptureHealth(): Promise<CaptureHealth> {
+  const empty: CaptureHealth = { noSessionCount: 0, lastNoSessionAt: null };
+  if (!(await storeReady())) return empty;
+  try {
+    const raw = await getMeta(NO_SESSION_META_KEY);
+    if (!raw) return empty;
+    const rec = JSON.parse(raw) as Partial<NoSessionRecord>;
+    return {
+      noSessionCount:
+        typeof rec.count === "number" && Number.isFinite(rec.count) ? rec.count : 0,
+      lastNoSessionAt:
+        typeof rec.lastAt === "number" && Number.isFinite(rec.lastAt) ? rec.lastAt : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 // ── Aggregate loader ─────────────────────────────────────────────────────────
 
 /** Everything the dashboard (and the AI summary) reads, in one shape. */
 export interface PolishdDashboardData {
   overview: Awaited<ReturnType<typeof getOverview>>;
+  health: CaptureHealth;
   pages: Awaited<ReturnType<typeof getTopPages>>;
   elements: Awaited<ReturnType<typeof getElementStats>>;
   devices: Awaited<ReturnType<typeof getDeviceBreakdown>>;
@@ -791,9 +828,10 @@ export interface PolishdDashboardData {
  * dashboard) so the AI summary layer can reuse it without importing React.
  */
 export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> {
-  const [overview, pages, elements, devices, topUsed, journeys, errors, monitored] =
+  const [overview, health, pages, elements, devices, topUsed, journeys, errors, monitored] =
     await Promise.all([
       getOverview(),
+      getCaptureHealth(),
       getTopPages(8),
       getElementStats(12),
       getDeviceBreakdown(),
@@ -802,7 +840,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
       getRecentErrors(8),
       getMonitoredComponents(),
     ]);
-  return { overview, pages, elements, devices, topUsed, journeys, errors, monitored };
+  return { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored };
 }
 
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {

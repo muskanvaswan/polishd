@@ -24,7 +24,18 @@ import {
   type DeviceBucket,
   type MonitoredComponent,
 } from "../server/queries";
-import { registerPolishdAuth } from "../ai/guard";
+import {
+  polishdAuthContext,
+  registerPolishdAuth,
+  type PolishdAuthenticate,
+  type PolishdAuthPolicy,
+} from "../ai/guard";
+import {
+  polishdDashboardToken,
+  polishdTokenAuth,
+  type PolishdTokenAuthOptions,
+} from "./token-auth";
+import { unlockPolishdDashboard } from "./unlock";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import type {
@@ -231,6 +242,14 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
 // any existing callers of this module.
 export { loadPolishdDashboardData, type PolishdDashboardData } from "../server/queries";
 
+// Named explicitly by hosts that want token auth alongside their own options;
+// `createPolishdPage()` already applies it when POLISHD_DASHBOARD_TOKEN is set.
+export {
+  polishdTokenAuth,
+  POLISHD_DASHBOARD_COOKIE,
+  type PolishdTokenAuthOptions,
+} from "./token-auth";
+
 /** The AI summary card's server-loaded inputs. */
 export interface PolishdAIBundle {
   summary: PolishdSummary | null;
@@ -251,7 +270,16 @@ export function PolishdDashboard({
   data: PolishdDashboardData;
   ai: PolishdAIBundle;
 }) {
-  const { overview, pages, elements, devices, topUsed, journeys, errors, monitored } = data;
+  const { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored } =
+    data;
+
+  // Events are arriving but landing without a session cookie, which means the
+  // proxy isn't running on those requests. Shown while it's still happening
+  // (or while nothing at all has been stored), so a fixed proxy clears the
+  // banner on its own rather than leaving a permanent scold.
+  const proxyBroken =
+    health.lastNoSessionAt !== null &&
+    (overview.totalEvents === 0 || Date.now() - health.lastNoSessionAt < 3_600_000);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 text-white">
@@ -283,6 +311,29 @@ export function PolishdDashboard({
         <div className={`mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400`}>
           The analytics store isn't writable in this environment. Run locally or configure a
           database — see the <span className="font-mono text-amber-300">@polishd/next</span> DATABASE.md guide.
+        </div>
+      )}
+
+      {proxyBroken && (
+        <div className="mb-8 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-[13px] text-red-400">
+          <p className="font-medium text-red-300">
+            Receiving events, but no session cookie — your proxy isn't running.
+          </p>
+          <p className="mt-1.5">
+            {health.noSessionCount.toLocaleString()}{" "}
+            {health.noSessionCount === 1 ? "batch has" : "batches have"} been dropped. Polishd
+            attributes every event to the anonymous cookie the proxy mints, so nothing is being
+            stored. Check that you have a{" "}
+            <span className="font-mono text-red-300">proxy.ts</span> (Next 16+) or{" "}
+            <span className="font-mono text-red-300">middleware.ts</span> (Next 15) at your project
+            root — matching your installed Next major — exporting a function of the same name, with{" "}
+            <span className="font-mono text-red-300">config.matcher</span> written as an inline
+            literal that covers the pages you're capturing.
+          </p>
+          <p className="mt-1.5 text-red-500/80">
+            Run <span className="font-mono text-red-300">npx @polishd/next doctor</span> to check
+            this automatically.
+          </p>
         </div>
       )}
 
@@ -537,17 +588,222 @@ function Unauthorized() {
   );
 }
 
-export interface CreatePolishdPageOptions {
-  /**
-   * Gate access to the dashboard. Return `true` to allow. If omitted the
-   * dashboard renders unguarded (a dev-only console warning is logged).
-   */
-  authenticate?: () => boolean | Promise<boolean>;
-  /** Rendered when `authenticate` resolves false. Defaults to a minimal screen. */
-  unauthorized?: ReactNode;
+/**
+ * A self-contained surface for the dashboard to render into.
+ *
+ * The dashboard is a route in someone else's app, so it inherits that app's
+ * `<body>`. That is fine until the host's body doesn't scroll — which is the
+ * default shape of every dashboard shell, chat UI, editor, and map app, all of
+ * which set `overflow: hidden` on body and scroll their own inner regions. In
+ * such a host the dashboard renders, looks correct above the fold, and silently
+ * strands everything below it: no error, no warning, HTTP 200.
+ *
+ * `fixed` is what fixes it. It escapes the host's `overflow: hidden` and any
+ * ancestor height constraint, and unlike a `min-h-dvh` wrapper it does not
+ * depend on the host having given `<body>` a usable height. It also supplies
+ * the background the dashboard's own cards assume, so the host's wallpaper
+ * stops showing through behind them.
+ *
+ * Caveat: `position: fixed` is defeated by an ancestor that establishes a
+ * containing block (`transform`, `filter`, `contain`, `will-change`). That is
+ * rare this close to the root, and `shell: false` is the escape hatch when it
+ * happens — see docs/SETUP.md for the fully isolated route-group layout.
+ */
+function PolishdShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[2147483000] overflow-y-auto overscroll-contain bg-[#050505]">
+      {children}
+    </div>
+  );
 }
 
-let warnedUnguarded = false;
+/**
+ * The scope root for the shipped stylesheet.
+ *
+ * `dist/dashboard.css` scopes every rule to `.polishd-root`, so nothing in it
+ * can reach the host app's markup. This element deliberately carries no utility
+ * classes of its own: keeping it a bare wrapper is what makes plain descendant
+ * scoping complete, and halves the size of the generated selectors.
+ *
+ * Rendered whether or not the shell is used, since the stylesheet is scoped
+ * either way.
+ */
+function PolishdRoot({ children }: { children: ReactNode }) {
+  return <div className="polishd-root">{children}</div>;
+}
+
+/**
+ * Props Next passes to a page. Only `searchParams` is used — the unlock form
+ * reports failures through the URL so the whole flow stays server-rendered,
+ * with no client component and no token in the query string.
+ */
+export interface PolishdPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export interface CreatePolishdPageOptions {
+  /**
+   * Gate access to the dashboard. Return `true` to allow.
+   *
+   * Receives the request's cookies and headers, so the callback is an ordinary
+   * function of its inputs rather than something that only works inside a
+   * request. A zero-argument callback is still valid and unchanged.
+   *
+   * If omitted, POLISHD_DASHBOARD_TOKEN guards the dashboard when set;
+   * otherwise it renders unguarded in development and refuses in production.
+   */
+  authenticate?: PolishdAuthenticate;
+  /**
+   * Rendered when `authenticate` resolves false. Defaults to a minimal screen,
+   * or to the token unlock form when `POLISHD_DASHBOARD_TOKEN` is in use.
+   */
+  unauthorized?: ReactNode;
+  /** Tune the built-in token auth (mount path, grant lifetime). */
+  tokenAuth?: PolishdTokenAuthOptions;
+  /**
+   * Render the dashboard in a self-contained shell that supplies its own
+   * background and scroll container, so host `body` styles can't strand
+   * content below the fold. Set false to inherit the host page instead.
+   * @default true
+   */
+  shell?: boolean;
+}
+
+/**
+ * The unlock prompt shown when `POLISHD_DASHBOARD_TOKEN` guards the dashboard.
+ *
+ * A form rather than a link with the token in the query string: a URL-borne
+ * secret leaks through browser history, server logs, and the `Referer` header
+ * of every outbound request the page makes. This posts to a server action,
+ * which is the only place in a React Server Components app that can set a
+ * cookie, and the address bar never holds the token at all.
+ */
+function TokenUnlock({ error }: { error?: "invalid" | "rate" }) {
+  return (
+    <main className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center px-6 text-white">
+      <p className={label}>Polishd</p>
+      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Dashboard locked</h1>
+      <p className="mt-2 text-[13px] text-[#888]">
+        Enter the dashboard token to continue.
+      </p>
+      <form action={unlockPolishdDashboard} className="mt-5">
+        <input
+          type="password"
+          name="token"
+          autoComplete="off"
+          autoFocus
+          placeholder="Dashboard token"
+          aria-label="Dashboard token"
+          className={`w-full rounded-lg border ${border} bg-[#0a0a0a] px-3 py-2 text-[13px] text-white placeholder:text-[#555] focus:border-[#555] focus:outline-none`}
+        />
+        {error && (
+          <p role="alert" className="mt-2 text-[12px] text-red-400">
+            {error === "rate"
+              ? "Too many attempts. Wait a minute and try again."
+              : "That token isn't right."}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-[13px] font-medium text-black transition-opacity hover:opacity-90"
+        >
+          Unlock
+        </button>
+      </form>
+      <p className="mt-5 text-[12px] leading-relaxed text-[#555]">
+        The token is the value of{" "}
+        <code className="font-mono">POLISHD_DASHBOARD_TOKEN</code> in your deployment
+        environment.
+      </p>
+    </main>
+  );
+}
+
+/** Shown in production when the host never made an access decision. */
+function SetupRequired() {
+  return (
+    <main className="mx-auto flex min-h-[60vh] max-w-lg flex-col justify-center px-6 text-white">
+      <p className={label}>Polishd</p>
+      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Dashboard locked</h1>
+      <p className="mt-2 text-[13px] leading-relaxed text-[#888]">
+        This dashboard is unprotected and running in production, so Polishd is refusing to serve
+        it. It exposes your analytics, and its settings can change the model and API base URL —
+        which means anyone who finds this URL can point your requests at their own endpoint and
+        spend your API key.
+      </p>
+      <p className="mt-4 text-[13px] text-[#888]">Choose one:</p>
+      <ul className="mt-2 space-y-2 text-[13px] text-[#888]">
+        <li>
+          Set a token — no code needed:{" "}
+          <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_TOKEN</code>
+          <span className="mt-0.5 block text-[12px] text-[#555]">
+            Generate one with <code className="font-mono">openssl rand -hex 32</code>.
+          </span>
+        </li>
+        <li>
+          Or pass your app's own check:{" "}
+          <code className="font-mono text-[#aaa]">createPolishdPage(&#123; authenticate &#125;)</code>
+        </li>
+        <li>
+          Or make it public on purpose:{" "}
+          <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_PUBLIC=true</code>
+        </li>
+      </ul>
+      <p className="mt-4 text-[12px] text-[#555]">
+        Local development is unaffected — this only applies when{" "}
+        <code className="font-mono">NODE_ENV=production</code>.
+      </p>
+    </main>
+  );
+}
+
+/**
+ * Decide the access policy from the host's configuration and environment.
+ *
+ * The default used to be `open` everywhere, which meant the dashboard shipped
+ * unguarded to production unless the host thought to stop it. Nothing is
+ * silently locked in development, where an open dashboard is harmless; the
+ * change is that production now requires the host to have said something,
+ * either by wiring a check or by opting out in so many words.
+ */
+function resolvePolicy(opts: CreatePolishdPageOptions): PolishdAuthPolicy {
+  if (opts.authenticate) return { mode: "guarded", authenticate: opts.authenticate };
+  // A configured token is a decision, so honour it without being asked to.
+  // Setting the env var is the entire integration for a host with no auth of
+  // its own — there is nothing to import and no page to edit.
+  if (polishdDashboardToken()) {
+    return { mode: "guarded", authenticate: polishdTokenAuth(opts.tokenAuth) };
+  }
+  if (process.env.NODE_ENV === "production" && process.env.POLISHD_DASHBOARD_PUBLIC !== "true") {
+    return { mode: "setup-required" };
+  }
+  return { mode: "open" };
+}
+
+let announcedPolicy = false;
+
+/** Say what was decided, once, at module evaluation. */
+function announcePolicy(policy: PolishdAuthPolicy): void {
+  if (announcedPolicy) return;
+  announcedPolicy = true;
+  const production = process.env.NODE_ENV === "production";
+  if (policy.mode === "setup-required") {
+    console.warn(
+      "[polishd] dashboard is locked: running in production with no `authenticate` " +
+        "callback. Pass one to createPolishdPage(), or set POLISHD_DASHBOARD_PUBLIC=true " +
+        "to serve it publicly on purpose.",
+    );
+  } else if (policy.mode === "open") {
+    // Deliberately not suppressed in production. Production is the *only*
+    // environment where an unguarded dashboard is actionable news; warning
+    // solely on the developer's laptop, where it is harmless, was backwards.
+    console.warn(
+      `[polishd] dashboard is unguarded${production ? " IN PRODUCTION" : ""} — anyone who ` +
+        "finds the URL can read your analytics, change the configured model and API base " +
+        "URL, and spend your model tokens. Pass `authenticate` to createPolishdPage().",
+    );
+  }
+}
 
 /**
  * Build the dashboard page component. Use as the default export of your
@@ -557,21 +813,38 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   // Register the policy at module evaluation, not per render: the AI server
   // actions are reachable without this page ever rendering, and they re-run
   // `authenticate` themselves before doing any work. See ai/guard.ts.
-  registerPolishdAuth(
-    opts.authenticate
-      ? { mode: "guarded", authenticate: opts.authenticate }
-      : { mode: "open" },
+  const policy = resolvePolicy(opts);
+  registerPolishdAuth(policy);
+  announcePolicy(policy);
+
+  // Applied to the unauthorized screen as well: a sign-in prompt stranded
+  // below a non-scrolling fold is the same bug with higher stakes.
+  const wrap = (node: ReactNode) => (
+    <PolishdRoot>
+      {opts.shell === false ? node : <PolishdShell>{node}</PolishdShell>}
+    </PolishdRoot>
   );
 
-  return async function PolishdPage() {
-    if (opts.authenticate) {
-      const ok = await opts.authenticate();
-      if (!ok) return <>{opts.unauthorized ?? <Unauthorized />}</>;
-    } else if (!warnedUnguarded && process.env.NODE_ENV !== "production") {
-      warnedUnguarded = true;
-      console.warn(
-        "[polishd] dashboard is unguarded — pass `authenticate` to createPolishdPage() to protect it.",
-      );
+  // Whether the *package* is supplying the gate, which is what decides between
+  // the unlock form and the "wire up your own UI" placeholder.
+  const usingTokenAuth = !opts.authenticate && polishdDashboardToken() !== null;
+
+  return async function PolishdPage(props: PolishdPageProps = {}) {
+    if (policy.mode === "setup-required") return wrap(<SetupRequired />);
+    if (policy.mode === "guarded") {
+      const ok = await policy.authenticate(await polishdAuthContext());
+      if (!ok) {
+        if (opts.unauthorized) return wrap(opts.unauthorized);
+        if (usingTokenAuth) {
+          const sp = props.searchParams ? await props.searchParams : {};
+          const raw = sp.polishd_unlock;
+          const code = Array.isArray(raw) ? raw[0] : raw;
+          return wrap(
+            <TokenUnlock error={code === "rate" || code === "invalid" ? code : undefined} />,
+          );
+        }
+        return wrap(<Unauthorized />);
+      }
     }
 
     const data = await loadPolishdDashboardData();
@@ -609,7 +882,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       }
     }
 
-    return (
+    return wrap(
       <PolishdDashboard
         data={data}
         ai={{
@@ -620,7 +893,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
           gaps: profileState.gaps,
           sourceAvailable: profileState.sourceAvailable,
         }}
-      />
+      />,
     );
   };
 }
