@@ -248,6 +248,11 @@ export default definePolishdConfig({
 });
 ```
 
+The dashboard never measures itself: nothing on `/polishd` (or below it) is
+captured, so reading your analytics can't show up as your site's most-used
+feature. Moved the dashboard elsewhere? Set `dashboardRoute` and pass the
+config to `createPolishdRoute(config)` too.
+
 ```ts
 // src/instrumentation-client.ts
 import { initPolishd } from "@polishd/next/client";

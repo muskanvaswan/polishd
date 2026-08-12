@@ -10,7 +10,44 @@
  * spelled `SUM(CASE WHEN … THEN 1 ELSE 0 END)` rather than SQLite's `SUM(x = y)`.
  */
 import { parseMeta, query, storeReady } from "./store";
+import { defaultPolishdConfig } from "../config";
 import type { PolishdEventType } from "../shared/types";
+
+/**
+ * The events table with the dashboard's own route filtered out, aliased back to
+ * `events` so every query below reads from it unchanged.
+ *
+ * Capture already skips the dashboard on both the client and the ingest
+ * endpoint, so this is what hides rows recorded *before* that landed — an
+ * existing install shouldn't have to wipe its database to stop seeing its own
+ * dashboard ranked as the site's busiest page.
+ *
+ * The route is inlined rather than bound as a parameter because these queries
+ * mix positional `?` params in query-specific orders, and a shared leading
+ * param would have to be threaded through every call site. It's a
+ * developer-set config value rather than user input, and the comparison is
+ * `substr`-based so there are no LIKE wildcards to escape.
+ *
+ * Note this reads the *default* route. Unlike the client and the ingest
+ * endpoint, the read side has no per-call config to consult — these queries are
+ * public API called with no arguments, and Next gives a page no way to learn
+ * its own mount path. So an app that moved the dashboard off `/polishd` still
+ * stops collecting correctly (client and ingest both honor its config), but
+ * here it would keep showing pre-upgrade rows from its real route while hiding
+ * any it has at `/polishd`. Both only matter for data captured before the
+ * upgrade, and only for a non-default route.
+ */
+const EVENTS = (() => {
+  const route = defaultPolishdConfig.dashboardRoute.replace(/\/+$/, "");
+  // A blank route means "exclude nothing" — without this guard the prefix test
+  // below would match every path, and the dashboard would render permanently empty.
+  if (!route) return "events";
+  const literal = `'${route.replace(/'/g, "''")}'`;
+  const prefix = `'${`${route}/`.replace(/'/g, "''")}'`;
+  return `(SELECT * FROM events
+     WHERE path <> ${literal}
+       AND substr(path, 1, ${route.length + 1}) <> ${prefix}) AS events`;
+})();
 
 export interface OverviewStats {
   ready: boolean;
@@ -118,7 +155,7 @@ export async function getOverview(): Promise<OverviewStats> {
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)          AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)          AS "deadClicks",
        SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)          AS "jsErrors"
-     FROM events`,
+     FROM ${EVENTS}`,
   );
 
   return {
@@ -147,7 +184,7 @@ export async function getPageStats(limit = 5): Promise<PageStat[]> {
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)           AS "deadClicks",
        SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)           AS "jsErrors",
        AVG(CASE WHEN type = 'scroll_depth' THEN value END)            AS "avgScrollDepth"
-     FROM events
+     FROM ${EVENTS}
      GROUP BY path`,
   );
 
@@ -235,7 +272,7 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)           AS "deadClicks",
        SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)           AS "jsErrors",
        AVG(CASE WHEN type = 'scroll_depth' THEN value END)            AS "avgScrollDepth"
-     FROM events
+     FROM ${EVENTS}
      GROUP BY path`,
   );
 
@@ -264,7 +301,7 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
   const placeholders = paths.map(() => "?").join(", ");
   const views = await query(
     `SELECT path, ts, session_id
-     FROM events
+     FROM ${EVENTS}
      WHERE type = 'page_view' AND path IN (${placeholders})`,
     paths,
   );
@@ -319,7 +356,7 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)             AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)             AS "deadClicks",
        MAX(ts)                                                          AS "lastTs"
-     FROM events
+     FROM ${EVENTS}
      WHERE type IN ('click', 'rage_click', 'dead_click') AND component IS NULL
      GROUP BY COALESCE(selector, '(unknown)')`,
   );
@@ -358,7 +395,7 @@ export async function getDeviceBreakdown(): Promise<DeviceBucket[]> {
        text                        AS category,
        COUNT(DISTINCT session_id)  AS sessions,
        AVG(value)                  AS "avgWidth"
-     FROM events
+     FROM ${EVENTS}
      WHERE type = 'viewport' AND text IS NOT NULL
      GROUP BY text`,
   );
@@ -398,7 +435,7 @@ export async function getTopInteractions(limit = 12): Promise<TopInteraction[]> 
        COUNT(*)                                               AS clicks,
        COUNT(DISTINCT session_id)                             AS sessions,
        COUNT(DISTINCT path)                                   AS pages
-     FROM events
+     FROM ${EVENTS}
      WHERE type = 'click'
      GROUP BY COALESCE(component, selector, '(unknown)')`,
   );
@@ -503,7 +540,7 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
        MAX(CASE WHEN type = 'session_end' THEN 1 ELSE 0 END)         AS complete,
        SUM(CASE WHEN type IN ('page_view','click','rage_click','dead_click')
                 THEN 1 ELSE 0 END)                                   AS actions
-     FROM events
+     FROM ${EVENTS}
      GROUP BY session_id`,
   );
 
@@ -542,7 +579,7 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
   const placeholders = ids.map(() => "?").join(", ");
   const rows = await query(
     `SELECT session_id, type, ts, path, selector, component, text, value, meta
-     FROM events
+     FROM ${EVENTS}
      WHERE session_id IN (${placeholders})
      ORDER BY session_id, id`,
     ids,
@@ -673,9 +710,9 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
        AVG(CASE WHEN type = 'component_view'  THEN value END)                AS "avgViewMs",
        COUNT(DISTINCT session_id)                                             AS sessions,
        COUNT(DISTINCT path)                                                   AS pages
-     FROM events
+     FROM ${EVENTS}
      WHERE component IN (
-       SELECT DISTINCT component FROM events
+       SELECT DISTINCT component FROM ${EVENTS}
        WHERE type IN ('hover', 'component_view', 'mount') AND component IS NOT NULL
      )
      GROUP BY component
@@ -691,7 +728,7 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
   const names = rows.map((r) => r.name as string);
   const placeholders = names.map(() => "?").join(", ");
   const viewRows = await query(
-    `SELECT component, meta FROM events
+    `SELECT component, meta FROM ${EVENTS}
      WHERE type = 'component_view' AND component IN (${placeholders})`,
     names,
   );
@@ -771,7 +808,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
   const rows = await query(
     `SELECT path, component, meta, ts
-     FROM events WHERE type = 'js_error'
+     FROM ${EVENTS} WHERE type = 'js_error'
      ORDER BY id DESC LIMIT ?`,
     [limit],
   );

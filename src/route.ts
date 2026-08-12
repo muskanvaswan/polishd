@@ -30,7 +30,7 @@ export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
     }
 
     const cookieValue = req.cookies.get(cfg.sessionCookie)?.value;
-    const result = await ingest(body, cookieValue);
+    const result = await ingest(body, cookieValue, cfg);
 
     // Always succeed for valid requests so the beacon never retries on the
     // client; real failures (bad payloads) return 4xx above.
