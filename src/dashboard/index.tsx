@@ -25,6 +25,12 @@ import {
   type MonitoredComponent,
 } from "../server/queries";
 import { registerPolishdAuth, type PolishdAuthPolicy } from "../ai/guard";
+import {
+  polishdDashboardToken,
+  polishdTokenAuth,
+  type PolishdTokenAuthOptions,
+} from "./token-auth";
+import { unlockPolishdDashboard } from "./unlock";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import type {
@@ -230,6 +236,14 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
 // the AI summary layer can share them without importing React; re-export for
 // any existing callers of this module.
 export { loadPolishdDashboardData, type PolishdDashboardData } from "../server/queries";
+
+// Named explicitly by hosts that want token auth alongside their own options;
+// `createPolishdPage()` already applies it when POLISHD_DASHBOARD_TOKEN is set.
+export {
+  polishdTokenAuth,
+  POLISHD_DASHBOARD_COOKIE,
+  type PolishdTokenAuthOptions,
+} from "./token-auth";
 
 /** The AI summary card's server-loaded inputs. */
 export interface PolishdAIBundle {
@@ -598,14 +612,28 @@ function PolishdShell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Props Next passes to a page. Only `searchParams` is used — the unlock form
+ * reports failures through the URL so the whole flow stays server-rendered,
+ * with no client component and no token in the query string.
+ */
+export interface PolishdPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
 export interface CreatePolishdPageOptions {
   /**
    * Gate access to the dashboard. Return `true` to allow. If omitted the
    * dashboard renders unguarded (a dev-only console warning is logged).
    */
   authenticate?: () => boolean | Promise<boolean>;
-  /** Rendered when `authenticate` resolves false. Defaults to a minimal screen. */
+  /**
+   * Rendered when `authenticate` resolves false. Defaults to a minimal screen,
+   * or to the token unlock form when `POLISHD_DASHBOARD_TOKEN` is in use.
+   */
   unauthorized?: ReactNode;
+  /** Tune the built-in token auth (mount path, grant lifetime). */
+  tokenAuth?: PolishdTokenAuthOptions;
   /**
    * Render the dashboard in a self-contained shell that supplies its own
    * background and scroll container, so host `body` styles can't strand
@@ -613,6 +641,56 @@ export interface CreatePolishdPageOptions {
    * @default true
    */
   shell?: boolean;
+}
+
+/**
+ * The unlock prompt shown when `POLISHD_DASHBOARD_TOKEN` guards the dashboard.
+ *
+ * A form rather than a link with the token in the query string: a URL-borne
+ * secret leaks through browser history, server logs, and the `Referer` header
+ * of every outbound request the page makes. This posts to a server action,
+ * which is the only place in a React Server Components app that can set a
+ * cookie, and the address bar never holds the token at all.
+ */
+function TokenUnlock({ error }: { error?: "invalid" | "rate" }) {
+  return (
+    <main className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center px-6 text-white">
+      <p className={label}>Polishd</p>
+      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Dashboard locked</h1>
+      <p className="mt-2 text-[13px] text-[#888]">
+        Enter the dashboard token to continue.
+      </p>
+      <form action={unlockPolishdDashboard} className="mt-5">
+        <input
+          type="password"
+          name="token"
+          autoComplete="off"
+          autoFocus
+          placeholder="Dashboard token"
+          aria-label="Dashboard token"
+          className={`w-full rounded-lg border ${border} bg-[#0a0a0a] px-3 py-2 text-[13px] text-white placeholder:text-[#555] focus:border-[#555] focus:outline-none`}
+        />
+        {error && (
+          <p role="alert" className="mt-2 text-[12px] text-red-400">
+            {error === "rate"
+              ? "Too many attempts. Wait a minute and try again."
+              : "That token isn't right."}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-[13px] font-medium text-black transition-opacity hover:opacity-90"
+        >
+          Unlock
+        </button>
+      </form>
+      <p className="mt-5 text-[12px] leading-relaxed text-[#555]">
+        The token is the value of{" "}
+        <code className="font-mono">POLISHD_DASHBOARD_TOKEN</code> in your deployment
+        environment.
+      </p>
+    </main>
+  );
 }
 
 /** Shown in production when the host never made an access decision. */
@@ -630,7 +708,14 @@ function SetupRequired() {
       <p className="mt-4 text-[13px] text-[#888]">Choose one:</p>
       <ul className="mt-2 space-y-2 text-[13px] text-[#888]">
         <li>
-          Pass your app's own check:{" "}
+          Set a token — no code needed:{" "}
+          <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_TOKEN</code>
+          <span className="mt-0.5 block text-[12px] text-[#555]">
+            Generate one with <code className="font-mono">openssl rand -hex 32</code>.
+          </span>
+        </li>
+        <li>
+          Or pass your app's own check:{" "}
           <code className="font-mono text-[#aaa]">createPolishdPage(&#123; authenticate &#125;)</code>
         </li>
         <li>
@@ -657,6 +742,12 @@ function SetupRequired() {
  */
 function resolvePolicy(opts: CreatePolishdPageOptions): PolishdAuthPolicy {
   if (opts.authenticate) return { mode: "guarded", authenticate: opts.authenticate };
+  // A configured token is a decision, so honour it without being asked to.
+  // Setting the env var is the entire integration for a host with no auth of
+  // its own — there is nothing to import and no page to edit.
+  if (polishdDashboardToken()) {
+    return { mode: "guarded", authenticate: polishdTokenAuth(opts.tokenAuth) };
+  }
   if (process.env.NODE_ENV === "production" && process.env.POLISHD_DASHBOARD_PUBLIC !== "true") {
     return { mode: "setup-required" };
   }
@@ -705,11 +796,26 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   const wrap = (node: ReactNode) =>
     opts.shell === false ? <>{node}</> : <PolishdShell>{node}</PolishdShell>;
 
-  return async function PolishdPage() {
+  // Whether the *package* is supplying the gate, which is what decides between
+  // the unlock form and the "wire up your own UI" placeholder.
+  const usingTokenAuth = !opts.authenticate && polishdDashboardToken() !== null;
+
+  return async function PolishdPage(props: PolishdPageProps = {}) {
     if (policy.mode === "setup-required") return wrap(<SetupRequired />);
     if (policy.mode === "guarded") {
       const ok = await policy.authenticate();
-      if (!ok) return wrap(opts.unauthorized ?? <Unauthorized />);
+      if (!ok) {
+        if (opts.unauthorized) return wrap(opts.unauthorized);
+        if (usingTokenAuth) {
+          const sp = props.searchParams ? await props.searchParams : {};
+          const raw = sp.polishd_unlock;
+          const code = Array.isArray(raw) ? raw[0] : raw;
+          return wrap(
+            <TokenUnlock error={code === "rate" || code === "invalid" ? code : undefined} />,
+          );
+        }
+        return wrap(<Unauthorized />);
+      }
     }
 
     const data = await loadPolishdDashboardData();
