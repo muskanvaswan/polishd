@@ -46,6 +46,7 @@ verify live that the session cookie is minted and events actually store.
 | **[docs/SETUP.md](./docs/SETUP.md)** | Full walkthrough — every variant, verification, troubleshooting |
 | **[AGENTS.md](./AGENTS.md)** | Install procedure written for AI coding agents |
 | **[DATABASE.md](./DATABASE.md)** | Production database setup, schema, retention |
+| **[CHANGELOG.md](./CHANGELOG.md)** | Release notes — **start here if you're upgrading from 0.1.x** |
 
 ## Requirements
 
