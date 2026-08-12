@@ -56,10 +56,24 @@
     color: #fff;
   }
 
+  /*
+   * The same zeroing a global preflight does, but confined to the dashboard's
+   * subtree — which is the whole difference. Applied to `*` rather than an
+   * element list because UA defaults turn up in places a list forgets: the
+   * padding Chromium puts on `<option>` was the last thing making the dashboard
+   * render differently in a host that had Tailwind versus one that didn't.
+   *
+   * Spacing utilities are (0,3,0) after the build's scope doubling and this is
+   * (0,2,0), so every deliberate margin and padding still wins.
+   */
   .polishd-root *,
   .polishd-root *::before,
-  .polishd-root *::after {
+  .polishd-root *::after,
+  .polishd-root ::backdrop,
+  .polishd-root ::file-selector-button {
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
     border: 0 solid;
   }
 
