@@ -10,8 +10,9 @@
  * boolean before anything reaches the client.
  */
 import { getMeta, setMeta } from "../server/store";
-import { DEFAULT_MODEL } from "./providers";
+import { DEFAULT_MODEL, listModels } from "./providers";
 import type {
+  ListModelsResult,
   PolishdAIProvider,
   PolishdAISettings,
   PolishdAISettingsPublic,
@@ -199,4 +200,50 @@ export async function saveAISettings(
 
   await setMeta(SETTINGS_KEY, JSON.stringify(next));
   return getAISettingsPublic();
+}
+
+/** Fields the dashboard sends when asking a provider which models are available. */
+export interface ListModelsInput {
+  provider?: string;
+  /** Typed-but-unsaved key from the form. Falls back to the stored key when blank. */
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+/**
+ * List the models available to the given (or stored) key, so the dashboard
+ * can render a dropdown instead of a free-text model id. The stored key is
+ * only reused when its saved provider matches the requested one — a key
+ * saved for Anthropic is never sent to Google, even accidentally.
+ */
+export async function listModelsForProvider(input: ListModelsInput): Promise<ListModelsResult> {
+  const provider = coerceProvider(input.provider);
+  if (!provider) {
+    return { ok: false, error: "bad-provider", message: "Unrecognized provider." };
+  }
+
+  let apiKey = input.apiKey?.trim();
+  if (!apiKey) {
+    const { settings } = await resolveSettings();
+    if (settings.provider === provider && settings.apiKey) apiKey = settings.apiKey;
+  }
+  if (!apiKey) {
+    return { ok: false, error: "no-key", message: "Add an API key first." };
+  }
+
+  try {
+    const models = await listModels({
+      provider,
+      model: "",
+      apiKey,
+      baseUrl: input.baseUrl?.trim() || undefined,
+    });
+    return { ok: true, models };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "provider-error",
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

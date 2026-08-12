@@ -15,12 +15,13 @@
  * the server-side cadence refresh. The API key is write-only: we never receive
  * it back, only a "configured" flag.
  */
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 
 import {
   createIssueFromLossAction,
   generateProfileAction,
   generateSummaryAction,
+  listModelsAction,
   saveAISettingsAction,
   verifyGithubAction,
 } from "../ai/actions";
@@ -136,6 +137,127 @@ function GearIcon() {
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
+  );
+}
+
+// ── Model field ──────────────────────────────────────────────────────────────
+/**
+ * The "Model" input, shared by the onboarding wizard and the settings panel.
+ * Starts as free text (any provider works this way). If the provider exposes
+ * a list-models endpoint and a usable key is available (typed in this form,
+ * or already stored for this same provider), a "Load available models" link
+ * fetches the live list and swaps the input for a dropdown — so the owner
+ * picks from what their key can actually call instead of guessing an id.
+ */
+function ModelField({
+  provider,
+  model,
+  onModel,
+  apiKey,
+  baseUrl,
+  hasStoredKey,
+}: {
+  provider: PolishdAIProvider;
+  model: string;
+  onModel: (m: string) => void;
+  /** Key typed into this form (may be blank — falls back to the stored one). */
+  apiKey: string;
+  baseUrl: string;
+  /** True when a saved key exists for this exact provider. */
+  hasStoredKey: boolean;
+}) {
+  const [models, setModels] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startLoad] = useTransition();
+  const prov = PROVIDERS.find((p) => p.value === provider);
+
+  // A fetched list is provider-specific — drop it the moment the provider
+  // changes so a stale Gemini list can't linger under "OpenAI".
+  useEffect(() => {
+    setModels(null);
+    setError(null);
+  }, [provider]);
+
+  const needsBaseUrl = provider === "openai-compatible" && !baseUrl.trim();
+  const canFetch = (apiKey.trim().length > 0 || hasStoredKey) && !needsBaseUrl;
+
+  const load = () => {
+    if (!canFetch || pending) return;
+    setError(null);
+    startLoad(async () => {
+      const res = await listModelsAction({
+        provider,
+        apiKey: apiKey.trim() || undefined,
+        baseUrl: baseUrl.trim() || undefined,
+      });
+      if (res.ok) {
+        setModels(res.models);
+        if (res.models.length > 0 && !res.models.includes(model)) onModel(res.models[0]);
+      } else {
+        setError(res.message);
+      }
+    });
+  };
+
+  // Auto-load once when a stored key already covers this provider — most
+  // visits land here with nothing to type, so the dropdown should just work.
+  useEffect(() => {
+    if (hasStoredKey && models === null && !pending) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasStoredKey]);
+
+  return (
+    <label className="block">
+      <span className={labelCls}>Model</span>
+      {models && models.length > 0 ? (
+        <>
+          <select
+            value={model}
+            onChange={(e) => onModel(e.target.value)}
+            className={`${inputCls} mt-1.5 font-mono`}
+          >
+            {!models.includes(model) && model && <option value={model}>{model}</option>}
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setModels(null)}
+            className="mt-1 text-[11px] text-[#555] hover:text-[#888]"
+          >
+            Type a different model id
+          </button>
+        </>
+      ) : (
+        <>
+          <input
+            value={model}
+            onChange={(e) => onModel(e.target.value)}
+            placeholder={prov?.modelHint}
+            className={`${inputCls} mt-1.5 font-mono`}
+          />
+          <button
+            type="button"
+            onClick={load}
+            disabled={!canFetch || pending}
+            title={
+              needsBaseUrl
+                ? "Add a base URL first"
+                : canFetch
+                  ? "Fetch the list of models available to this key"
+                  : "Add an API key first"
+            }
+            className="mt-1 text-[11px] text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
+          >
+            {pending ? "Loading models…" : "Load available models"}
+          </button>
+          {error && <span className="mt-1 block text-[11px] text-red-400">{error}</span>}
+        </>
+      )}
+    </label>
   );
 }
 
@@ -639,15 +761,14 @@ function OnboardingWizard({
                 ))}
               </select>
             </label>
-            <label className="block">
-              <span className={labelCls}>Model</span>
-              <input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={prov?.modelHint}
-                className={`${inputCls} mt-1.5 font-mono`}
-              />
-            </label>
+            <ModelField
+              provider={provider}
+              model={model}
+              onModel={setModel}
+              apiKey={apiKey}
+              baseUrl={baseUrl}
+              hasStoredKey={settings.hasApiKey && settings.provider === provider}
+            />
             <label className="block sm:col-span-2">
               <span className={labelCls}>API key</span>
               <input
@@ -1043,7 +1164,6 @@ function SettingsPanel({
   const [pending, startSave] = useTransition();
 
   const prov = PROVIDERS.find((p) => p.value === provider);
-  const modelHint = prov?.modelHint ?? "";
 
   const save = () => {
     setSaved(false);
@@ -1088,15 +1208,14 @@ function SettingsPanel({
           </select>
         </label>
 
-        <label className="block">
-          <span className={labelCls}>Model</span>
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder={modelHint}
-            className={`${inputCls} mt-1.5 font-mono`}
-          />
-        </label>
+        <ModelField
+          provider={provider}
+          model={model}
+          onModel={setModel}
+          apiKey={apiKey}
+          baseUrl={baseUrl}
+          hasStoredKey={settings.hasApiKey && settings.provider === provider}
+        />
 
         <label className="block">
           <span className={labelCls}>API key</span>

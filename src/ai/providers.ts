@@ -78,6 +78,27 @@ function num(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
+async function getJson(url: string, headers: Record<string, string>): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "GET", headers });
+  } catch (err) {
+    throw new ProviderError(
+      `network error contacting model provider: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const raw = await res.text();
+  if (!res.ok) {
+    const detail = raw.slice(0, 300).replace(/\s+/g, " ").trim();
+    throw new ProviderError(`provider returned ${res.status}: ${detail}`);
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new ProviderError("provider returned a non-JSON response");
+  }
+}
+
 // ── Anthropic Messages API ───────────────────────────────────────────────────
 async function callAnthropic(
   s: PolishdAISettings,
@@ -185,6 +206,69 @@ async function callGoogle(
       outputTokens: num(data.usageMetadata?.candidatesTokenCount),
     },
   };
+}
+
+// ── Model listing ─────────────────────────────────────────────────────────────
+// Lets the dashboard offer a dropdown instead of a free-text model id, using
+// whichever key the owner already entered. Best-effort: any provider that
+// doesn't support (or rejects) this call still works fine as a text field.
+
+async function listAnthropicModels(s: PolishdAISettings): Promise<string[]> {
+  const data = (await getJson("https://api.anthropic.com/v1/models?limit=1000", {
+    "x-api-key": s.apiKey,
+    "anthropic-version": "2023-06-01",
+  })) as { data?: { id?: string }[] };
+  return (data.data ?? [])
+    .map((m) => m.id)
+    .filter((id): id is string => !!id)
+    .sort();
+}
+
+async function listOpenAIModels(s: PolishdAISettings): Promise<string[]> {
+  const base = s.baseUrl?.replace(/\/$/, "") || "https://api.openai.com/v1";
+  const data = (await getJson(`${base}/models`, {
+    authorization: `Bearer ${s.apiKey}`,
+  })) as { data?: { id?: string }[] };
+  const ids = (data.data ?? []).map((m) => m.id).filter((id): id is string => !!id);
+  // The endpoint also lists embeddings/whisper/tts/moderation models — this
+  // package only ever sends chat completions, so prefer chat-shaped ids when
+  // we can tell the difference. Falls back to the full list otherwise (e.g.
+  // OpenAI-compatible proxies whose ids don't follow this convention).
+  const chatLike = ids.filter(
+    (id) =>
+      /^(gpt-|o[1-9]|chatgpt)/i.test(id) &&
+      !/embedding|whisper|tts|audio|moderation|dall-e/i.test(id),
+  );
+  return (chatLike.length > 0 ? chatLike : ids).sort();
+}
+
+async function listGoogleModels(s: PolishdAISettings): Promise<string[]> {
+  const data = (await getJson(
+    `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(
+      s.apiKey,
+    )}`,
+    {},
+  )) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] };
+  return (data.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => (m.name ?? "").replace(/^models\//, ""))
+    .filter(Boolean)
+    .sort();
+}
+
+/** List model ids available to `settings.apiKey` for its provider. Throws `ProviderError` on failure. */
+export async function listModels(settings: PolishdAISettings): Promise<string[]> {
+  switch (settings.provider) {
+    case "anthropic":
+      return listAnthropicModels(settings);
+    case "openai":
+    case "openai-compatible":
+      return listOpenAIModels(settings);
+    case "google":
+      return listGoogleModels(settings);
+    default:
+      throw new ProviderError(`unknown provider: ${settings.provider}`);
+  }
 }
 
 function dispatch(
