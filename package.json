@@ -28,6 +28,7 @@
     "url": "https://github.com/muskanvaswan/polishd/issues"
   },
   "files": [
+    "bin",
     "dist",
     "docs",
     "AGENTS.md",
@@ -36,7 +37,7 @@
     "LICENSE"
   ],
   "bin": {
-    "polishd": "./bin/init.mjs"
+    "polishd": "./bin/polishd.mjs"
   },
   "exports": {
     ".": {
