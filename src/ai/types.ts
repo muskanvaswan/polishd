@@ -183,3 +183,15 @@ export type GithubError =
   | "not-connected" // no token / repo configured
   | "not-a-bug" // source verification disproved the report — nothing filed
   | "github-error"; // the GitHub API call failed
+
+// ── Model listing ────────────────────────────────────────────────────────────
+
+/** Result of asking a provider which models are available to the configured key. */
+export type ListModelsResult =
+  | { ok: true; models: string[] }
+  | { ok: false; error: ListModelsError; message: string };
+
+export type ListModelsError =
+  | "bad-provider" // unrecognized provider value
+  | "no-key" // no API key available (neither typed nor stored for this provider)
+  | "provider-error"; // the provider's list-models call failed

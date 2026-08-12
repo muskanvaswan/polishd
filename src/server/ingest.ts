@@ -5,7 +5,7 @@
  * store. The session id is taken from the request's cookie, never from the
  * body, so events are always attributed to the bearer of the cookie.
  */
-import { defaultPolishdConfig } from "../config";
+import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { getMeta, insertEvents, setMeta } from "./store";
 
@@ -107,25 +107,38 @@ function sanitize(raw: unknown): PolishdEvent | null {
   return out;
 }
 
-/** Ingest a raw request body. `cookieValue` is the session cookie's value. */
+/**
+ * Ingest a raw request body. `cookieValue` is the session cookie's value.
+ *
+ * `config` carries the host app's overrides (the route handler forwards what it
+ * was built with) so `enabled` and `dashboardRoute` mean the same thing here as
+ * they do in the browser. It falls back to the defaults when omitted.
+ */
 export async function ingest(
   body: unknown,
   cookieValue: string | undefined,
+  config: Partial<PolishdConfig> = {},
 ): Promise<IngestResult> {
+  const cfg = { ...defaultPolishdConfig, ...config };
   const sessionId = sessionIdFromCookie(cookieValue);
   if (!sessionId) {
     await recordNoSession();
     return { ok: true, stored: 0, reason: "no_session" };
   }
-  if (!defaultPolishdConfig.enabled) return { ok: true, stored: 0, reason: "disabled" };
+  if (!cfg.enabled) return { ok: true, stored: 0, reason: "disabled" };
 
   const rawEvents = (body as { events?: unknown })?.events;
   if (!Array.isArray(rawEvents)) return { ok: false, stored: 0, reason: "no_events" };
 
+  // The client already drops the dashboard's own traffic; this is the copy of
+  // that rule that actually holds, since the endpoint is a public POST and a
+  // cached client bundle can lag a config change by a full session.
   const events = rawEvents
     .slice(0, MAX_EVENTS_PER_BATCH)
     .map(sanitize)
-    .filter((e): e is PolishdEvent => e !== null);
+    .filter(
+      (e): e is PolishdEvent => e !== null && !isDashboardPath(e.path, cfg.dashboardRoute),
+    );
 
   const stored = await insertEvents(sessionId, events);
   return { ok: true, stored };

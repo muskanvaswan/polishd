@@ -18,7 +18,12 @@ import { verifyGithubConnection } from "./github";
 import { createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
 import { loadPolishdDashboardData } from "../server/queries";
-import { saveAISettings, type SaveAISettingsInput } from "./settings";
+import {
+  listModelsForProvider,
+  saveAISettings,
+  type ListModelsInput,
+  type SaveAISettingsInput,
+} from "./settings";
 import { generateSummary } from "./summary";
 import type {
   PolishdAISettingsPublic,
@@ -26,6 +31,7 @@ import type {
   CreateIssueResult,
   GenerateProfileResult,
   GenerateSummaryResult,
+  ListModelsResult,
   VerifyGithubResult,
 } from "./types";
 
@@ -51,6 +57,15 @@ export async function generateProfileAction(): Promise<GenerateProfileResult> {
   await requirePolishdAuth();
   const data = await loadPolishdDashboardData();
   return generateProjectProfile(data);
+}
+
+/**
+ * List the models available to the given (or already-stored) key, so the
+ * dashboard can render a dropdown instead of a free-text model id.
+ */
+export async function listModelsAction(input: ListModelsInput): Promise<ListModelsResult> {
+  await requirePolishdAuth();
+  return listModelsForProvider(input);
 }
 
 /**

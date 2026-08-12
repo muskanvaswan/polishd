@@ -7,7 +7,7 @@
  * behavioral signals (rage/dead clicks, scroll depth, web vitals), batches
  * events, and flushes on an interval, on soft navigation, and on pagehide.
  */
-import { defaultPolishdConfig, type PolishdConfig } from "../config";
+import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
 import type { PolishdEvent } from "../shared/types";
 
 type InitOptions = Partial<PolishdConfig>;
@@ -34,6 +34,13 @@ export function initPolishd(options: InitOptions = {}): void {
   let maxScrollPct = 0;
 
   const push = (e: Omit<PolishdEvent, "ts" | "path"> & Partial<Pick<PolishdEvent, "ts" | "path">>) => {
+    // The dashboard is where you *read* the story, not part of it. Reading it
+    // is browsing too — clicks, scrolls, page views — and left alone that
+    // traffic outranks the real site. Drop it here, at the one funnel every
+    // signal (including <PolishdMonitor>'s, via __polishdTrack) passes through,
+    // and per-event rather than once at init so a soft navigation back out to
+    // the real site resumes capture normally.
+    if (isDashboardPath(e.path ?? currentPath, cfg.dashboardRoute)) return;
     queue.push({ ts: Date.now(), path: currentPath, ...e } as PolishdEvent);
     if (queue.length >= cfg.maxBatchSize) flush();
   };
@@ -193,6 +200,7 @@ export function initPolishd(options: InitOptions = {}): void {
     if (maxScrollPct > 0) push({ type: "scroll_depth", value: maxScrollPct });
     currentPath = location.pathname;
     maxScrollPct = 0;
+    emitViewport(); // no-op unless the session started on the dashboard
     push({ type: "page_view", path: currentPath });
   };
 
@@ -215,10 +223,18 @@ export function initPolishd(options: InitOptions = {}): void {
   const deviceCategory = (w: number): string =>
     w < 640 ? "mobile" : w < 1024 ? "tablet" : "desktop";
 
+  // One sample per session. It's session-scoped rather than page-scoped, so a
+  // session that happens to start on the dashboard defers it to the first real
+  // page instead of losing it — hence the flag rather than a single init call.
+  let viewportSent = false;
+
   const emitViewport = () => {
+    if (viewportSent) return;
+    if (isDashboardPath(currentPath, cfg.dashboardRoute)) return;
     const w = window.innerWidth || document.documentElement.clientWidth || 0;
     const h = window.innerHeight || document.documentElement.clientHeight || 0;
     if (w <= 0) return;
+    viewportSent = true;
     push({
       type: "viewport",
       value: w,

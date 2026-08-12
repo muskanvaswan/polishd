@@ -461,8 +461,17 @@ export default definePolishdConfig({
   sampleRate: 1,                              // fraction of sessions captured
   rageClick: { count: 3, windowMs: 500 },     // N clicks on one element
   flushIntervalMs: 10_000,
+  dashboardRoute: "/polishd",                 // never captured; see below
 });
 ```
+
+The dashboard's own traffic is **never captured**. Reading your analytics is
+browsing too, and left alone it would rank "Refresh summary" as your site's
+most-used feature. Nothing on `dashboardRoute` (or below it) is collected, and
+anything captured before you upgraded is filtered out of the dashboard's
+figures. Set `dashboardRoute` only if you mounted `createPolishdPage()`
+somewhere other than `/polishd` — and pass the config to
+`createPolishdRoute(config)` as well, so the server drops it too.
 
 ```ts
 // src/instrumentation-client.ts

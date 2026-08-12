@@ -386,6 +386,10 @@ export default definePolishdConfig({
 });
 ```
 
+The dashboard never measures itself: nothing on `/polishd` (or below it) is
+captured, so reading your analytics can't show up as your site's most-used
+feature. Moved the dashboard elsewhere? Set `dashboardRoute`.
+
 > **Nothing imports this file for you.** It cannot be auto-loaded: the three
 > places that read config run in three different runtimes — the browser, the
 > Edge proxy, and the Node route handler — and the Edge one has no filesystem.
