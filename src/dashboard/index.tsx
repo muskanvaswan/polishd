@@ -569,6 +569,35 @@ function Unauthorized() {
   );
 }
 
+/**
+ * A self-contained surface for the dashboard to render into.
+ *
+ * The dashboard is a route in someone else's app, so it inherits that app's
+ * `<body>`. That is fine until the host's body doesn't scroll — which is the
+ * default shape of every dashboard shell, chat UI, editor, and map app, all of
+ * which set `overflow: hidden` on body and scroll their own inner regions. In
+ * such a host the dashboard renders, looks correct above the fold, and silently
+ * strands everything below it: no error, no warning, HTTP 200.
+ *
+ * `fixed` is what fixes it. It escapes the host's `overflow: hidden` and any
+ * ancestor height constraint, and unlike a `min-h-dvh` wrapper it does not
+ * depend on the host having given `<body>` a usable height. It also supplies
+ * the background the dashboard's own cards assume, so the host's wallpaper
+ * stops showing through behind them.
+ *
+ * Caveat: `position: fixed` is defeated by an ancestor that establishes a
+ * containing block (`transform`, `filter`, `contain`, `will-change`). That is
+ * rare this close to the root, and `shell: false` is the escape hatch when it
+ * happens — see docs/SETUP.md for the fully isolated route-group layout.
+ */
+function PolishdShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[2147483000] overflow-y-auto overscroll-contain bg-[#050505]">
+      {children}
+    </div>
+  );
+}
+
 export interface CreatePolishdPageOptions {
   /**
    * Gate access to the dashboard. Return `true` to allow. If omitted the
@@ -577,6 +606,13 @@ export interface CreatePolishdPageOptions {
   authenticate?: () => boolean | Promise<boolean>;
   /** Rendered when `authenticate` resolves false. Defaults to a minimal screen. */
   unauthorized?: ReactNode;
+  /**
+   * Render the dashboard in a self-contained shell that supplies its own
+   * background and scroll container, so host `body` styles can't strand
+   * content below the fold. Set false to inherit the host page instead.
+   * @default true
+   */
+  shell?: boolean;
 }
 
 let warnedUnguarded = false;
@@ -595,10 +631,15 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       : { mode: "open" },
   );
 
+  // Applied to the unauthorized screen as well: a sign-in prompt stranded
+  // below a non-scrolling fold is the same bug with higher stakes.
+  const wrap = (node: ReactNode) =>
+    opts.shell === false ? <>{node}</> : <PolishdShell>{node}</PolishdShell>;
+
   return async function PolishdPage() {
     if (opts.authenticate) {
       const ok = await opts.authenticate();
-      if (!ok) return <>{opts.unauthorized ?? <Unauthorized />}</>;
+      if (!ok) return wrap(opts.unauthorized ?? <Unauthorized />);
     } else if (!warnedUnguarded && process.env.NODE_ENV !== "production") {
       warnedUnguarded = true;
       console.warn(
@@ -641,7 +682,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       }
     }
 
-    return (
+    return wrap(
       <PolishdDashboard
         data={data}
         ai={{
@@ -652,7 +693,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
           gaps: profileState.gaps,
           sourceAvailable: profileState.sourceAvailable,
         }}
-      />
+      />,
     );
   };
 }
