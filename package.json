@@ -1,7 +1,7 @@
 {
   "name": "@polishd/next",
   "version": "0.2.0",
-  "description": "Drop-in product analytics for Next.js \u2014 capture real user behavioral signals (rage/dead clicks, scroll depth, errors, web vitals) and explore them on a built-in dashboard. What gets measured gets improved.",
+  "description": "Drop-in product analytics for Next.js — capture real user behavioral signals (rage/dead clicks, scroll depth, errors, web vitals) and explore them on a built-in dashboard. What gets measured gets improved.",
   "type": "module",
   "license": "MIT",
   "publishConfig": {
@@ -91,7 +91,6 @@
     "@types/react-dom": "^19",
     "next": "^16",
     "postcss": "^8.5.26",
-    "postcss-prefix-selector": "^2.1.1",
     "react": "^19",
     "react-dom": "^19",
     "tailwindcss": "^4.3.3",
