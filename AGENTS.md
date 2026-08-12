@@ -166,9 +166,14 @@ Tailwind to the app, and do not add an `@source` line** — neither is needed, a
 the host's Tailwind version is irrelevant to how the dashboard renders.
 
 It carries no global preflight and every rule is scoped to `.polishd-root`, so
-it cannot restyle the host app. If you find a leftover
-`@source ".../@polishd/next/dist"` from an older install, it is harmless but
-obsolete — remove it.
+it cannot restyle the host app.
+
+**On an existing 0.1.x install**, a `@source ".../@polishd/next/dist"` line in
+the host's Tailwind config is still doing the styling and the dashboard is not
+broken. Do not remove it as a first step. Add the stylesheet import, verify the
+dashboard still renders correctly, and only then remove the `@source` line —
+removing it first is the one order that leaves the dashboard unstyled. If the
+app has no Tailwind at all, the import is the only thing that styles it.
 
 ## Phase 5 — Invariants
 

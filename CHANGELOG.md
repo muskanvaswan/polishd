@@ -8,19 +8,15 @@ things about the host app that it never checked and could not see.
 
 ### Upgrading from 0.1.x
 
-Two required steps, both one line.
+**Styling keeps working with no changes.** Your existing `@source
+".../@polishd/next/dist"` still compiles the dashboard's utilities exactly as
+it did, so upgrading will not leave you with an unstyled page. Verified by
+rendering the dashboard both ways: 491 elements, no visible differences.
 
-**1. Import the dashboard stylesheet** in `app/polishd/page.tsx`:
+There is **one required change**, and it is about access, not styling.
 
-```tsx
-import "@polishd/next/dashboard.css";
-import { createPolishdPage } from "@polishd/next/dashboard";
-```
-
-Without it the dashboard renders as unstyled HTML.
-
-**2. Decide how the dashboard is protected in production.** It now refuses to
-serve unless you have chosen one:
+**Decide how the dashboard is protected in production.** It now refuses to serve
+unless you have chosen one:
 
 ```bash
 POLISHD_DASHBOARD_TOKEN=$(openssl rand -hex 32)   # built-in gate, no code
@@ -29,13 +25,32 @@ POLISHD_DASHBOARD_TOKEN=$(openssl rand -hex 32)   # built-in gate, no code
 or pass your own `authenticate` to `createPolishdPage()`, or opt out explicitly
 with `POLISHD_DASHBOARD_PUBLIC=true`. Development is unaffected.
 
-Then run `npx @polishd/next doctor` — it checks both of the above and much else.
+Then run `npx @polishd/next doctor`, which checks that and much else.
 
-Two optional cleanups: the `@source ".../@polishd/next/dist"` line in your
-Tailwind config is now obsolete (harmless, but you can delete it and stop
-compiling utilities you don't use), and if you are on Next 15 confirm your file
-is named `middleware.ts` — 0.1.0's CLI wrote `proxy.ts` regardless of version,
-which silently never ran. `doctor` reports both.
+#### Optional: move to the shipped stylesheet
+
+Recommended, but at your own pace. **Order matters** — add the import first, and
+only then remove the old wiring, so the dashboard is never unstyled in between:
+
+1. Add to `app/polishd/page.tsx`:
+   ```tsx
+   import "@polishd/next/dashboard.css";
+   ```
+2. Confirm the dashboard still looks right.
+3. *Then* delete the `@source ".../@polishd/next/dist"` line from your Tailwind
+   entry stylesheet (or the `content` glob in `tailwind.config.*`).
+
+Doing this drops Tailwind as a requirement for your app and stops your build
+compiling utilities only the dashboard uses. `doctor` reports which of the two
+setups it finds, and never calls a working 0.1.x setup broken.
+
+#### If you are on Next 15, check this
+
+0.1.0's CLI wrote `proxy.ts` regardless of the installed Next major, and **Next
+15 does not load that file**. If you are on Next 15 your proxy has never run:
+no session cookie, every beacon returning 200, and nothing captured, with no
+error anywhere to show for it. Rename it to `middleware.ts` and rename the
+exported function to `middleware`. `doctor` reports this explicitly.
 
 ### Breaking
 
