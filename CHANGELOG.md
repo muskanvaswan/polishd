@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Design review — a new dashboard tab
+
+The dashboard now has a sidebar with two tabs: **Analytics** (everything it
+showed before) and **Design**, a new aesthetic layer. The Design tab renders
+your site's brand guideline *reverse-engineered from the rendered pages*:
+
+- **Typography** — every font family / size / weight combination actually in
+  use, shown as specimens with real text sampled from the site.
+- **Color palette** — the colors your pages paint, laid out like a brand
+  palette and weighted by how much of the UI they cover, split by role
+  (text / background / border).
+- **Contrast** — every text-on-background pairing measured against WCAG AA,
+  failures shown with live samples.
+- **Corner radii and spacing** — the rounding and padding scales in use.
+
+Each section flags what breaks the system deterministically — no model
+involved: font-size sprawl (16 sizes is not a type scale), extra families,
+near-duplicate colors (`#fefefe` next to `#ffffff`), contrast failures,
+one-off values that appear on a single page, and padding that drifts off a
+4px grid.
+
+On top of the measured metrics, an **Aesthetic review** card asks the same
+model you configured for the analytics summary how coherent the design reads
+— strengths, and evidence-cited issues with concrete fixes. Like the summary,
+it is fingerprint-cached: reopening the tab is free, and regenerating with
+unchanged metrics never spends tokens. Refresh buttons for both the metrics
+and the analysis sit on the tab.
+
+Nothing new to wire up: pages measure their own rendered design once per
+visitor session (a compact few-KB tally, sampled after the page settles) and
+the data flows through the existing ingest route and store. The dashboard
+itself is never scanned. Existing installs only need the new package version.
+
 ## 0.2.0
 
 Everything in this release came out of the first real third-party integration of

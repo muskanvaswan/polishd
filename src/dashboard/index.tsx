@@ -36,13 +36,16 @@ import {
   type PolishdTokenAuthOptions,
 } from "./token-auth";
 import { unlockPolishdDashboard } from "./unlock";
+import { loadDesignReviewState } from "../ai/design";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
+import { getDesignData } from "../server/design";
 import type {
   PolishdAISettingsPublic,
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
+import { DesignPanel } from "./design";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
@@ -262,6 +265,93 @@ export interface PolishdAIBundle {
   sourceAvailable: boolean;
 }
 
+// ── Chrome: sidebar navigation shared by every tab ──────────────────────────
+
+export type PolishdDashboardTab = "analytics" | "design";
+
+function ChartIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+function DropletIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+    </svg>
+  );
+}
+
+function TabLink({
+  href,
+  active,
+  icon,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] transition-colors ${
+        active
+          ? "border-[#2e2e2e] bg-[#141414] font-medium text-white"
+          : "border-transparent text-[#888] hover:bg-[#0f0f0f] hover:text-white"
+      }`}
+    >
+      {icon}
+      {children}
+    </a>
+  );
+}
+
+/**
+ * The dashboard's outer frame: brand block plus the tab rail. A left sidebar
+ * on desktop, a horizontal tab row on small screens. Tabs are plain links
+ * carrying a `?tab=` query, so navigation stays server-rendered and works at
+ * whatever route the host mounted the dashboard on.
+ */
+function DashboardChrome({
+  active,
+  children,
+}: {
+  active: PolishdDashboardTab;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 text-white">
+      <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
+        <aside className="shrink-0 lg:w-44">
+          <div className="lg:sticky lg:top-8">
+            <p className={label}>Polishd</p>
+            <p className="mt-1 hidden text-[12px] leading-snug text-[#555] lg:block">
+              What gets measured gets improved
+            </p>
+            <nav aria-label="Dashboard sections" className="mt-1 flex gap-1.5 lg:mt-5 lg:flex-col">
+              <TabLink href="?tab=analytics" active={active === "analytics"} icon={<ChartIcon />}>
+                Analytics
+              </TabLink>
+              <TabLink href="?tab=design" active={active === "design"} icon={<DropletIcon />}>
+                Design
+              </TabLink>
+            </nav>
+          </div>
+        </aside>
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Dashboard (presentational) ───────────────────────────────────────────────
 export function PolishdDashboard({
   data,
@@ -282,13 +372,13 @@ export function PolishdDashboard({
     (overview.totalEvents === 0 || Date.now() - health.lastNoSessionAt < 3_600_000);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 text-white">
+    <DashboardChrome active="analytics">
+    <main className="text-white">
       {/* Header */}
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
         <div>
-          <p className={label}>Polishd</p>
-          <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-white">
-            What gets measured gets improved
+          <h1 className="text-[22px] font-semibold tracking-tight text-white">
+            Analytics
           </h1>
           <p className="mt-1 text-[13px] text-[#666]">
             Stage 1 — Capture. Hover{" "}
@@ -571,6 +661,7 @@ export function PolishdDashboard({
         </Section>
       )}
     </main>
+    </DashboardChrome>
   );
 }
 
@@ -834,13 +925,14 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   const usingTokenAuth = !opts.authenticate && polishdDashboardToken() !== null;
 
   return async function PolishdPage(props: PolishdPageProps = {}) {
+    const sp = props.searchParams ? await props.searchParams : {};
+
     if (policy.mode === "setup-required") return wrap(<SetupRequired />);
     if (policy.mode === "guarded") {
       const ok = await policy.authenticate(await polishdAuthContext());
       if (!ok) {
         if (opts.unauthorized) return wrap(opts.unauthorized);
         if (usingTokenAuth) {
-          const sp = props.searchParams ? await props.searchParams : {};
           const raw = sp.polishd_unlock;
           const code = Array.isArray(raw) ? raw[0] : raw;
           return wrap(
@@ -849,6 +941,23 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         }
         return wrap(<Unauthorized />);
       }
+    }
+
+    // Which tab to render, from the `?tab=` query the sidebar links carry.
+    const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
+    if (rawTab === "design") {
+      const [design, settings] = await Promise.all([getDesignData(), getAISettingsPublic()]);
+      const reviewState = await loadDesignReviewState(design);
+      return wrap(
+        <DashboardChrome active="design">
+          <DesignPanel
+            data={design}
+            review={reviewState.review}
+            reviewStale={reviewState.stale}
+            settings={settings}
+          />
+        </DashboardChrome>,
+      );
     }
 
     const data = await loadPolishdDashboardData();

@@ -14,6 +14,7 @@
  * re-runs that same callback against the caller's cookies on every call.
  */
 import { requirePolishdAuth } from "./guard";
+import { generateDesignReview } from "./design";
 import { verifyGithubConnection } from "./github";
 import { createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
@@ -29,6 +30,7 @@ import type {
   PolishdAISettingsPublic,
   PolishdLossItem,
   CreateIssueResult,
+  GenerateDesignReviewResult,
   GenerateProfileResult,
   GenerateSummaryResult,
   ListModelsResult,
@@ -39,6 +41,18 @@ import type {
 export async function generateSummaryAction(force = false): Promise<GenerateSummaryResult> {
   await requirePolishdAuth();
   return generateSummary({ force });
+}
+
+/**
+ * Generate or refresh the aesthetic design review (the Design tab). Uses the
+ * same configured provider/model as the summary. `force` re-asks the model
+ * even when the design metrics haven't changed.
+ */
+export async function generateDesignReviewAction(
+  force = false,
+): Promise<GenerateDesignReviewResult> {
+  await requirePolishdAuth();
+  return generateDesignReview({ force });
 }
 
 /** Persist provider/model/key/instructions/context; returns the no-secret view. */

@@ -9,6 +9,7 @@
  */
 import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
 import type { PolishdEvent } from "../shared/types";
+import { scheduleDesignScan } from "./design-scan";
 
 type InitOptions = Partial<PolishdConfig>;
 
@@ -202,6 +203,21 @@ export function initPolishd(options: InitOptions = {}): void {
     maxScrollPct = 0;
     emitViewport(); // no-op unless the session started on the dashboard
     push({ type: "page_view", path: currentPath });
+    emitDesignScan();
+  };
+
+  // ---- design scan (feeds the dashboard's Design tab) -----------------------
+
+  // One scan per path per session, after the page settles. The payload is a
+  // compact tally of the page's rendered typography, colors, radii and
+  // paddings — the deterministic input to the design review.
+  const emitDesignScan = () => {
+    const path = currentPath;
+    if (isDashboardPath(path, cfg.dashboardRoute)) return; // never scan the dashboard
+    scheduleDesignScan(path, (payloadJson, elements) => {
+      push({ type: "design_scan", path, meta: { payload: payloadJson, el: elements } });
+      flush();
+    });
   };
 
   // Patch History API so Next.js soft navigations emit page views.
@@ -337,4 +353,5 @@ export function initPolishd(options: InitOptions = {}): void {
   // One device/viewport sample per session, plus the initial page view.
   emitViewport();
   push({ type: "page_view", path: currentPath });
+  emitDesignScan();
 }

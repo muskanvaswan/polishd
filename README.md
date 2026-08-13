@@ -5,7 +5,9 @@
 Drop-in **product analytics** for Next.js (App Router). Capture real user
 behavioral signals — rage clicks, dead clicks, scroll depth, JS errors, web
 vitals, component engagement — and explore them on a built-in, Vercel-style
-dashboard at `/polishd`.
+dashboard at `/polishd`. A second **Design** tab reverse-engineers your site's
+design system from the rendered pages — typography, palette, radii, spacing —
+and flags what breaks it.
 
 No third-party service. Events go to your own database: **SQLite in dev**
 (zero-config, built into Node), **Postgres in production**. Anonymous by design —
@@ -359,6 +361,40 @@ authoritative context, so:
 > text, error messages), the cached project profile, and the description you
 > provide. Your source is read only during an explicit scan (or a targeted
 > gap-fill), and always under strict size budgets.
+
+## Design review
+
+The dashboard's **Design** tab (in the sidebar) is your site's brand guideline
+reverse-engineered from what actually shipped. Every page measures its own
+rendered design once per visitor session — the computed typography, colors,
+corner radii and padding, reduced to a compact tally of a few KB — and the tab
+assembles the site-wide picture:
+
+- **Typography** — every font family / size / weight combination in use,
+  rendered as specimens with real text from your pages.
+- **Color palette** — swatches weighted by how much of the UI each color
+  covers, split by role (text / background / border).
+- **Contrast** — each text-on-background pairing checked against WCAG AA.
+- **Corner radii & spacing** — the rounding and padding scales in use.
+
+The first layer of review is **deterministic** — rule-based checks, no model:
+too many font sizes to be a type scale, extra font families, near-duplicate
+colors (`#fefefe` living next to `#ffffff`), contrast failures with the exact
+ratio, one-off values that appear on a single page, padding off the 4px grid.
+
+The second layer is the **Aesthetic review** card: the same model you
+configured for the analytics summary reads the measured tokens and findings
+and answers the real question — does this read as one deliberate design, or an
+accumulation of one-off decisions? Issues it raises must cite a token that
+actually appears in the metrics (a hex value, a px size, a page path), and each
+comes with a concrete fix. It follows the summary's token-thrift rules: the
+model sees a few hundred tokens of aggregated metrics, the result is cached and
+fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
+for both the metrics and the analysis are on the tab.
+
+Nothing extra to install or wire: the scan ships with the existing client,
+flows through the existing ingest route, and the dashboard itself is never
+scanned.
 
 ## Component-level tracking
 

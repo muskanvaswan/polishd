@@ -23,7 +23,8 @@ export type PolishdEventType =
   | "hover" // pointer dwell on an explicitly tracked component; value = ms
   | "component_view" // time a PolishdMonitor component spent in the viewport; value = ms
   | "mount" // a content-tracked PolishdMonitor component was rendered (mounted)
-  | "session_end"; // the session's last page was unloaded
+  | "session_end" // the session's last page was unloaded
+  | "design_scan"; // one page's rendered design metrics (fonts, colors, radii, spacing)
 
 /**
  * A single captured event. The client sends these without a session id; the
@@ -82,4 +83,44 @@ export const CLIENT_EVENT_TYPES: ReadonlySet<PolishdEventType> = new Set<Polishd
   "component_view",
   "mount",
   "session_end",
+  "design_scan",
 ]);
+
+// ── Design scan payload ──────────────────────────────────────────────────────
+// A `design_scan` event carries one page's rendered design metrics, sampled
+// from computed styles after the page settles. The payload is a compact,
+// tally-based JSON string stored in `meta.payload` (tuples, not objects, to
+// keep one page under a few KB). Shared here so the client that writes it and
+// the server that aggregates it can never drift.
+
+/** [family, sizePx, weight, count, sampleText, tagList] */
+export type DesignFontTuple = [string, number, number, number, string, string];
+/** [hex, count] */
+export type DesignColorTuple = [string, number];
+/** [fgHex, bgHex, count, minSizePx, boldAtMinSize(0|1)] */
+export type DesignPairTuple = [string, string, number, number, 0 | 1];
+/** [radiusValue, count] — e.g. ["8px", 14] or ["9999px", 3] */
+export type DesignRadiusTuple = [string, number];
+/** [paddingPx, count] */
+export type DesignPadTuple = [number, number];
+
+export interface PolishdDesignScanPayload {
+  /** Payload schema version. */
+  v: 1;
+  /** Elements sampled on the page. */
+  el: number;
+  /** Typography tallies: distinct family/size/weight combinations. */
+  fonts: DesignFontTuple[];
+  /** Text color tallies (elements with direct text). */
+  text: DesignColorTuple[];
+  /** Background color tallies (non-transparent own backgrounds). */
+  bg: DesignColorTuple[];
+  /** Border color tallies (visible borders only). */
+  border: DesignColorTuple[];
+  /** Text-on-background pairs, for contrast checking. */
+  pairs: DesignPairTuple[];
+  /** Border-radius tallies (elements whose radius is visible). */
+  radii: DesignRadiusTuple[];
+  /** Padding tallies (per side, boxy/interactive elements only). */
+  pad: DesignPadTuple[];
+}
