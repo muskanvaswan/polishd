@@ -3,6 +3,7 @@ import SiteHeader from "@/components/site-header";
 import Hero from "@/components/sections/hero";
 import Loop from "@/components/sections/loop";
 import Proof from "@/components/sections/proof";
+import Design from "@/components/sections/design";
 import Frontier from "@/components/sections/frontier";
 import Install from "@/components/sections/install";
 import Closing from "@/components/sections/closing";
@@ -18,6 +19,7 @@ export default function Page() {
 
       <main className="relative z-2">
         <Hero />
+        <Design />
         <Loop />
         <Proof />
         <Frontier />

@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Setup moved out of the way, into a Settings tab
+
+The first screen of the dashboard was also its setup form. Provider, key, site
+description, codebase profile and GitHub all lived behind a gear on the
+analytics summary card — which pushed the actual analytics down the page, and
+left the Design tab telling people to go and find "the Analytics tab's summary
+card" to configure a model it uses too.
+
+All of it now lives in a third sidebar tab, **Settings**, grouped into Model /
+Your site / Codebase / GitHub with one save. First-run onboarding runs there as
+well, and finishing it drops you on Analytics with your first summary. The
+summary card keeps only the story and a gear that jumps to Settings; the one
+piece of setup still worth seeing next to a summary — whether the model has
+actually read your codebase — stays as a one-line nudge.
+
+### Switching tabs responds immediately
+
+Each tab is a full server render, so clicking "Design" used to do nothing
+visible for a second or two, which reads as a dead button and gets clicked
+again. The tab rail now answers on the click: the tab you picked highlights
+straight away, its icon becomes a spinner, further clicks on it are ignored,
+and the content column shows a skeleton until the render lands. Cross-tab links
+inside a tab behave identically, and the dashboard's own scroll container
+returns to the top rather than dropping you halfway down the new tab.
+
+Links are still real anchors — ⌘-click and middle-click open a tab as before,
+and with JavaScript off the rail falls back to ordinary navigation.
+
 ### A dashboard mounted off `/polishd` no longer reads itself back
 
 The read side of the dashboard (its own queries) previously excluded only the

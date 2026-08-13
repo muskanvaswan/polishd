@@ -18,44 +18,8 @@ import { useRouter } from "next/navigation";
 
 import { generateDesignReviewAction } from "../ai/actions";
 import type { PolishdDesignIssue, PolishdDesignReview } from "../ai/types";
-
-const border = "border-[#2e2e2e]";
-const card = `border ${border} rounded-lg bg-[#0a0a0a]`;
-const labelCls = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#666]";
-const iconBtn =
-  "flex h-7 w-7 items-center justify-center rounded-md border border-[#2e2e2e] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
-const primaryBtn =
-  "rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
-
-function relTime(ms: number): string {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
-function RefreshIcon({ spinning }: { spinning: boolean }) {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={spinning ? "animate-spin" : undefined}
-      aria-hidden
-    >
-      <polyline points="23 4 23 10 17 10" />
-      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-    </svg>
-  );
-}
+import { TabLink } from "./chrome";
+import { RefreshIcon, border, card, iconBtn, labelCls, primaryBtn, relTime } from "./ui";
 
 /** Re-run the deterministic metrics: refresh the server render in place. */
 export function RefreshMetricsButton() {
@@ -131,7 +95,7 @@ export default function DesignReviewCard({
           disabled={pending || !canGenerate}
           title={
             !hasApiKey
-              ? "Connect a model first (Analytics tab → summary card settings)"
+              ? "Connect a model first — Settings tab"
               : scannedPages === 0
                 ? "No pages scanned yet"
                 : "Regenerate the design review now"
@@ -169,19 +133,25 @@ export default function DesignReviewCard({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13px] leading-relaxed text-[#888]">
               {!hasApiKey
-                ? "No model connected. Configure one in the Analytics tab's summary card — the design review uses the same provider and key."
+                ? "No model connected. The design review uses the same provider and key as the analytics summary — add one in Settings."
                 : scannedPages === 0
                   ? "No pages scanned yet — browse the site and the design metrics will appear here."
                   : "No review yet — ask the model how coherent this design system reads, and what would sharpen it."}
             </p>
-            <button
-              type="button"
-              onClick={() => generate(false)}
-              disabled={pending || !canGenerate}
-              className={primaryBtn}
-            >
-              {pending ? "Reviewing…" : "Generate review"}
-            </button>
+            {hasApiKey ? (
+              <button
+                type="button"
+                onClick={() => generate(false)}
+                disabled={pending || !canGenerate}
+                className={primaryBtn}
+              >
+                {pending ? "Reviewing…" : "Generate review"}
+              </button>
+            ) : (
+              <TabLink tab="settings" className={primaryBtn}>
+                Connect a model
+              </TabLink>
+            )}
           </div>
         )}
       </div>

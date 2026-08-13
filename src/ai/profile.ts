@@ -34,8 +34,17 @@ export async function loadProjectProfile(): Promise<PolishdProjectProfile | null
   }
 }
 
+/**
+ * The slice of the dashboard data that names components.
+ *
+ * Narrower than `PolishdDashboardData` on purpose: the Settings tab needs
+ * coverage gaps but none of the rest of the analytics, and asking for the
+ * whole bundle would mean running the entire query set to render a form.
+ */
+export type PolishdComponentSource = Pick<PolishdDashboardData, "monitored" | "topUsed">;
+
 /** Component identifiers the analytics currently know about. */
-export function componentIdentifiers(data: PolishdDashboardData): string[] {
+export function componentIdentifiers(data: PolishdComponentSource): string[] {
   const ids = new Set<string>();
   for (const m of data.monitored) ids.add(m.name);
   for (const t of data.topUsed) if (t.isComponent) ids.add(t.label);
@@ -49,7 +58,7 @@ export function componentIdentifiers(data: PolishdDashboardData): string[] {
  * profile prose mentions it.
  */
 export function coverageGaps(
-  data: PolishdDashboardData,
+  data: PolishdComponentSource,
   profile: PolishdProjectProfile | null,
 ): string[] {
   if (!profile) return [];
@@ -160,7 +169,7 @@ export async function generateProjectProfile(
 }
 
 /** What the dashboard needs on first paint. Reads only — no model, no scan. */
-export async function loadProfileState(data: PolishdDashboardData): Promise<{
+export async function loadProfileState(data: PolishdComponentSource): Promise<{
   profile: PolishdProjectProfile | null;
   gaps: string[];
   /** Whether a scan could run here (source tree present on disk). */

@@ -298,12 +298,13 @@ bar: each must cite the exact page, selector, or component from the data —
 citations that don't appear in the analytics are discarded as hallucinations,
 and the rest are matched to your source files so every loss shows the file it
 lives in (or an honest "not matched to source" tag for dynamic content). It's
-**bring-your-own-key**: on first visit the card walks you through a four-step
-setup — connect a model (Anthropic, OpenAI, any OpenAI-compatible endpoint, or
-Google), describe your site, scan your codebase, and pick a refresh cadence.
-After that the card is just the story: the summary, when it was generated, a
-**refresh** icon to force a regenerate, and a **gear** that opens the full
-settings when you need them. Nothing is sent to a model until you ask.
+**bring-your-own-key**. The **Settings** tab in the sidebar walks a fresh
+install through a five-step setup — connect a model (Anthropic, OpenAI, any
+OpenAI-compatible endpoint, or Google), describe your site, scan your codebase,
+connect GitHub, pick a refresh cadence — and holds all of it afterwards. The
+card itself is only ever the story: the summary, when it was generated, a
+**refresh** icon to force a regenerate, and a **gear** that jumps to Settings.
+Nothing is sent to a model until you ask.
 
 It's built to spend as few tokens as possible:
 
@@ -337,7 +338,7 @@ settings take precedence.
 ### Project profile — the one-time setup scan
 
 To make the summary understand your *code* — not just the numbers — run the
-one-time **Scan codebase** step from the card's Project profile strip. Polishd
+one-time **Scan codebase** step from Settings → Codebase. Polishd
 reads your app's source from disk (pages and layouts first, then component
 files, under a hard token budget), and asks the model to write a compact
 profile: what the site is for, a map of its routes, and every interactive
@@ -351,8 +352,8 @@ authoritative context, so:
 - **Summaries never re-read source.** One scan, then pure digest + profile.
 - **The codebase is only touched again** when analytics mention a component the
   profile doesn't cover — a tiny targeted read of just the files naming it —
-  or when you explicitly re-scan (the strip shows a hint when new components
-  appear).
+  or when you explicitly re-scan (the summary card shows a hint when new
+  components appear).
 - On serverless hosts where source isn't on disk, scan in local dev; the saved
   profile keeps serving in production.
 
@@ -383,7 +384,7 @@ colors (`#fefefe` living next to `#ffffff`), contrast failures with the exact
 ratio, one-off values that appear on a single page, padding off the 4px grid.
 
 The second layer is the **Aesthetic review** card: the same model you
-configured for the analytics summary reads the measured tokens and findings
+configured in Settings reads the measured tokens and findings
 and answers the real question — does this read as one deliberate design, or an
 accumulation of one-off decisions? Issues it raises must cite a token that
 actually appears in the metrics (a hex value, a px size, a page path), and each
@@ -487,7 +488,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 
-AI settings are optional — the dashboard's Settings panel configures the same
+AI settings are optional — the dashboard's **Settings** tab configures the same
 fields, and what you save there overrides these env defaults.
 
 Local dev needs nothing. If no writable store is available the package degrades
