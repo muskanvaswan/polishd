@@ -15,8 +15,11 @@
  *   });
  */
 import type { Metadata } from "next";
+import Link from "next/link";
 import { after } from "next/server";
 import type { ReactNode } from "react";
+
+import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
 
 import {
   loadPolishdDashboardData,
@@ -299,8 +302,9 @@ function TabLink({
   children: ReactNode;
 }) {
   return (
-    <a
+    <Link
       href={href}
+      prefetch={false}
       aria-current={active ? "page" : undefined}
       className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] transition-colors ${
         active
@@ -310,15 +314,17 @@ function TabLink({
     >
       {icon}
       {children}
-    </a>
+    </Link>
   );
 }
 
 /**
  * The dashboard's outer frame: brand block plus the tab rail. A left sidebar
- * on desktop, a horizontal tab row on small screens. Tabs are plain links
- * carrying a `?tab=` query, so navigation stays server-rendered and works at
- * whatever route the host mounted the dashboard on.
+ * on desktop, a horizontal tab row on small screens. Tabs are `next/link`s
+ * carrying a `?tab=` query — client-side navigation, so switching tabs swaps
+ * the rendered content without a full document reload — and query-relative,
+ * so they work at whatever route the host mounted the dashboard on. Prefetch
+ * is off because each tab render runs the full query set.
  */
 function DashboardChrome({
   active,
@@ -364,12 +370,21 @@ export function PolishdDashboard({
     data;
 
   // Events are arriving but landing without a session cookie, which means the
-  // proxy isn't running on those requests. Shown while it's still happening
-  // (or while nothing at all has been stored), so a fixed proxy clears the
-  // banner on its own rather than leaving a permanent scold.
+  // proxy isn't running on those requests. When nothing at all has been
+  // stored, any drop is the whole story — show it. But on a site that IS
+  // storing events, a handful of cookie-less batches is background noise
+  // (bots posting to the public endpoint, a visitor with cookies blocked,
+  // someone's curl test), not a broken proxy — a real proxy failure drops
+  // *every* batch, so the count climbs in proportion to traffic. Require the
+  // drops to be both recent and material relative to what got stored before
+  // raising the alarm.
   const proxyBroken =
     health.lastNoSessionAt !== null &&
-    (overview.totalEvents === 0 || Date.now() - health.lastNoSessionAt < 3_600_000);
+    (overview.totalEvents === 0
+      ? true
+      : Date.now() - health.lastNoSessionAt < 3_600_000 &&
+        health.noSessionCount >= 3 &&
+        health.noSessionCount > overview.totalEvents / 400);
 
   return (
     <DashboardChrome active="analytics">
@@ -756,6 +771,15 @@ export interface CreatePolishdPageOptions {
   /** Tune the built-in token auth (mount path, grant lifetime). */
   tokenAuth?: PolishdTokenAuthOptions;
   /**
+   * The app's Polishd config — the same object threaded into `initPolishd()`
+   * and `createPolishdRoute()`. The page reads `dashboardRoute` from it and
+   * registers it server-side, so the dashboard's queries exclude the route it
+   * is actually mounted at instead of the default `/polishd`. Without it (or
+   * `POLISHD_DASHBOARD_ROUTE`), a dashboard mounted elsewhere reads its own
+   * traffic back as part of the site.
+   */
+  config?: Partial<PolishdConfig>;
+  /**
    * Render the dashboard in a self-contained shell that supplies its own
    * background and scroll container, so host `body` styles can't strand
    * content below the fold. Set false to inherit the host page instead.
@@ -911,6 +935,14 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   const policy = resolvePolicy(opts);
   registerPolishdAuth(policy);
   announcePolicy(policy);
+
+  // Tell the read side where the dashboard actually lives, so its queries
+  // exclude this route rather than the default. Registered here for the same
+  // reason as the auth policy: page-module evaluation runs before anything in
+  // this runtime can query.
+  if (opts.config?.dashboardRoute) {
+    registerPolishdDashboardRoute(opts.config.dashboardRoute);
+  }
 
   // Applied to the unauthorized screen as well: a sign-in prompt stranded
   // below a non-scrolling fold is the same bug with higher stakes.

@@ -11,24 +11,12 @@
  * `flags` — no model involved — and both the metrics and the flags feed the
  * AI design review in ai/design.ts.
  */
-import { defaultPolishdConfig } from "../config";
 import type {
   DesignColorTuple,
   PolishdDesignScanPayload,
 } from "../shared/types";
+import { polishdEventsSource } from "./queries";
 import { parseMeta, query, storeReady } from "./store";
-
-// Same dashboard-route exclusion the analytics queries use; duplicated as a
-// tiny helper because queries.ts keeps its `EVENTS` fragment module-private.
-const EVENTS = (() => {
-  const route = defaultPolishdConfig.dashboardRoute.replace(/\/+$/, "");
-  if (!route) return "events";
-  const literal = `'${route.replace(/'/g, "''")}'`;
-  const prefix = `'${`${route}/`.replace(/'/g, "''")}'`;
-  return `(SELECT * FROM events
-     WHERE path <> ${literal}
-       AND substr(path, 1, ${route.length + 1}) <> ${prefix}) AS events`;
-})();
 
 // ── Aggregated shapes (what the Design tab renders) ──────────────────────────
 
@@ -186,7 +174,7 @@ interface PageScanRow {
 /** Latest parseable scan per page, newest first. */
 async function loadPageScans(): Promise<PageScanRow[]> {
   const rows = await query(
-    `SELECT path, ts, meta FROM ${EVENTS}
+    `SELECT path, ts, meta FROM ${polishdEventsSource()}
      WHERE type = 'design_scan'
      ORDER BY id DESC
      LIMIT 300`,
