@@ -35,8 +35,9 @@ export default function Hero() {
           style={{ "--d": "150ms" } as React.CSSProperties}
         >
           Vibe coding gets you to a working build in a weekend, and hands the rough edges to your
-          users to discover. Shipping got cheap; finishing didn&apos;t. Polishd finds those edges,
-          then closes the loop on fixing them. Because the taste is in the details.
+          users to discover. Shipping got cheap; finishing didn&apos;t. Polishd reads back the
+          design your site really ships, watches how it&apos;s really used, and closes the loop on
+          fixing both. Because the taste is in the details.
         </p>
 
         <div

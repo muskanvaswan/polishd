@@ -21,6 +21,9 @@ export default function SiteHeader() {
         <Pill tone="amber">Coming soon</Pill>
 
         <nav className="ml-auto flex items-center gap-1.5">
+          <NavLink href="#design" hideOnMobile>
+            Design
+          </NavLink>
           <NavLink href="#loop" hideOnMobile>
             The loop
           </NavLink>

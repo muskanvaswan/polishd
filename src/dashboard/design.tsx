@@ -19,11 +19,7 @@ import type {
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
 import ShowMore from "./show-more";
-
-const border = "border-[#2e2e2e]";
-const card = `border ${border} rounded-lg bg-[#0a0a0a]`;
-const label = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#666]";
-const divider = `border-t ${border}`;
+import { border, card, divider, labelCls as label } from "./ui";
 
 /** Rows shown before a list collapses behind "Show more". */
 const VISIBLE_ROWS = 5;

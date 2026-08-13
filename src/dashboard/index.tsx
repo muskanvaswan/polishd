@@ -15,13 +15,14 @@
  *   });
  */
 import type { Metadata } from "next";
-import Link from "next/link";
 import { after } from "next/server";
 import type { ReactNode } from "react";
 
 import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
 
 import {
+  getMonitoredComponents,
+  getTopInteractions,
   loadPolishdDashboardData,
   type PolishdDashboardData,
   type DeviceBucket,
@@ -48,12 +49,15 @@ import type {
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
+import DashboardChrome from "./chrome";
 import { DesignPanel } from "./design";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
 import TopPagesTable from "./pages";
+import SettingsView from "./settings";
 import SummaryCard from "./summary";
+import { border, card, divider, labelCls as label } from "./ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,12 +66,6 @@ export const metadata: Metadata = {
   title: "Polishd — What gets measured gets improved",
   robots: { index: false, follow: false },
 };
-
-// ── Design tokens (Vercel aesthetic) ────────────────────────────────────────
-const border = "border-[#2e2e2e]";
-const card = `border ${border} rounded-lg bg-[#0a0a0a]`;
-const label = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#666]";
-const divider = `border-t ${border}`;
 
 // ── Tooltip ──────────────────────────────────────────────────────────────────
 function InfoTip({
@@ -268,95 +266,9 @@ export interface PolishdAIBundle {
   sourceAvailable: boolean;
 }
 
-// ── Chrome: sidebar navigation shared by every tab ──────────────────────────
-
-export type PolishdDashboardTab = "analytics" | "design";
-
-function ChartIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <line x1="18" y1="20" x2="18" y2="10" />
-      <line x1="12" y1="20" x2="12" y2="4" />
-      <line x1="6" y1="20" x2="6" y2="14" />
-    </svg>
-  );
-}
-
-function DropletIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
-    </svg>
-  );
-}
-
-function TabLink({
-  href,
-  active,
-  icon,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      prefetch={false}
-      aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] transition-colors ${
-        active
-          ? "border-[#2e2e2e] bg-[#141414] font-medium text-white"
-          : "border-transparent text-[#888] hover:bg-[#0f0f0f] hover:text-white"
-      }`}
-    >
-      {icon}
-      {children}
-    </Link>
-  );
-}
-
-/**
- * The dashboard's outer frame: brand block plus the tab rail. A left sidebar
- * on desktop, a horizontal tab row on small screens. Tabs are `next/link`s
- * carrying a `?tab=` query — client-side navigation, so switching tabs swaps
- * the rendered content without a full document reload — and query-relative,
- * so they work at whatever route the host mounted the dashboard on. Prefetch
- * is off because each tab render runs the full query set.
- */
-function DashboardChrome({
-  active,
-  children,
-}: {
-  active: PolishdDashboardTab;
-  children: ReactNode;
-}) {
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 text-white">
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
-        <aside className="shrink-0 lg:w-44">
-          <div className="lg:sticky lg:top-8">
-            <p className={label}>Polishd</p>
-            <p className="mt-1 hidden text-[12px] leading-snug text-[#555] lg:block">
-              What gets measured gets improved
-            </p>
-            <nav aria-label="Dashboard sections" className="mt-1 flex gap-1.5 lg:mt-5 lg:flex-col">
-              <TabLink href="?tab=analytics" active={active === "analytics"} icon={<ChartIcon />}>
-                Analytics
-              </TabLink>
-              <TabLink href="?tab=design" active={active === "design"} icon={<DropletIcon />}>
-                Design
-              </TabLink>
-            </nav>
-          </div>
-        </aside>
-        <div className="min-w-0 flex-1">{children}</div>
-      </div>
-    </div>
-  );
-}
+// The tab rail (and the client-side navigation between tabs) lives in
+// ./chrome; re-exported here because this is the module hosts import.
+export type { PolishdDashboardTab } from "./chrome";
 
 // ── Dashboard (presentational) ───────────────────────────────────────────────
 export function PolishdDashboard({
@@ -977,6 +889,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
     // Which tab to render, from the `?tab=` query the sidebar links carry.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
+
     if (rawTab === "design") {
       const [design, settings] = await Promise.all([getDesignData(), getAISettingsPublic()]);
       const reviewState = await loadDesignReviewState(design);
@@ -987,6 +900,28 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
             review={reviewState.review}
             reviewStale={reviewState.stale}
             settings={settings}
+          />
+        </DashboardChrome>,
+      );
+    }
+
+    if (rawTab === "settings") {
+      // `loadProfileState` only reads component identifiers out of the
+      // dashboard data, so this tab loads those two queries rather than the
+      // whole analytics set it would otherwise never look at.
+      const [settings, monitored, topUsed] = await Promise.all([
+        getAISettingsPublic(),
+        getMonitoredComponents(),
+        getTopInteractions(),
+      ]);
+      const profileState = await loadProfileState({ monitored, topUsed });
+      return wrap(
+        <DashboardChrome active="settings">
+          <SettingsView
+            initialSettings={settings}
+            initialProfile={profileState.profile}
+            initialGaps={profileState.gaps}
+            sourceAvailable={profileState.sourceAvailable}
           />
         </DashboardChrome>,
       );
