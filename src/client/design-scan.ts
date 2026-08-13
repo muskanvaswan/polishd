@@ -324,6 +324,11 @@ export function scheduleDesignScan(
     // The page navigated on while we waited — that path's own scan will fire.
     if (location.pathname !== path) return;
     if (document.visibilityState === "hidden") return;
+    // The dashboard styles itself; measuring it would report Polishd's design
+    // as the site's. The path check upstream normally catches this, but it
+    // only knows the configured route — this recognizes the dashboard by its
+    // own scope root, so a dashboard mounted anywhere is never scanned.
+    if (document.querySelector(".polishd-root")) return;
     try {
       const payload = collectDesignScan();
       if (!payload) return;

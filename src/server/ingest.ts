@@ -5,7 +5,12 @@
  * store. The session id is taken from the request's cookie, never from the
  * body, so events are always attributed to the bearer of the cookie.
  */
-import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
+import {
+  defaultPolishdConfig,
+  isDashboardPath,
+  resolveDashboardRoute,
+  type PolishdConfig,
+} from "../config";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { getMeta, insertEvents, setMeta } from "./store";
 
@@ -128,6 +133,10 @@ export async function ingest(
   config: Partial<PolishdConfig> = {},
 ): Promise<IngestResult> {
   const cfg = { ...defaultPolishdConfig, ...config };
+  // The host's explicit route wins; otherwise consult the registered route /
+  // POLISHD_DASHBOARD_ROUTE, so a dashboard moved off /polishd is still
+  // excluded even when the route handler wasn't handed a config object.
+  const dashboardRoute = resolveDashboardRoute(config.dashboardRoute);
   const sessionId = sessionIdFromCookie(cookieValue);
   if (!sessionId) {
     await recordNoSession();
@@ -145,7 +154,7 @@ export async function ingest(
     .slice(0, MAX_EVENTS_PER_BATCH)
     .map(sanitize)
     .filter(
-      (e): e is PolishdEvent => e !== null && !isDashboardPath(e.path, cfg.dashboardRoute),
+      (e): e is PolishdEvent => e !== null && !isDashboardPath(e.path, dashboardRoute),
     );
 
   const stored = await insertEvents(sessionId, events);

@@ -98,6 +98,42 @@ export function resolveSessionCookie(override?: string): string {
   return defaultPolishdConfig.sessionCookie;
 }
 
+// ── Dashboard route resolution (server side) ────────────────────────────────
+// The route the dashboard is mounted at has to be known in more places than
+// the client config can reach. The client learns it from the config threaded
+// into `initPolishd()`; the *server* read side (the dashboard's own queries)
+// is called with no arguments and cannot receive that object. It resolves
+// through here instead: an explicit override, then the route the rendered
+// dashboard page registered about itself, then `POLISHD_DASHBOARD_ROUTE`,
+// then the default. Without this, an app that mounts the dashboard somewhere
+// other than /polishd (say /polish) reads its own dashboard back as a page of
+// the site — its busiest one, since the owner keeps opening it.
+
+let registeredDashboardRoute: string | null = null;
+
+/**
+ * Record where the dashboard is actually mounted. Called by
+ * `createPolishdPage({ config })` at page-module evaluation, so every query
+ * that runs in the same runtime excludes the right route.
+ */
+export function registerPolishdDashboardRoute(route: string): void {
+  registeredDashboardRoute = route;
+}
+
+/**
+ * The dashboard route as the server currently knows it. An explicit value
+ * (from a threaded config) always wins; the env var is the channel for
+ * deployments that can't touch code.
+ */
+export function resolveDashboardRoute(override?: string): string {
+  if (override) return override;
+  if (registeredDashboardRoute) return registeredDashboardRoute;
+  const fromEnv =
+    typeof process !== "undefined" ? process.env.POLISHD_DASHBOARD_ROUTE : undefined;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
+  return defaultPolishdConfig.dashboardRoute;
+}
+
 /**
  * True when `path` is the dashboard route or a page beneath it. The single
  * definition of "this is the dashboard's own traffic", shared by the browser

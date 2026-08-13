@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### A dashboard mounted off `/polishd` no longer reads itself back
+
+The read side of the dashboard (its own queries) previously excluded only the
+*default* route, so an app that mounted the dashboard elsewhere — say
+`/polish` — saw its own dashboard traffic ranked among the site's pages, and
+the Design tab could measure the dashboard's design as the site's. The route
+now resolves dynamically everywhere:
+
+- `createPolishdPage({ config })` — pass the same config you thread into
+  `initPolishd()` and `createPolishdRoute()`; the page registers
+  `dashboardRoute` for the queries running in the same runtime.
+- `POLISHD_DASHBOARD_ROUTE` — the no-code channel; ingest and the queries
+  both read it.
+- The design scanner also recognizes the dashboard by its `.polishd-root`
+  scope element, so it never measures the dashboard regardless of
+  configuration.
+
+Because the exclusion is applied at read time, dashboard rows captured before
+this fix disappear from the stats without touching the database.
+
+### Quieter, truer signals
+
+- The "your proxy isn't running" banner no longer fires over a handful of
+  cookie-less batches on a site that is otherwise storing events fine (bots,
+  a cookie-blocking visitor, someone's curl test). It now requires the drops
+  to be recent **and** material relative to stored volume — or a store with
+  nothing in it at all, which is the real broken-proxy signature.
+- The Design tab's per-section findings render as one combined note instead
+  of a stack of alert boxes.
+- Long lists (type styles, colors, contrast failures, radii, spacing, pages)
+  collapse behind "Show more" past 5 rows.
+- Dashboard tabs navigate client-side — switching tabs swaps the content
+  without reloading the whole page.
+
 ### Design review — a new dashboard tab
 
 The dashboard now has a sidebar with two tabs: **Analytics** (everything it

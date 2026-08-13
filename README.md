@@ -429,7 +429,17 @@ export default definePolishdConfig({
 
 The dashboard never measures itself: nothing on `/polishd` (or below it) is
 captured, so reading your analytics can't show up as your site's most-used
-feature. Moved the dashboard elsewhere? Set `dashboardRoute`.
+feature. **Moved the dashboard elsewhere?** Set `dashboardRoute` in your
+config, thread the config into the client and route as shown below, and also
+pass it to the page — the dashboard's own queries have no other way to learn
+where they're mounted:
+
+```tsx
+export default createPolishdPage({ config: polishdConfig });
+```
+
+(`POLISHD_DASHBOARD_ROUTE` is the no-code alternative: ingest and the
+dashboard's queries both read it.)
 
 > **Nothing imports this file for you.** It cannot be auto-loaded: the three
 > places that read config run in three different runtimes — the browser, the
@@ -464,6 +474,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_DASHBOARD_TOKEN` | production | Protects `/polishd` with the built-in gate. Generate with `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | production (optional) | `true` — serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | optional | Rename the anonymous session cookie. Read by both the proxy and ingest, so they cannot disagree |
+| `POLISHD_DASHBOARD_ROUTE` | optional | Where the dashboard is mounted, if not `/polishd`. Read by ingest and the dashboard's queries so its own traffic is excluded; `createPolishdPage({ config })` is the code-side equivalent |
 | `POLISHD_AI_PROVIDER` | AI (optional) | `anthropic` \| `openai` \| `openai-compatible` \| `google` |
 | `POLISHD_AI_MODEL` | AI (optional) | Model id (defaults per provider, e.g. `claude-opus-4-8`) |
 | `POLISHD_AI_API_KEY` | AI (optional) | Model API key — preset instead of using the dashboard |
