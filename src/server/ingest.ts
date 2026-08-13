@@ -12,6 +12,13 @@ import { getMeta, insertEvents, setMeta } from "./store";
 const MAX_EVENTS_PER_BATCH = 200;
 const MAX_TEXT_LEN = 120;
 const MAX_SELECTOR_LEN = 300;
+/**
+ * `design_scan` events carry a whole page's design tallies as one JSON string
+ * in `meta.payload`, so that one key gets a wider (but still bounded) cap than
+ * the 500 chars every other meta value is clamped to. The client serializes to
+ * ≤28KB (see client/design-scan.ts); anything beyond this is not ours.
+ */
+const MAX_DESIGN_PAYLOAD_LEN = 32_000;
 
 /**
  * Beacons dropped for want of a session cookie, recorded in `polishd_meta`.
@@ -99,7 +106,8 @@ function sanitize(raw: unknown): PolishdEvent | null {
     const meta: NonNullable<PolishdEvent["meta"]> = {};
     for (const [k, v] of Object.entries(e.meta as Record<string, unknown>)) {
       if (k.length > 40) continue;
-      if (typeof v === "string") meta[k] = v.slice(0, 500);
+      const cap = out.type === "design_scan" && k === "payload" ? MAX_DESIGN_PAYLOAD_LEN : 500;
+      if (typeof v === "string") meta[k] = v.slice(0, cap);
       else if (typeof v === "number" || typeof v === "boolean" || v === null) meta[k] = v;
     }
     out.meta = meta;

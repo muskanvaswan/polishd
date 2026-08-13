@@ -152,6 +152,53 @@ export type GenerateSummaryError =
   | "no-data" // store empty / not ready — nothing to summarize
   | "provider-error"; // the model call failed
 
+// ── Design review ────────────────────────────────────────────────────────────
+
+/**
+ * One aesthetic problem the model called out. `evidence` must be a concrete
+ * token from the design digest (a hex color, a px value, a page path) — the
+ * same citation bar the summary's losses are held to, so a review can't
+ * invent a color the site never renders.
+ */
+export interface PolishdDesignIssue {
+  /** The problem, in plain English. */
+  issue: string;
+  /** The token from the metrics that shows it (hex, px value, page path). */
+  evidence: string;
+  /** A concrete fix, when the model offered one. */
+  suggestion?: string;
+}
+
+/**
+ * The model's aesthetic read of the deterministic design metrics — generated
+ * by the same provider/model the owner configured for the analytics summary,
+ * cached in the store, and refreshed only on demand or when the metrics change.
+ */
+export interface PolishdDesignReview {
+  /** The overall assessment — how coherent and tasteful the design reads. */
+  text: string;
+  /** What the design gets right. */
+  strengths?: string[];
+  /** Specific, evidence-cited aesthetic problems. */
+  issues?: PolishdDesignIssue[];
+  provider: PolishdAIProvider;
+  model: string;
+  generatedAt: number;
+  /** Hash of the design digest it was generated from — drives staleness. */
+  fingerprint: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}
+
+/** Result of a design review attempt, returned to the dashboard. */
+export type GenerateDesignReviewResult =
+  | { ok: true; review: PolishdDesignReview; regenerated: boolean }
+  | { ok: false; error: GenerateDesignReviewError; message: string };
+
+export type GenerateDesignReviewError =
+  | "no-key" // no API key configured
+  | "no-data" // no pages scanned yet
+  | "provider-error"; // the model call failed
+
 // ── GitHub connection ────────────────────────────────────────────────────────
 
 /**
