@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Telemetry answers the product questions clicks can't
+
+The dashboard telemetry emitter now sends one `install_state` event per
+session — whether a model is connected and which provider/model, resolved
+server-side, never the key — and the consent prompt discloses it. On the
+collecting side, the Installs tab grew a "With a model" stat and a per-domain
+Model column built from each install's latest report, so connecting,
+switching, or disconnecting a model reads correctly.
+
+The dashboard's own controls also carry `data-component` names now
+(`ai-summary-refresh`, `ai-summary-generate`, `ai-connect-model`,
+`journey-open`, `loss-file-bug`, `loss-ignore`, `design-review-refresh`,
+`settings-scan-codebase`, `show-more`, coarse `settings`/`ai-summary`
+containers, …), so with `POLISHD_ANALYTICS_SOURCE=telemetry` the collector's
+Most-used-features table groups dashboard clicks by feature instead of raw
+selectors — the same component-level story polishd tells its hosts, told
+about itself. The attributes are inert for host apps.
+
 ## 0.2.2
 
 ### Cross-install telemetry ingest

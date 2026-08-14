@@ -897,6 +897,11 @@ export interface TelemetryInstall {
   deadClicks: number;
   /** Server receive time of the most recent event, ms since epoch. */
   lastSeen: number;
+  /** Whether a model is connected there; null = never reported (old emitter). */
+  hasModel: boolean | null;
+  /** Provider/model in use, from the latest install_state report. */
+  provider: string | null;
+  model: string | null;
 }
 
 /** One row per reporting installation, most recently active first. */
@@ -917,16 +922,43 @@ export async function getTelemetryInstalls(limit = 100): Promise<TelemetryInstal
      LIMIT ?`,
     [limit],
   );
-  return rows.map((r) => ({
-    install: r.install_id as string,
-    sessions: num(r, "sessions"),
-    events: num(r, "events"),
-    pageViews: num(r, "page_views"),
-    clicks: num(r, "clicks"),
-    rageClicks: num(r, "rage_clicks"),
-    deadClicks: num(r, "dead_clicks"),
-    lastSeen: num(r, "last_seen"),
-  }));
+
+  // The newest install_state per install answers "is a model connected, and
+  // which one" — state the click stream can't carry. Latest wins so an
+  // install that connects (or disconnects) a model reads correctly.
+  const stateRows = await query(
+    `SELECT install_id, meta FROM events e
+     WHERE type = 'install_state' AND install_id IS NOT NULL
+       AND id = (SELECT MAX(id) FROM events e2
+                 WHERE e2.type = 'install_state' AND e2.install_id = e.install_id)`,
+  );
+  const states = new Map<string, { hasModel: boolean; provider: string | null; model: string | null }>();
+  for (const r of stateRows) {
+    const meta = parseMeta(r.meta);
+    if (!meta) continue;
+    states.set(r.install_id as string, {
+      hasModel: meta.hasModel === true,
+      provider: typeof meta.provider === "string" && meta.provider ? meta.provider : null,
+      model: typeof meta.model === "string" && meta.model ? meta.model : null,
+    });
+  }
+
+  return rows.map((r) => {
+    const state = states.get(r.install_id as string);
+    return {
+      install: r.install_id as string,
+      sessions: num(r, "sessions"),
+      events: num(r, "events"),
+      pageViews: num(r, "page_views"),
+      clicks: num(r, "clicks"),
+      rageClicks: num(r, "rage_clicks"),
+      deadClicks: num(r, "dead_clicks"),
+      lastSeen: num(r, "last_seen"),
+      hasModel: state ? state.hasModel : null,
+      provider: state?.hasModel ? state.provider : null,
+      model: state?.hasModel ? state.model : null,
+    };
+  });
 }
 
 export interface TelemetryPathStat {

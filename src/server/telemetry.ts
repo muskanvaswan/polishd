@@ -19,6 +19,7 @@
  * the host site's analytics, never its visitors' events.
  */
 import { getMeta, setMeta, storeReady } from "./store";
+import { resolveSettings } from "../ai/settings";
 
 /** Where telemetry lands: the polishd site's own installation. */
 export const DEFAULT_TELEMETRY_ENDPOINT =
@@ -36,9 +37,23 @@ export type PolishdTelemetryStatus =
   /** Env kill switch, or no writable store to keep consent in. */
   | "disabled";
 
+/**
+ * The reporting install's own state, sent once per session as an
+ * `install_state` event so the collecting side can answer "how many installs
+ * have a model connected, and which ones". Resolved server-side from the same
+ * settings the dashboard renders — never the key itself, only its presence.
+ */
+export interface PolishdTelemetryInstallState {
+  hasModel: boolean;
+  provider: string;
+  model: string;
+}
+
 export interface PolishdTelemetryState {
   status: PolishdTelemetryStatus;
   endpoint: string;
+  /** Set only when status is "granted" — nothing is resolved before consent. */
+  installState: PolishdTelemetryInstallState | null;
 }
 
 export function telemetryDisabledByEnv(): boolean {
@@ -77,22 +92,43 @@ export async function saveTelemetryConsent(granted: boolean): Promise<void> {
   );
 }
 
+/** The install-state snapshot the emitter reports. Never includes secrets. */
+async function loadInstallState(): Promise<PolishdTelemetryInstallState> {
+  try {
+    const { settings } = await resolveSettings();
+    return {
+      hasModel: settings.apiKey.length > 0,
+      provider: settings.provider,
+      model: settings.model,
+    };
+  } catch {
+    return { hasModel: false, provider: "", model: "" };
+  }
+}
+
 /** What the dashboard should do about telemetry on this render. */
 export async function loadPolishdTelemetryState(): Promise<PolishdTelemetryState> {
   const endpoint = resolveTelemetryEndpoint();
-  if (telemetryDisabledByEnv()) return { status: "disabled", endpoint };
+  const off = (status: PolishdTelemetryStatus): PolishdTelemetryState => ({
+    status,
+    endpoint,
+    installState: null,
+  });
+  if (telemetryDisabledByEnv()) return off("disabled");
   // Without a writable store there is nowhere to keep the answer, so asking
   // would mean asking on every single render. Stay quiet instead.
-  if (!(await storeReady())) return { status: "disabled", endpoint };
+  if (!(await storeReady())) return off("disabled");
 
   const raw = await getMeta(CONSENT_KEY);
-  if (!raw) return { status: "unset", endpoint };
+  if (!raw) return off("unset");
   try {
     const parsed = JSON.parse(raw) as { status?: unknown };
-    if (parsed.status === "granted") return { status: "granted", endpoint };
-    if (parsed.status === "denied") return { status: "denied", endpoint };
+    if (parsed.status === "granted") {
+      return { status: "granted", endpoint, installState: await loadInstallState() };
+    }
+    if (parsed.status === "denied") return off("denied");
   } catch {
     // Unreadable record — treat as never asked rather than silently sending.
   }
-  return { status: "unset", endpoint };
+  return off("unset");
 }
