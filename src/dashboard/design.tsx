@@ -18,6 +18,8 @@ import type {
 } from "../server/design";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
+import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
+import OverflowRow from "./overflow-row";
 import ShowMore from "./show-more";
 import { border, card, divider, labelCls as label } from "./ui";
 
@@ -65,7 +67,9 @@ function SectionFlags({ flags, section }: { flags: DesignFlag[]; section: Design
                 }`}
               />
             )}
-            <span>{f.message}</span>
+            <span>
+              <Annotated text={f.message} />
+            </span>
           </li>
         ))}
       </ul>
@@ -181,8 +185,7 @@ function ColorChip({ c }: { c: PolishdDesignData["colors"][number] }) {
 
 function PaletteSection({ data }: { data: PolishdDesignData }) {
   const primary = data.colors.slice(0, 6);
-  const chips = data.colors.slice(6, 6 + VISIBLE_ROWS);
-  const overflow = data.colors.slice(6 + VISIBLE_ROWS, 48);
+  const chips = data.colors.slice(6, 48);
   return (
     <Section
       title="Color palette"
@@ -209,19 +212,16 @@ function PaletteSection({ data }: { data: PolishdDesignData }) {
           </div>
         )}
         {chips.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2 px-4 sm:px-5">
+          <OverflowRow
+            label="colors"
+            className="mt-4 px-4 sm:px-5"
+            rowClassName="flex flex-wrap gap-2"
+          >
             {chips.map((c) => (
               <ColorChip key={c.hex} c={c} />
             ))}
-          </div>
+          </OverflowRow>
         )}
-        <ShowMore count={overflow.length} label="colors">
-          <div className="mt-2 flex flex-wrap gap-2 px-4 pb-1 sm:px-5">
-            {overflow.map((c) => (
-              <ColorChip key={c.hex} c={c} />
-            ))}
-          </div>
-        </ShowMore>
       </div>
     </Section>
   );
@@ -238,11 +238,14 @@ function ContrastRow({ p, first }: { p: PolishdDesignData["contrast"][number]; f
       >
         Aa
       </span>
-      <span className="font-mono text-[11px] text-[#999]">
-        {p.fg} on {p.bg}
+      <span className="flex items-center gap-1.5 text-[11px] text-[#777]">
+        <ColorToken hex={p.fg} /> on <ColorToken hex={p.bg} />
       </span>
-      <span className="text-[12px] tabular-nums text-red-400">
-        {p.ratio}:1 <span className="text-[#666]">(needs {p.required}:1 at {p.minSizePx}px)</span>
+      <span className="flex items-center gap-2">
+        <ContrastMeter ratio={p.ratio} required={p.required} />
+        <span className="text-[11px] tabular-nums text-[#666]">
+          needs {contrastPercent(p.required)}% at {p.minSizePx}px
+        </span>
       </span>
       <span className="text-[11px] text-[#555]">
         {p.pages.slice(0, 2).join(", ")}
@@ -262,8 +265,13 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
       title="Contrast"
       tip="— every text-on-background pairing measured against WCAG AA."
     >
+      {/*
+        No `SectionFlags` here, unlike every other section: the contrast flags
+        say exactly what the rows below already show, pair for pair. They stay
+        in the data because the AI digest reads them — with the page each
+        failure was seen on, which the rows summarize.
+      */}
       <div className={`${card} overflow-hidden`}>
-        <SectionFlags flags={data.flags} section="contrast" />
         {failing.length === 0 ? (
           <p className="px-4 py-4 text-[13px] text-emerald-500 sm:px-5">
             All {data.contrast.length} measured text/background pairs meet WCAG AA. Nice.
@@ -307,24 +315,20 @@ function RadiusChip({ r }: { r: PolishdDesignData["radii"][number] }) {
 
 function RadiusSection({ data }: { data: PolishdDesignData }) {
   if (data.radii.length === 0) return null;
-  const visible = data.radii.slice(0, VISIBLE_ROWS);
-  const overflow = data.radii.slice(VISIBLE_ROWS, 20);
+  const radii = data.radii.slice(0, 20);
   return (
     <Section title="Corner radii" tip="— rounding in use on visible boxes and controls.">
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="radius" />
-        <div className="flex flex-wrap items-end gap-4 px-4 pt-4 sm:px-5">
-          {visible.map((r) => (
+        <OverflowRow
+          label="radii"
+          className="px-4 pt-4 sm:px-5"
+          rowClassName="flex flex-wrap items-end gap-4"
+        >
+          {radii.map((r) => (
             <RadiusChip key={r.value} r={r} />
           ))}
-        </div>
-        <ShowMore count={overflow.length} label="radii">
-          <div className="mt-2 flex flex-wrap items-end gap-4 px-4 pb-1 sm:px-5">
-            {overflow.map((r) => (
-              <RadiusChip key={r.value} r={r} />
-            ))}
-          </div>
-        </ShowMore>
+        </OverflowRow>
       </div>
     </Section>
   );

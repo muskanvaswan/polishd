@@ -17,6 +17,47 @@ so one shared database can tell installations apart and name them by domain.
 Nothing sends to this endpoint yet; the dashboard-side emitter and its
 opt-in consent flow ship separately.
 
+### Design findings read as colors and percentages, not raw tokens
+
+A contrast finding used to arrive as a line of citations: `#ffffff text on
+#ecae12 is 1.98:1 at 13.5px and #f5f5f5 text on #a17321 is 3.86:1 at 15px`,
+set in 10px mono. Two things in that sentence are unreadable on sight — a hex
+is a color nobody can picture, and `1.98:1` is a point on an open-ended scale
+only accessibility people carry in their head.
+
+**Hexes now render as swatches** wherever a design finding quotes one: the
+deterministic flags, the model's evidence and suggestion, its assessment and
+strengths, and the contrast rows. The code stays next to the swatch, because
+that's what you search the codebase for — and the chip is a button: hover or
+focus turns the swatch itself into a copy glyph, and a click puts the hex on
+the clipboard and shows a tick. Swapping the swatch rather than revealing a
+second icon keeps the chip one fixed width, so there's no slot sitting empty at
+rest and no row of chips jumping as the pointer crosses it. Opened over plain
+http on a LAN address, where there is no Clipboard API at all, it falls back to
+the old selection trick and says so on the chip if even that fails.
+
+**Ratios render as a 0–100% contrast score.** The scale is logarithmic, so the
+steps read evenly instead of bunching every real pairing into the bottom fifth:
+1:1 is 0%, AA's 4.5:1 lands at 49%, 21:1 is 100%. The exact ratio moves into
+the tooltip rather than disappearing. Failing pairs are tinted red (clears
+nothing) or amber (clears large text only); anything at AA stays neutral, since
+these sentences quote the threshold as often as the measurement.
+
+Each failing pair also gets a **meter** — the score as a bar, with a tick at
+the level that text size actually needs — replacing `1.98:1 (needs 4.5:1 at
+13.5px)`. The evidence and suggestion boxes went from 10px mono to 12px prose
+with a real line height; only the tokens stay monospaced.
+
+The **warning banner above the contrast table is gone**. It restated the rows
+underneath it pair for pair, which was tolerable when the rows were dense
+numbers and redundant once they weren't. The flags themselves stay in the data
+— the AI digest reads them, with the page each failure was seen on.
+
+Rewriting happens at render time. Stored flags, evidence strings and the AI
+digest keep their verbatim numbers, because the review pipeline verifies an
+issue by matching its citation against the digest it sent — so no cached review
+is invalidated by this.
+
 ## 0.2.1
 
 ### Losses can be ignored, and the model remembers why
