@@ -88,12 +88,20 @@ CREATE TABLE IF NOT EXISTS events (
   text        TEXT,
   value       DOUBLE PRECISION,
   meta        JSONB,
-  received_at BIGINT      NOT NULL
+  received_at BIGINT      NOT NULL,
+  install_id  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_path    ON events(path);
 CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id);
 ```
+
+(`install_id` is null on every first-party event; it is only set on rows that
+arrived through a `@polishd/next/telemetry` endpoint, which tags each event
+with the hostname of the remote installation that sent it — derived
+server-side from the request's Origin header. Databases created before the
+column existed are migrated automatically at open.)
 
 ---
 

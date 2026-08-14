@@ -160,3 +160,90 @@ export async function ingest(
   const stored = await insertEvents(sessionId, events);
   return { ok: true, stored };
 }
+
+// ── Cross-install telemetry ingest ───────────────────────────────────────────
+
+/**
+ * The shape a client-minted session id must satisfy. Loose enough for a UUID
+ * or a short hash, tight enough that the column can never hold markup,
+ * whitespace, or anything long enough to be a payload.
+ */
+const TELEMETRY_ID_RE = /^[A-Za-z0-9._-]{6,64}$/;
+
+/** A plausible hostname: label characters only, sane length, no ports/paths. */
+const HOSTNAME_RE = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/i;
+
+/**
+ * Derive the reporting installation's identity — its hostname — from request
+ * headers.
+ *
+ * The `Origin` header is the honest source: the browser sets it on every
+ * cross-origin POST and page script cannot forge it, so it names the site the
+ * dashboard actually runs on. A request without one (same-origin in some
+ * browsers, server-to-server) falls back to `Host`. A *malformed* Origin gets
+ * no fallback — a client that sends the header wrong is not one to guess for.
+ * Returns null when no acceptable hostname can be derived; ports are dropped
+ * so one install's dev server isn't split across restarts.
+ */
+export function telemetryInstallId(origin: string | null, host: string | null): string | null {
+  if (origin && origin !== "null") {
+    try {
+      const hostname = new URL(origin).hostname;
+      return HOSTNAME_RE.test(hostname) ? hostname.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  }
+  if (host) {
+    const hostname = host.split(":")[0];
+    if (HOSTNAME_RE.test(hostname)) return hostname.toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * Ingest a telemetry batch from a *remote* polishd installation.
+ *
+ * This differs from first-party {@link ingest} in exactly three ways, each a
+ * consequence of the request crossing origins:
+ *
+ *  1. Identity is split between body and headers. The session cookie is
+ *     httpOnly and first-party, so it never arrives here; the emitter mints
+ *     an anonymous session id itself, and the *installation* is identified by
+ *     `installId` — the hostname the route derived from the Origin header via
+ *     {@link telemetryInstallId}. It is validated by shape only; the worst a
+ *     forger achieves is polluting telemetry, same as any public endpoint.
+ *  2. Every stored row is tagged with the `installId`, so one shared database
+ *     can tell installations apart — and name them by domain.
+ *  3. Dashboard paths are NOT dropped. Recording how the dashboard itself is
+ *     used is the entire point of this channel; the emitter is expected to
+ *     namespace its paths so they can't collide with the receiving site's own
+ *     first-party events.
+ */
+export async function ingestTelemetry(
+  body: unknown,
+  installId: string | null,
+  config: Partial<PolishdConfig> = {},
+): Promise<IngestResult> {
+  const cfg = { ...defaultPolishdConfig, ...config };
+  if (!cfg.enabled) return { ok: true, stored: 0, reason: "disabled" };
+  if (!installId) return { ok: false, stored: 0, reason: "bad_identity" };
+
+  const b = body as Partial<Record<"sessionId" | "events", unknown>> | null;
+  const sessionId =
+    typeof b?.sessionId === "string" && TELEMETRY_ID_RE.test(b.sessionId)
+      ? b.sessionId
+      : null;
+  if (!sessionId) return { ok: false, stored: 0, reason: "bad_identity" };
+
+  const rawEvents = b?.events;
+  if (!Array.isArray(rawEvents)) return { ok: false, stored: 0, reason: "no_events" };
+
+  const events = rawEvents
+    .slice(0, MAX_EVENTS_PER_BATCH)
+    .map(sanitize)
+    .filter((e): e is PolishdEvent => e !== null);
+
+  const stored = await insertEvents(sessionId, events, installId);
+  return { ok: true, stored };
+}

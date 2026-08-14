@@ -546,6 +546,7 @@ Run `npx @polishd/next doctor` first — it catches most of these by name, and
 | `@polishd/next/client` | `initPolishd`, `PolishdMonitor` |
 | `@polishd/next/server` | store, ingest, queries, `withPolishdSession` (Node only) |
 | `@polishd/next/route` | `POST`, `createPolishdRoute` |
+| `@polishd/next/telemetry` | `POST`, `OPTIONS`, `createPolishdTelemetryRoute` — CORS-enabled ingest for telemetry from *other* polishd installs |
 | `@polishd/next/proxy` | `proxy`, `config`, `withPolishdSession`, `polishdMatcher`, `composePolishd` |
 | `@polishd/next/dashboard` | `createPolishdPage`, `polishdTokenAuth`, `PolishdDashboard`, `loadPolishdDashboardData` |
 
