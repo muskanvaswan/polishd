@@ -194,21 +194,10 @@ function fmtMs(ms: number): string {
 }
 
 function MonitoredRow({ m }: { m: MonitoredComponent }) {
-  const hasIssues = m.rageClicks > 0 || m.deadClicks > 0;
   return (
     <tr className={`${divider} first:border-t-0 align-top`}>
-      <td className="py-2.5 pl-5 pr-4 min-w-[160px]">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[13px] font-medium text-white">{m.name}</span>
-          <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-purple-950 text-purple-400">
-            monitored
-          </span>
-          {hasIssues && (
-            <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-red-950 text-red-400">
-              issues
-            </span>
-          )}
-        </div>
+      <td className="py-2.5 pl-5 pr-4 min-w-[280px]">
+        <div className="text-[13px] font-medium text-white">{m.name}</div>
         <div className="mt-0.5 text-[11px] text-[#555]">
           {m.sessions} {m.sessions === 1 ? "session" : "sessions"} · {m.pages}{" "}
           {m.pages === 1 ? "page" : "pages"}
@@ -461,7 +450,7 @@ export function PolishdDashboard({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px]">
+              <table className="w-full min-w-[820px]">
                 <thead>
                   <tr>
                     <Th align="left" tip="The name prop passed to <PolishdMonitor>. Sessions and pages shown beneath.">Component</Th>
