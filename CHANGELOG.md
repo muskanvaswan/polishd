@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Cross-install telemetry ingest
+
+A new `@polishd/next/telemetry` entry point exports a CORS-enabled ingest
+route for collecting telemetry *from other polishd installations* — the
+foundation for polishd dogfooding its own dashboards. Unlike the first-party
+route, it answers preflights, accepts POSTs cross-origin, and takes identity
+from the body (a client-minted anonymous session id plus a stable, anonymous
+`installId`) since the httpOnly session cookie never crosses origins. Events
+land tagged with an `install_id` — a new nullable column on `events`, migrated
+automatically on both backends — so one shared database can tell installations
+apart. Nothing sends to this endpoint yet; the dashboard-side emitter and its
+opt-in consent flow ship separately.
+
 ## 0.2.1
 
 ### Losses can be ignored, and the model remembers why

@@ -57,6 +57,10 @@
       "types": "./dist/route.d.ts",
       "default": "./dist/route.js"
     },
+    "./telemetry": {
+      "types": "./dist/telemetry.d.ts",
+      "default": "./dist/telemetry.js"
+    },
     "./proxy": {
       "types": "./dist/proxy.d.ts",
       "default": "./dist/proxy.js"

@@ -29,7 +29,7 @@ type Row = Record<string, unknown>;
 
 interface Backend {
   /** Persist a batch of events for one session. Returns rows written. */
-  insert(sessionId: string, events: PolishdEvent[]): Promise<number>;
+  insert(sessionId: string, events: PolishdEvent[], installId?: string): Promise<number>;
   /** Run a read query. `?` placeholders are positional, in order. */
   query(sql: string, params?: unknown[]): Promise<Row[]>;
   /** Run a write statement (INSERT/UPDATE) that returns no rows. */
@@ -38,10 +38,15 @@ interface Backend {
 
 /** The columns every backend inserts, in a fixed order, for one event. */
 const INSERT_COLS =
-  "session_id, type, ts, path, selector, component, text, value, meta, received_at";
+  "session_id, type, ts, path, selector, component, text, value, meta, received_at, install_id";
 
 /** Turn one event into its positional values, matching `INSERT_COLS`. */
-function eventValues(sessionId: string, e: PolishdEvent, now: number): unknown[] {
+function eventValues(
+  sessionId: string,
+  e: PolishdEvent,
+  now: number,
+  installId?: string,
+): unknown[] {
   return [
     sessionId,
     e.type,
@@ -53,6 +58,7 @@ function eventValues(sessionId: string, e: PolishdEvent, now: number): unknown[]
     e.value ?? null,
     e.meta ? JSON.stringify(e.meta) : null,
     now,
+    installId ?? null,
   ];
 }
 
@@ -122,7 +128,8 @@ async function openSqlite(): Promise<Backend> {
       text        TEXT,
       value       REAL,
       meta        TEXT,
-      received_at INTEGER NOT NULL
+      received_at INTEGER NOT NULL,
+      install_id  TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_events_path ON events(path);
     CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
@@ -135,6 +142,16 @@ async function openSqlite(): Promise<Backend> {
     );
   `);
 
+  // Databases created before install_id existed lack the column; SQLite has no
+  // ADD COLUMN IF NOT EXISTS, so the raise on an up-to-date table is the
+  // expected path. The index only lands once the column is guaranteed present.
+  try {
+    db.exec(`ALTER TABLE events ADD COLUMN install_id TEXT`);
+  } catch {
+    // Column already there — fresh table or already-migrated database.
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id)`);
+
   migrateLegacyMeta(
     (sql) => db.exec(sql),
     `INSERT OR IGNORE INTO polishd_meta (key, value, updated_at)
@@ -142,18 +159,18 @@ async function openSqlite(): Promise<Backend> {
   );
 
   return {
-    async insert(sessionId, events) {
+    async insert(sessionId, events, installId) {
       if (events.length === 0) return 0;
       const now = Date.now();
       const stmt = db.prepare(
-        `INSERT INTO events (${INSERT_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO events (${INSERT_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       let written = 0;
       // node:sqlite has no .transaction() helper; wrap manually for batch speed.
       db.exec("BEGIN");
       try {
         for (const e of events) {
-          stmt.run(...(eventValues(sessionId, e, now) as never[]));
+          stmt.run(...(eventValues(sessionId, e, now, installId) as never[]));
           written++;
         }
         db.exec("COMMIT");
@@ -216,11 +233,15 @@ function openPostgres(url: string): Backend {
       text        TEXT,
       value       DOUBLE PRECISION,
       meta        JSONB,
-      received_at BIGINT      NOT NULL
+      received_at BIGINT      NOT NULL,
+      install_id  TEXT
     );
+    -- Migrates tables created before install_id existed; no-op otherwise.
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS install_id TEXT;
     CREATE INDEX IF NOT EXISTS idx_events_path    ON events(path);
     CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
     CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+    CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id);
 
     CREATE TABLE IF NOT EXISTS polishd_meta (
       key        TEXT   PRIMARY KEY,
@@ -237,11 +258,11 @@ function openPostgres(url: string): Backend {
   });
 
   return {
-    async insert(sessionId, events) {
+    async insert(sessionId, events, installId) {
       if (events.length === 0) return 0;
       await ready;
       const now = Date.now();
-      const cols = 10; // must match INSERT_COLS / eventValues
+      const cols = 11; // must match INSERT_COLS / eventValues
       const params: unknown[] = [];
       const tuples: string[] = [];
       events.forEach((e, row) => {
@@ -251,7 +272,7 @@ function openPostgres(url: string): Backend {
           c === 8 ? `$${base + c + 1}::jsonb` : `$${base + c + 1}`,
         );
         tuples.push(`(${ph.join(", ")})`);
-        params.push(...eventValues(sessionId, e, now));
+        params.push(...eventValues(sessionId, e, now, installId));
       });
       const res = await pool.query(
         `INSERT INTO events (${INSERT_COLS}) VALUES ${tuples.join(", ")}`,
@@ -316,15 +337,20 @@ export async function storeReady(): Promise<boolean> {
   return (await getBackend()) !== null;
 }
 
-/** Persist a batch of events for one session. Silently drops if no store. */
+/**
+ * Persist a batch of events for one session. Silently drops if no store.
+ * `installId` is only ever set on the telemetry path — first-party ingest
+ * leaves it undefined and the column null.
+ */
 export async function insertEvents(
   sessionId: string,
   events: PolishdEvent[],
+  installId?: string,
 ): Promise<number> {
   const b = await getBackend();
   if (!b || events.length === 0) return 0;
   try {
-    return await b.insert(sessionId, events);
+    return await b.insert(sessionId, events, installId);
   } catch (err) {
     console.warn(
       "[polishd] insert failed, dropping batch:",
@@ -405,6 +431,7 @@ function deserialize(row: Row): PolishdEventRow {
     value: row.value == null ? undefined : Number(row.value),
     meta: parseMeta(row.meta),
     received_at: Number(row.received_at),
+    install_id: (row.install_id as string) ?? undefined,
   };
 }
 

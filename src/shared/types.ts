@@ -61,12 +61,29 @@ export interface PolishdIngestBody {
   page?: string;
 }
 
+/**
+ * What a telemetry emitter POSTs to a `@polishd/next/telemetry` route.
+ *
+ * Unlike first-party ingest, identity travels in the body: the session cookie
+ * is httpOnly and first-party, so a cross-origin POST arrives without it. Both
+ * ids are anonymous and client-minted; the receiving end validates their shape
+ * but has no way (and no need) to tie them to anything.
+ */
+export interface PolishdTelemetryBody extends PolishdIngestBody {
+  /** Stable, anonymous id of the installation the events came from. */
+  installId: string;
+  /** Anonymous session id minted by the emitter (no cookie crosses origins). */
+  sessionId: string;
+}
+
 /** A stored event row, as it comes back from the database. */
 export interface PolishdEventRow extends PolishdEvent {
   id: number;
   session_id: string;
   /** Server receive time, ms since epoch — authoritative for retention. */
   received_at: number;
+  /** Which installation sent this event. Only set on telemetry-ingested rows. */
+  install_id?: string;
 }
 
 /** The set of event types the client is allowed to send. */

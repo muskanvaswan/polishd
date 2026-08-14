@@ -160,3 +160,61 @@ export async function ingest(
   const stored = await insertEvents(sessionId, events);
   return { ok: true, stored };
 }
+
+// ── Cross-install telemetry ingest ───────────────────────────────────────────
+
+/**
+ * The shape both client-minted ids must satisfy. Loose enough for a UUID or a
+ * short hash, tight enough that the column can never hold markup, whitespace,
+ * or anything long enough to be a payload.
+ */
+const TELEMETRY_ID_RE = /^[A-Za-z0-9._-]{6,64}$/;
+
+/**
+ * Ingest a telemetry batch from a *remote* polishd installation.
+ *
+ * This differs from first-party {@link ingest} in exactly three ways, each a
+ * consequence of the request crossing origins:
+ *
+ *  1. Identity travels in the body. The session cookie is httpOnly and
+ *     first-party, so it never arrives here; the emitter mints an anonymous
+ *     session id itself and sends it alongside a stable `installId`. Both are
+ *     validated by shape only — there is nothing to verify them against, and
+ *     the worst a forger achieves is polluting telemetry, same as any public
+ *     ingest endpoint.
+ *  2. Every stored row is tagged with the `installId`, so one shared database
+ *     can tell installations apart.
+ *  3. Dashboard paths are NOT dropped. Recording how the dashboard itself is
+ *     used is the entire point of this channel; the emitter is expected to
+ *     namespace its paths so they can't collide with the receiving site's own
+ *     first-party events.
+ */
+export async function ingestTelemetry(
+  body: unknown,
+  config: Partial<PolishdConfig> = {},
+): Promise<IngestResult> {
+  const cfg = { ...defaultPolishdConfig, ...config };
+  if (!cfg.enabled) return { ok: true, stored: 0, reason: "disabled" };
+
+  const b = body as Partial<Record<"installId" | "sessionId" | "events", unknown>> | null;
+  const installId =
+    typeof b?.installId === "string" && TELEMETRY_ID_RE.test(b.installId)
+      ? b.installId
+      : null;
+  const sessionId =
+    typeof b?.sessionId === "string" && TELEMETRY_ID_RE.test(b.sessionId)
+      ? b.sessionId
+      : null;
+  if (!installId || !sessionId) return { ok: false, stored: 0, reason: "bad_identity" };
+
+  const rawEvents = b?.events;
+  if (!Array.isArray(rawEvents)) return { ok: false, stored: 0, reason: "no_events" };
+
+  const events = rawEvents
+    .slice(0, MAX_EVENTS_PER_BATCH)
+    .map(sanitize)
+    .filter((e): e is PolishdEvent => e !== null);
+
+  const stored = await insertEvents(sessionId, events, installId);
+  return { ok: true, stored };
+}
