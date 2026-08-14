@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@polishd/next": "0.2.2-dev.1",
+    "@polishd/next": "0.2.2-dev.2",
     "next": "^16",
     "react": "^19",
     "react-dom": "^19"
