@@ -13,9 +13,10 @@
  * Everything about the transport differs from the host-site capture layer
  * because the POST crosses origins:
  *
- *   • Identity travels in the body — an anonymous session id minted here (the
- *     httpOnly session cookie never leaves its origin) plus the stable
- *     anonymous install id the server resolved from `polishd_meta`.
+ *   • The session id travels in the body, minted here (the httpOnly session
+ *     cookie never leaves its origin). The *installation* sends no id at all:
+ *     the collecting side names it by this page's hostname, taken from the
+ *     Origin header the browser sets on the cross-origin POST.
  *   • Batches are sent as `text/plain`, which keeps the request inside CORS's
  *     "simple" class — no preflight — and is the only shape `sendBeacon` can
  *     deliver cross-origin anyway. The receiving route parses the body as
@@ -78,7 +79,7 @@ function sessionId(): string {
   }
 }
 
-function start(endpoint: string, installId: string): void {
+function start(endpoint: string): void {
   const sid = sessionId();
   // The route the dashboard is mounted at, learned from where we woke up.
   // Capture is suspended whenever the URL wanders off it — the listeners
@@ -93,7 +94,7 @@ function start(endpoint: string, installId: string): void {
   const flush = (useBeacon = false) => {
     if (queue.length === 0) return;
     const batch = queue.splice(0, queue.length);
-    const body = JSON.stringify({ installId, sessionId: sid, events: batch });
+    const body = JSON.stringify({ sessionId: sid, events: batch });
     if (useBeacon && navigator.sendBeacon) {
       const ok = navigator.sendBeacon(endpoint, new Blob([body], { type: "text/plain" }));
       if (!ok) queue.unshift(...batch);
@@ -196,19 +197,13 @@ function start(endpoint: string, installId: string): void {
  * starts the capture singleton once per page load (the listeners are global
  * and deliberately never torn down — capture suspends off-dashboard instead).
  */
-export function PolishdTelemetryEmitter({
-  endpoint,
-  installId,
-}: {
-  endpoint: string;
-  installId: string;
-}) {
+export function PolishdTelemetryEmitter({ endpoint }: { endpoint: string }) {
   useEffect(() => {
     if (window.__polishdTelemetryStarted) return;
     if (navigator.doNotTrack === "1") return;
     window.__polishdTelemetryStarted = true;
-    start(endpoint, installId);
-  }, [endpoint, installId]);
+    start(endpoint);
+  }, [endpoint]);
   return null;
 }
 
@@ -248,8 +243,8 @@ export function PolishdTelemetryConsent() {
       <p className="text-[13px] font-medium text-white">Help improve polishd?</p>
       <p className="mt-1.5 text-[12px] leading-relaxed text-[#888]">
         Share anonymous usage of <span className="text-[#aaa]">this dashboard</span> — clicks and
-        tab views inside it, tied to a random install id. Never your site&apos;s analytics, never
-        your visitors&apos; data. Opt out any time with{" "}
+        tab views inside it, reported under your site&apos;s domain. Never your site&apos;s
+        analytics, never your visitors&apos; data. Opt out any time with{" "}
         <code className="font-mono text-[11px] text-[#aaa]">POLISHD_TELEMETRY=off</code>.
       </p>
       <div className="mt-3 flex gap-2">

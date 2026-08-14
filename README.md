@@ -454,10 +454,11 @@ once; nothing is sent unless you say yes. What's shared when you do:
 - Clicks and tab views **inside the dashboard only** (paths are namespaced
   `/~polishd/…` and capture suspends the moment you navigate back to your
   site), plus one viewport-size sample per session.
-- A random install id (`crypto.randomUUID()`, minted on consent) and an
-  anonymous per-browser-session id. No cookies, no fingerprinting, no URLs,
-  page content, or user data from your site — your analytics never leave your
-  database.
+- Your site's **domain** — the collecting side reads it from the request's
+  Origin header, so installations are named by where the dashboard actually
+  runs — and an anonymous per-browser-session id. No cookies, no
+  fingerprinting, no URLs, page content, or user data from your site — your
+  analytics never leave your database.
 
 Say no and it never asks again. Change your mind, or disable it fleet-wide,
 with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of

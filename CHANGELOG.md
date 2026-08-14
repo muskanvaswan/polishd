@@ -24,8 +24,8 @@ The dashboard now asks, once, whether it may share anonymous usage of
 never asks again; say yes and a small emitter records clicks (with the same
 rage/dead classification the host capture layer uses, via newly shared DOM
 helpers), tab views, and one viewport sample — namespaced under `/~polishd/…`
-paths, tied to a random install id, and suspended the instant the URL leaves
-the dashboard. Nothing from the host site is ever sent: not its analytics,
+paths, reported under the site's own domain (the disclosed, Origin-derived
+install identity), and suspended the instant the URL leaves the dashboard. Nothing from the host site is ever sent: not its analytics,
 not its visitors, not its URLs. `POLISHD_TELEMETRY=off` kills the feature
 (prompt included), `POLISHD_TELEMETRY_ENDPOINT` redirects it for testing, and
 `navigator.doNotTrack` is honored regardless of stored consent. Batches
