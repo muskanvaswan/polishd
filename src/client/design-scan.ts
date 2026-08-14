@@ -300,6 +300,23 @@ export function serializeDesignScan(payload: PolishdDesignScanPayload): string {
 
 const SCANNED_PREFIX = "polishd_ds:";
 
+export interface DesignScanOptions {
+  delayMs?: number;
+  /**
+   * Replaces the default `location.pathname === path` staleness check — for
+   * callers whose `path` is a namespaced label rather than a URL (the
+   * dashboard telemetry emitter labels its scans `/~polishd/<tab>`). Return
+   * false to drop a scan whose moment has passed.
+   */
+  stillCurrent?: () => boolean;
+  /**
+   * Scan even though the page is the dashboard. Only the telemetry emitter
+   * passes this: measuring the dashboard *is* its job, whereas for a host
+   * site's capture the dashboard must never count as the site's design.
+   */
+  scanDashboard?: boolean;
+}
+
 /**
  * Scan `path` once per session, after the page settles, and hand the payload
  * to `emit`. Skips silently when the tab is hidden at fire time (layout of a
@@ -309,8 +326,12 @@ const SCANNED_PREFIX = "polishd_ds:";
 export function scheduleDesignScan(
   path: string,
   emit: (payloadJson: string, elements: number) => void,
-  delayMs = 1500,
+  options: number | DesignScanOptions = 1500,
 ): void {
+  // The third argument was a bare delayMs before options existed.
+  const opts: DesignScanOptions = typeof options === "number" ? { delayMs: options } : options;
+  const delayMs = opts.delayMs ?? 1500;
+
   let done = false;
   try {
     if (sessionStorage.getItem(SCANNED_PREFIX + path)) return;
@@ -322,13 +343,14 @@ export function scheduleDesignScan(
     if (done) return;
     done = true;
     // The page navigated on while we waited — that path's own scan will fire.
-    if (location.pathname !== path) return;
+    if (opts.stillCurrent ? !opts.stillCurrent() : location.pathname !== path) return;
     if (document.visibilityState === "hidden") return;
     // The dashboard styles itself; measuring it would report Polishd's design
     // as the site's. The path check upstream normally catches this, but it
     // only knows the configured route — this recognizes the dashboard by its
     // own scope root, so a dashboard mounted anywhere is never scanned.
-    if (document.querySelector(".polishd-root")) return;
+    // (Unless the caller is the telemetry emitter, whose target it is.)
+    if (!opts.scanDashboard && document.querySelector(".polishd-root")) return;
     try {
       const payload = collectDesignScan();
       if (!payload) return;
