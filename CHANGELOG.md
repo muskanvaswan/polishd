@@ -7,12 +7,14 @@
 A new `@polishd/next/telemetry` entry point exports a CORS-enabled ingest
 route for collecting telemetry *from other polishd installations* — the
 foundation for polishd dogfooding its own dashboards. Unlike the first-party
-route, it answers preflights, accepts POSTs cross-origin, and takes identity
-from the body (a client-minted anonymous session id plus a stable, anonymous
-`installId`) since the httpOnly session cookie never crosses origins. Events
-land tagged with an `install_id` — a new nullable column on `events`, migrated
-automatically on both backends — so one shared database can tell installations
-apart. Nothing sends to this endpoint yet; the dashboard-side emitter and its
+route, it answers preflights, accepts POSTs cross-origin, and splits identity
+between body and headers: the session id is client-minted (the httpOnly
+session cookie never crosses origins), while the *installation* is identified
+by its hostname, derived server-side from the browser-set Origin header —
+which page script cannot forge. Events land tagged with that hostname in an
+`install_id` column — new, nullable, migrated automatically on both backends —
+so one shared database can tell installations apart and name them by domain.
+Nothing sends to this endpoint yet; the dashboard-side emitter and its
 opt-in consent flow ship separately.
 
 ## 0.2.1
