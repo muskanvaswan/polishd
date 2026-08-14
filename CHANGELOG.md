@@ -44,6 +44,26 @@ seen, plus which dashboard tabs get used across the fleet. The tab only
 renders on installations whose database actually holds telemetry — for the
 senders, it would only ever be an empty screen.
 
+### The full dashboard experience, over telemetry
+
+A collector that cares about the dashboard-usage story more than its own
+traffic can now flip one env var — `POLISHD_ANALYTICS_SOURCE=telemetry` —
+and the *entire* dashboard reads the cross-install dataset: Analytics,
+journeys, element breakdowns, device sizes, the Design tab, and the AI
+summary, all through the same single source function the separation uses.
+First-party events keep being captured and stored, just not shown, so the
+switch is losslessly reversible.
+
+To make that experience complete, the telemetry emitter now also captures
+scroll depth (of the dashboard's own scroll container — the document never
+scrolls under the shell), JS errors raised while the dashboard is up, and one
+design scan of the dashboard per tab per session. `scheduleDesignScan` grew an
+options form for this: a caller-supplied staleness check for namespaced path
+labels, and a `scanDashboard` flag that lifts the "never measure the
+dashboard" guard for the one caller whose target it is. On the collecting
+side the Design tab therefore reviews the dashboard's own design as real
+installs render it.
+
 ### Design findings read as colors and percentages, not raw tokens
 
 A contrast finding used to arrive as a line of citations: `#ffffff text on

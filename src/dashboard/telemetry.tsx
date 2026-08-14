@@ -27,10 +27,12 @@
  *
  * What is captured: page views (tab switches), clicks (with the same
  * rage/dead classification as the host capture layer, via the shared DOM
- * helpers), one viewport sample per session, and session end. Nothing else —
- * no scroll depth, no errors, no design scans, and never anything from the
- * host site's own pages: capture suspends the moment the URL leaves the
- * dashboard's mount path.
+ * helpers), scroll depth of the dashboard's own scroll container, JS errors
+ * raised while the dashboard is up, one design scan of the dashboard per tab
+ * per session, one viewport sample per session, and session end. Everything
+ * the full dashboard experience needs on the collecting side — and never
+ * anything from the host site's own pages: capture suspends the moment the
+ * URL leaves the dashboard's mount path.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
@@ -44,6 +46,7 @@ import {
   labelOf,
   selectorOf,
 } from "../client/dom";
+import { scheduleDesignScan } from "../client/design-scan";
 import { denyPolishdTelemetry, grantPolishdTelemetry } from "./telemetry-consent";
 
 const PATH_PREFIX = "/~polishd";
@@ -152,14 +155,90 @@ function start(endpoint: string): void {
     { capture: true, passive: true },
   );
 
+  // ---- scroll depth (of whatever actually scrolls) --------------------------
+
+  // The dashboard scrolls inside its own shell container, not the document,
+  // so this listens in the capture phase and reads whichever element fired —
+  // only meaningfully scrollable ones contribute.
+  let maxScrollPct = 0;
+
+  document.addEventListener(
+    "scroll",
+    (ev) => {
+      if (!onDashboard()) return;
+      const t = ev.target;
+      const el = t instanceof Element ? t : document.documentElement;
+      const scrollable = el.scrollHeight - el.clientHeight;
+      if (scrollable <= 0) return;
+      const pct = Math.min(100, Math.round((el.scrollTop / scrollable) * 100));
+      if (pct > maxScrollPct) maxScrollPct = pct;
+    },
+    { capture: true, passive: true },
+  );
+
+  /** Report the outgoing tab's depth before the path context changes. */
+  const flushScrollDepth = () => {
+    if (maxScrollPct <= 0) return;
+    push({ type: "scroll_depth", value: maxScrollPct });
+    maxScrollPct = 0;
+  };
+
+  // ---- errors ---------------------------------------------------------------
+
+  addEventListener(
+    "error",
+    (ev) => {
+      if (!onDashboard()) return;
+      push({
+        type: "js_error",
+        meta: {
+          message: String(ev.message).slice(0, 300),
+          source: ev.filename || "",
+          line: ev.lineno || 0,
+        },
+      });
+    },
+    true,
+  );
+  addEventListener("unhandledrejection", (ev) => {
+    if (!onDashboard()) return;
+    const reason = ev.reason;
+    push({
+      type: "js_error",
+      meta: {
+        message: String(reason?.message ?? reason).slice(0, 300),
+        kind: "unhandledrejection",
+      },
+    });
+  });
+
+  // ---- design scan (the dashboard's own rendered design) --------------------
+
+  // One scan per tab per session, labeled with the telemetry path. On the
+  // collecting side this is what feeds the Design tab: the dashboard's design
+  // as real installs actually render it.
+  const emitDesignScan = () => {
+    const path = currentPath;
+    scheduleDesignScan(
+      path,
+      (payloadJson, elements) => {
+        push({ type: "design_scan", path, meta: { payload: payloadJson, el: elements } });
+        flush();
+      },
+      { scanDashboard: true, stillCurrent: () => onDashboard() && telemetryPath() === path },
+    );
+  };
+
   // ---- page views (tab switches ride on the History API) -------------------
 
   const onNavigate = () => {
     if (!onDashboard()) return;
     const next = telemetryPath();
     if (next === currentPath) return;
+    flushScrollDepth();
     currentPath = next;
     push({ type: "page_view", path: currentPath });
+    emitDesignScan();
   };
 
   const wrapHistory = (method: "pushState" | "replaceState") => {
@@ -177,6 +256,7 @@ function start(endpoint: string): void {
   // ---- lifecycle -----------------------------------------------------------
 
   addEventListener("pagehide", () => {
+    flushScrollDepth();
     push({ type: "session_end" });
     flush(true);
   });
@@ -190,6 +270,7 @@ function start(endpoint: string): void {
     push({ type: "viewport", value: w, text: deviceCategory(w) });
   }
   push({ type: "page_view", path: currentPath });
+  emitDesignScan();
 }
 
 /**
