@@ -17,6 +17,21 @@ so one shared database can tell installations apart and name them by domain.
 Nothing sends to this endpoint yet; the dashboard-side emitter and its
 opt-in consent flow ship separately.
 
+### The dashboard dogfoods itself — with consent
+
+The dashboard now asks, once, whether it may share anonymous usage of
+*itself* with the polishd project. Opt-in and off by default: say no and it
+never asks again; say yes and a small emitter records clicks (with the same
+rage/dead classification the host capture layer uses, via newly shared DOM
+helpers), tab views, and one viewport sample — namespaced under `/~polishd/…`
+paths, reported under the site's own domain (the disclosed, Origin-derived
+install identity), and suspended the instant the URL leaves the dashboard. Nothing from the host site is ever sent: not its analytics,
+not its visitors, not its URLs. `POLISHD_TELEMETRY=off` kills the feature
+(prompt included), `POLISHD_TELEMETRY_ENDPOINT` redirects it for testing, and
+`navigator.doNotTrack` is honored regardless of stored consent. Batches
+travel as `text/plain` so the cross-origin POST stays preflight-free and
+beacon-compatible.
+
 ### Design findings read as colors and percentages, not raw tokens
 
 A contrast finding used to arrive as a line of citations: `#ffffff text on

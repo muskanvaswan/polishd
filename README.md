@@ -442,6 +442,29 @@ import { PolishdMonitor } from "@polishd/next/client";
 </PolishdMonitor>
 ```
 
+## Dashboard telemetry
+
+Polishd can report anonymous usage of its own dashboard back to the polishd
+project — the same rage-click/dead-click/page-view signals it captures for
+you, applied to itself, so the dashboard is improved by what it preaches.
+
+**Opt-in, and off by default.** The first time you open the dashboard it asks
+once; nothing is sent unless you say yes. What's shared when you do:
+
+- Clicks and tab views **inside the dashboard only** (paths are namespaced
+  `/~polishd/…` and capture suspends the moment you navigate back to your
+  site), plus one viewport-size sample per session.
+- Your site's **domain** — the collecting side reads it from the request's
+  Origin header, so installations are named by where the dashboard actually
+  runs — and an anonymous per-browser-session id. No cookies, no
+  fingerprinting, no URLs, page content, or user data from your site — your
+  analytics never leave your database.
+
+Say no and it never asks again. Change your mind, or disable it fleet-wide,
+with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of
+consent. The receiving end is an ordinary `@polishd/next/telemetry` route on
+the polishd site's own installation — the same package, dogfooding itself.
+
 ## Configuration
 
 Defaults suit a low-traffic site. Override via `polishd.config.ts`:
@@ -514,6 +537,8 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_GITHUB_REPO` | GitHub (optional) | Repository as `owner/repo` — enables filing bugs from AI-found losses |
 | `POLISHD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
+| `POLISHD_TELEMETRY` | optional | `off` (or `0`/`false`/`no`) — disable [dashboard telemetry](#dashboard-telemetry) entirely, consent prompt included |
+| `POLISHD_TELEMETRY_ENDPOINT` | optional | Where dashboard telemetry is sent, if not the polishd project's own endpoint |
 
 AI settings are optional — the dashboard's **Settings** tab configures the same
 fields, and what you save there overrides these env defaults.
