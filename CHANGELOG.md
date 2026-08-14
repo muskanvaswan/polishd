@@ -32,6 +32,18 @@ not its visitors, not its URLs. `POLISHD_TELEMETRY=off` kills the feature
 travel as `text/plain` so the cross-origin POST stays preflight-free and
 beacon-compatible.
 
+### An Installs tab, and telemetry kept out of the host's analytics
+
+On the collecting side, telemetry is a different dataset and now reads like
+one. Tagged rows are filtered out of `polishdEventsSource()` — the choke
+point every first-party query goes through — so remote dashboard usage can
+never count as the collector's own sessions, rank among its pages, or feed
+its AI digest. Instead it gets a dedicated **Installs** tab: one row per
+reporting domain with sessions, tab views, clicks, rage/dead clicks and last
+seen, plus which dashboard tabs get used across the fleet. The tab only
+renders on installations whose database actually holds telemetry — for the
+senders, it would only ever be an empty screen.
+
 ## 0.2.1
 
 ### Losses can be ignored, and the model remembers why

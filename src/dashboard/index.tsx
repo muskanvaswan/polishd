@@ -22,7 +22,10 @@ import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
 
 import {
   getMonitoredComponents,
+  getTelemetryInstalls,
+  getTelemetryTopPaths,
   getTopInteractions,
+  hasTelemetryInstalls,
   loadPolishdDashboardData,
   type PolishdDashboardData,
   type DeviceBucket,
@@ -53,6 +56,7 @@ import type {
 } from "../ai/types";
 import DashboardChrome from "./chrome";
 import { DesignPanel } from "./design";
+import InstallsView from "./installs";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
@@ -276,9 +280,12 @@ export type { PolishdDashboardTab } from "./chrome";
 export function PolishdDashboard({
   data,
   ai,
+  showInstalls = false,
 }: {
   data: PolishdDashboardData;
   ai: PolishdAIBundle;
+  /** Forwarded to the chrome: whether this install collects telemetry. */
+  showInstalls?: boolean;
 }) {
   const { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored } =
     data;
@@ -301,7 +308,7 @@ export function PolishdDashboard({
         health.noSessionCount > overview.totalEvents / 400);
 
   return (
-    <DashboardChrome active="analytics">
+    <DashboardChrome active="analytics" showInstalls={showInstalls}>
     <main className="text-white">
       {/* Header */}
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
@@ -891,7 +898,12 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
     // Dogfood telemetry — decided per render, after auth, so the consent
     // prompt and the emitter are only ever served to the dashboard's owner.
-    const telemetry = await loadPolishdTelemetryState();
+    // `showInstalls` is the collector-side counterpart: whether any tagged
+    // telemetry has landed here, which is what earns the Installs tab.
+    const [telemetry, showInstalls] = await Promise.all([
+      loadPolishdTelemetryState(),
+      hasTelemetryInstalls(),
+    ]);
     const telemetryUi = (
       <>
         {telemetry.status === "granted" && (
@@ -909,13 +921,28 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       const reviewState = await loadDesignReviewState(design);
       return wrap(
         <>
-          <DashboardChrome active="design">
+          <DashboardChrome active="design" showInstalls={showInstalls}>
             <DesignPanel
               data={design}
               review={reviewState.review}
               reviewStale={reviewState.stale}
               settings={settings}
             />
+          </DashboardChrome>
+          {telemetryUi}
+        </>,
+      );
+    }
+
+    if (rawTab === "installs") {
+      const [installs, topPaths] = await Promise.all([
+        getTelemetryInstalls(),
+        getTelemetryTopPaths(),
+      ]);
+      return wrap(
+        <>
+          <DashboardChrome active="installs" showInstalls={showInstalls}>
+            <InstallsView installs={installs} topPaths={topPaths} />
           </DashboardChrome>
           {telemetryUi}
         </>,
@@ -934,7 +961,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       const profileState = await loadProfileState({ monitored, topUsed });
       return wrap(
         <>
-          <DashboardChrome active="settings">
+          <DashboardChrome active="settings" showInstalls={showInstalls}>
             <SettingsView
               initialSettings={settings}
               initialProfile={profileState.profile}
@@ -986,6 +1013,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       <>
         <PolishdDashboard
           data={data}
+          showInstalls={showInstalls}
           ai={{
             summary: summaryState.summary,
             settings,

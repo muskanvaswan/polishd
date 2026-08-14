@@ -465,6 +465,12 @@ with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of
 consent. The receiving end is an ordinary `@polishd/next/telemetry` route on
 the polishd site's own installation — the same package, dogfooding itself.
 
+On the *collecting* side, telemetry stays fully separated from the host's own
+analytics: tagged rows are excluded from every first-party query (stats,
+pages, features, journeys, the AI digest) and appear only in an **Installs**
+dashboard tab — per-domain sessions, tab views, rage/dead clicks, last seen —
+which only shows up on installations whose database actually holds telemetry.
+
 ## Configuration
 
 Defaults suit a low-traffic site. Override via `polishd.config.ts`:

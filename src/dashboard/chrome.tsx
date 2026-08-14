@@ -37,13 +37,16 @@ import {
   type ReactNode,
 } from "react";
 
-import { ChartIcon, DropletIcon, GearIcon, SpinnerIcon, card, labelCls } from "./ui";
+import { ChartIcon, DropletIcon, GearIcon, GlobeIcon, SpinnerIcon, card, labelCls } from "./ui";
 
-export type PolishdDashboardTab = "analytics" | "design" | "settings";
+export type PolishdDashboardTab = "analytics" | "design" | "installs" | "settings";
 
 const TABS: { id: PolishdDashboardTab; name: string; icon: ReactNode }[] = [
   { id: "analytics", name: "Analytics", icon: <ChartIcon /> },
   { id: "design", name: "Design", icon: <DropletIcon /> },
+  // Shown only on installations that collect cross-install telemetry — for
+  // everyone else (the senders) it would be a permanently empty screen.
+  { id: "installs", name: "Installs", icon: <GlobeIcon /> },
   { id: "settings", name: "Settings", icon: <GearIcon /> },
 ];
 
@@ -117,9 +120,12 @@ function scrollTopFrom(node: HTMLElement | null): void {
 
 export default function DashboardChrome({
   active,
+  showInstalls = false,
   children,
 }: {
   active: PolishdDashboardTab;
+  /** Render the Installs tab (only collectors of telemetry pass true). */
+  showInstalls?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -158,7 +164,11 @@ export default function DashboardChrome({
                 aria-label="Dashboard sections"
                 className="mt-1 flex gap-1.5 lg:mt-5 lg:flex-col"
               >
-                {TABS.map((tab) => {
+                {TABS.filter(
+                  // Direct navigation to ?tab=installs still shows the rail
+                  // entry, so the page never renders with no tab highlighted.
+                  (tab) => tab.id !== "installs" || showInstalls || active === "installs",
+                ).map((tab) => {
                   const isSelected = selected === tab.id;
                   return (
                     <TabLink
