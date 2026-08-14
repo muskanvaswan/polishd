@@ -99,8 +99,9 @@ CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id);
 
 (`install_id` is null on every first-party event; it is only set on rows that
 arrived through a `@polishd/next/telemetry` endpoint, which tags each event
-with the anonymous id of the remote installation that sent it. Databases
-created before the column existed are migrated automatically at open.)
+with the hostname of the remote installation that sent it — derived
+server-side from the request's Origin header. Databases created before the
+column existed are migrated automatically at open.)
 
 ---
 
