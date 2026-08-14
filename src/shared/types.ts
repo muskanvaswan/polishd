@@ -24,7 +24,8 @@ export type PolishdEventType =
   | "component_view" // time a PolishdMonitor component spent in the viewport; value = ms
   | "mount" // a content-tracked PolishdMonitor component was rendered (mounted)
   | "session_end" // the session's last page was unloaded
-  | "design_scan"; // one page's rendered design metrics (fonts, colors, radii, spacing)
+  | "design_scan" // one page's rendered design metrics (fonts, colors, radii, spacing)
+  | "install_state"; // a telemetry install's own state (model connected, provider/model)
 
 /**
  * A single captured event. The client sends these without a session id; the
@@ -103,6 +104,10 @@ export const CLIENT_EVENT_TYPES: ReadonlySet<PolishdEventType> = new Set<Polishd
   "mount",
   "session_end",
   "design_scan",
+  // Sent only by the dashboard telemetry emitter (once per session): whether
+  // the reporting install has a model connected, and which provider/model.
+  // Never carries a key or any secret — see dashboard/telemetry.tsx.
+  "install_state",
 ]);
 
 // ── Design scan payload ──────────────────────────────────────────────────────

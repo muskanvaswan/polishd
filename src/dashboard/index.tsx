@@ -896,7 +896,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     const telemetryUi = (
       <>
         {telemetry.status === "granted" && (
-          <PolishdTelemetryEmitter endpoint={telemetry.endpoint} />
+          <PolishdTelemetryEmitter
+            endpoint={telemetry.endpoint}
+            installState={telemetry.installState}
+          />
         )}
         {telemetry.status === "unset" && <PolishdTelemetryConsent />}
       </>

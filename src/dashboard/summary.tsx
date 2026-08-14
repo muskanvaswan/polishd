@@ -73,7 +73,11 @@ export default function SummaryCard({
   const cadence = settings.refreshCadence ?? "manual";
 
   return (
-    <section className={`mb-8 ${card} overflow-hidden`}>
+    // data-component names on this card (and the finer ones on its buttons)
+    // exist for polishd's own dashboard telemetry: clicks captured by the
+    // emitter group under these names on the collecting side, so "how often
+    // is the summary refreshed?" is answerable. Inert for host apps.
+    <section data-component="ai-summary" className={`mb-8 ${card} overflow-hidden`}>
       {/* Header */}
       <div
         className={`flex items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}
@@ -89,6 +93,7 @@ export default function SummaryCard({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            data-component="ai-summary-refresh"
             onClick={() => generate(hasSummary)}
             disabled={pending || !settings.hasApiKey}
             title={settings.hasApiKey ? "Regenerate the summary now" : "Connect a model first"}
@@ -146,6 +151,7 @@ export default function SummaryCard({
             {settings.hasApiKey ? (
               <button
                 type="button"
+                data-component="ai-summary-generate"
                 onClick={() => generate(false)}
                 disabled={pending}
                 className={primaryBtn}
@@ -153,9 +159,11 @@ export default function SummaryCard({
                 {pending ? "Thinking…" : "Generate summary"}
               </button>
             ) : (
-              <TabLink tab="settings" className={primaryBtn}>
-                Connect a model
-              </TabLink>
+              <span data-component="ai-connect-model" className="contents">
+                <TabLink tab="settings" className={primaryBtn}>
+                  Connect a model
+                </TabLink>
+              </span>
             )}
           </div>
         )}
@@ -267,6 +275,7 @@ function FileBugButton({ loss }: { loss: PolishdLossItem }) {
     <>
       <button
         type="button"
+        data-component="loss-file-bug"
         onClick={file}
         disabled={pending}
         title="Verify this problem against the source code, then create a GitHub issue with the technical details"
@@ -344,6 +353,7 @@ function LossRow({ loss, githubConnected }: { loss: PolishdLossItem; githubConne
               <>
                 <button
                   type="button"
+                  data-component="loss-ignore-reason"
                   onClick={() => {
                     setDraft(ignored.reason ?? "");
                     setEditing(true);
@@ -356,6 +366,7 @@ function LossRow({ loss, githubConnected }: { loss: PolishdLossItem; githubConne
                 </button>
                 <button
                   type="button"
+                  data-component="loss-ignore-undo"
                   onClick={undo}
                   disabled={pending}
                   title="Put this back — the model can report it again"
@@ -396,6 +407,7 @@ function LossRow({ loss, githubConnected }: { loss: PolishdLossItem; githubConne
           {(githubConnected || !!loss.issueUrl) && <FileBugButton loss={loss} />}
           <button
             type="button"
+            data-component="loss-ignore"
             onClick={() => ignore()}
             disabled={pending}
             title="Not a problem — drop it from this summary and stop the model reporting it again"

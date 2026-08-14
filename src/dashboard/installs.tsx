@@ -65,6 +65,7 @@ export default function InstallsView({
   const now = Date.now();
   const activeWeek = installs.filter((i) => now - i.lastSeen < WEEK_MS).length;
   const sessions = installs.reduce((sum, i) => sum + i.sessions, 0);
+  const withModel = installs.filter((i) => i.hasModel === true).length;
 
   return (
     <main className="text-white">
@@ -78,10 +79,11 @@ export default function InstallsView({
       </div>
 
       <section className="mb-8">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Installs" value={installs.length} />
           <Stat label="Active this week" value={activeWeek} />
           <Stat label="Dashboard sessions" value={sessions} />
+          <Stat label="With a model" value={withModel} />
         </div>
       </section>
 
@@ -96,10 +98,11 @@ export default function InstallsView({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px]">
+              <table className="w-full min-w-[760px]">
                 <thead>
                   <tr>
                     <Th align="left">Install</Th>
+                    <Th align="left">Model</Th>
                     <Th>Sessions</Th>
                     <Th>Tab views</Th>
                     <Th>Clicks</Th>
@@ -113,6 +116,17 @@ export default function InstallsView({
                     <tr key={i.install} className={`${divider} first:border-t-0`}>
                       <td className="py-2.5 pl-5 pr-4 text-[13px] font-medium text-white">
                         {i.install}
+                      </td>
+                      <td className="py-2.5 pl-5 pr-6 text-[12px]">
+                        {i.hasModel ? (
+                          <span className="font-mono text-[11px] text-[#aaa]">
+                            {[i.provider, i.model].filter(Boolean).join(" · ") || "connected"}
+                          </span>
+                        ) : i.hasModel === false ? (
+                          <span className="text-[#555]">none</span>
+                        ) : (
+                          <span className="text-[#444]">—</span>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
                         {i.sessions}

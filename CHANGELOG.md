@@ -54,6 +54,18 @@ summary, all through the same single source function the separation uses.
 First-party events keep being captured and stored, just not shown, so the
 switch is losslessly reversible.
 
+Telemetry also answers the product questions clicks can't: the emitter sends
+one `install_state` event per session — whether a model is connected and
+which provider/model, resolved server-side, never the key — and the Installs
+tab grew a "With a model" stat and a per-domain Model column from the latest
+report. And the dashboard's own controls now carry `data-component` names
+(`ai-summary-refresh`, `ai-summary-generate`, `ai-connect-model`,
+`journey-open`, `loss-file-bug`, `loss-ignore`, `design-review-refresh`,
+`settings-scan-codebase`, `show-more`, coarse `settings`/`ai-summary`
+containers, …), so on the collecting side the Most-used-features table groups
+dashboard clicks by feature instead of raw selectors — the same
+component-level story polishd tells its hosts, told about itself.
+
 To make that experience complete, the telemetry emitter now also captures
 scroll depth (of the dashboard's own scroll container — the document never
 scrolls under the shell), JS errors raised while the dashboard is up, and one

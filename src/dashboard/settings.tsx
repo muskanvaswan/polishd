@@ -240,7 +240,10 @@ export default function SettingsView({
   );
 
   return (
-    <main className="text-white">
+    // Coarse tag for polishd's own dashboard telemetry: any settings click
+    // without a finer data-component groups under "settings" on the
+    // collecting side. Inert for host apps.
+    <main data-component="settings" className="text-white">
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-white">Settings</h1>
@@ -648,6 +651,7 @@ function OnboardingWizard({
               <>
                 <button
                   type="button"
+                  data-component="settings-scan-codebase"
                   onClick={scan}
                   disabled={pending || !sourceAvailable}
                   className={primaryBtn}
