@@ -363,6 +363,33 @@ authoritative context, so:
 > provide. Your source is read only during an explicit scan (or a targeted
 > gap-fill), and always under strict size budgets.
 
+### Two verdicts on a loss: file it, or ignore it
+
+Every loss carries both answers, side by side.
+
+**File bug** (with GitHub connected) verifies the report against your repo's
+source before anything is filed: confirmed reports become an issue with the
+technical analysis and suggested fixes, and a report the code disproves comes
+back as *"checked the source — not an actual bug"* with the reasoning, filing
+nothing.
+
+**Ignore** is the other answer: this isn't a problem, stop showing it to me. It
+takes one click and no explanation. The loss drops out of the card and out of
+every later summary — including the cached one, immediately — and the model is
+told about the dismissal on every subsequent call, so it doesn't spend a loss
+slot rediscovering it. Dismissing one loss doesn't shrink the list; the next
+real problem takes its place.
+
+A **reason** is optional and offered after the fact — *"the second CTA is
+deliberate"*, *"that page is staff-only"*. It's worth adding: reasons are
+replayed to the model verbatim as context it can't get from the numbers, which
+is what stops the same finding coming back in different words. You can edit a
+reason later, and **Undo** puts the loss back where the model can report it
+again.
+
+Ignoring a loss marks the summary stale, exactly like new analytics does, so
+the next refresh actually re-asks the model with the dismissal in hand.
+
 ## Design review
 
 The dashboard's **Design** tab (in the sidebar) is your site's brand guideline
