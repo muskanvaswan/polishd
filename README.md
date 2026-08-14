@@ -471,6 +471,13 @@ pages, features, journeys, the AI digest) and appear only in an **Installs**
 dashboard tab — per-domain sessions, tab views, rage/dead clicks, last seen —
 which only shows up on installations whose database actually holds telemetry.
 
+A collector that cares about the dashboard-usage story more than its own
+traffic can flip the whole thing: `POLISHD_ANALYTICS_SOURCE=telemetry` points
+every dashboard feature — Analytics, journeys, elements, device sizes, the
+Design tab (fed by the emitter's design scans *of the dashboard itself*), and
+the AI summary — at the telemetry dataset instead. First-party events are
+still captured and stored, just not shown, so flipping back loses nothing.
+
 ## Configuration
 
 Defaults suit a low-traffic site. Override via `polishd.config.ts`:
@@ -545,6 +552,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 | `POLISHD_TELEMETRY` | optional | `off` (or `0`/`false`/`no`) — disable [dashboard telemetry](#dashboard-telemetry) entirely, consent prompt included |
 | `POLISHD_TELEMETRY_ENDPOINT` | optional | Where dashboard telemetry is sent, if not the polishd project's own endpoint |
+| `POLISHD_ANALYTICS_SOURCE` | collector only | `telemetry` — point the whole dashboard (every tab, the AI summary included) at collected cross-install telemetry instead of the site's own traffic |
 
 AI settings are optional — the dashboard's **Settings** tab configures the same
 fields, and what you save there overrides these env defaults.

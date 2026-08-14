@@ -11,6 +11,7 @@
  */
 import { getMeta, parseMeta, query, storeReady } from "./store";
 import { NO_SESSION_META_KEY, type NoSessionRecord } from "./ingest";
+import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
 import type { PolishdEventType } from "../shared/types";
 
@@ -36,6 +37,16 @@ import type { PolishdEventType } from "../shared/types";
  * guaranteed to have happened by the time this file is imported.
  */
 export function polishdEventsSource(): string {
+  // POLISHD_ANALYTICS_SOURCE=telemetry points the whole dashboard at the
+  // cross-install telemetry it collects instead of the site's own traffic —
+  // every feature reads through here, so the collector gets the full
+  // experience (analytics, journeys, design, AI summary) over dashboard
+  // usage. Telemetry paths are namespaced /~polishd/… by the emitter, so the
+  // dashboard-route exclusion below has nothing to exclude in this mode.
+  if (resolveAnalyticsSource() === "telemetry") {
+    return `(SELECT * FROM events WHERE install_id IS NOT NULL) AS events`;
+  }
+
   // Telemetry rows (dashboard usage reported by *other* polishd installs,
   // tagged with their hostname) live in the same table but are a different
   // dataset: they must never count as this site's sessions, pages, or

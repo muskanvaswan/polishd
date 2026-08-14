@@ -46,6 +46,25 @@ export function telemetryDisabledByEnv(): boolean {
   return v !== undefined && /^(0|false|off|no)$/i.test(v.trim());
 }
 
+// ── Analytics source (collector side) ────────────────────────────────────────
+
+export type PolishdAnalyticsSource = "site" | "telemetry";
+
+/**
+ * Which dataset the *whole dashboard* reads: the host site's own first-party
+ * events (default), or the cross-install telemetry it collects.
+ *
+ * `POLISHD_ANALYTICS_SOURCE=telemetry` is for the collecting installation
+ * (the polishd site) when what it cares about is the dashboard-usage story:
+ * every feature — Analytics, journeys, elements, device sizes, the Design
+ * tab, the AI summary — reads through one source function, so flipping this
+ * one env var points all of them at the telemetry rows. First-party events
+ * are still captured and stored, just not shown; flipping back loses nothing.
+ */
+export function resolveAnalyticsSource(): PolishdAnalyticsSource {
+  return process.env.POLISHD_ANALYTICS_SOURCE === "telemetry" ? "telemetry" : "site";
+}
+
 export function resolveTelemetryEndpoint(): string {
   return process.env.POLISHD_TELEMETRY_ENDPOINT || DEFAULT_TELEMETRY_ENDPOINT;
 }
