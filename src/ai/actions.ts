@@ -16,6 +16,7 @@
 import { requirePolishdAuth } from "./guard";
 import { generateDesignReview } from "./design";
 import { verifyGithubConnection } from "./github";
+import { ignoreLoss, unignoreLoss } from "./ignored";
 import { createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
 import { loadPolishdDashboardData } from "../server/queries";
@@ -33,7 +34,9 @@ import type {
   GenerateDesignReviewResult,
   GenerateProfileResult,
   GenerateSummaryResult,
+  IgnoreLossResult,
   ListModelsResult,
+  UnignoreLossResult,
   VerifyGithubResult,
 } from "./types";
 
@@ -101,4 +104,29 @@ export async function createIssueFromLossAction(
 ): Promise<CreateIssueResult> {
   await requirePolishdAuth();
   return createIssueFromLoss(loss);
+}
+
+/**
+ * The other verdict on a loss: dismiss it, with an optional reason. The loss
+ * leaves every summary from here on, and the dismissal — reason included — is
+ * replayed into later model calls so the problem isn't reported again. Calling
+ * it on an already-dismissed loss just updates the reason.
+ */
+export async function ignoreLossAction(
+  loss: Pick<PolishdLossItem, "issue" | "evidence">,
+  reason?: string,
+): Promise<IgnoreLossResult> {
+  await requirePolishdAuth();
+  const ignored = await ignoreLoss(loss, reason);
+  return ignored
+    ? { ok: true, ignored }
+    : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
+}
+
+/** Undo a dismissal: the loss can be found and reported again. */
+export async function unignoreLossAction(evidence: string): Promise<UnignoreLossResult> {
+  await requirePolishdAuth();
+  return (await unignoreLoss(evidence))
+    ? { ok: true }
+    : { ok: false, message: "Couldn't undo that — the analytics store didn't accept the write." };
 }

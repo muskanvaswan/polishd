@@ -15,10 +15,16 @@
  */
 import { useState, useTransition } from "react";
 
-import { createIssueFromLossAction, generateSummaryAction } from "../ai/actions";
+import {
+  createIssueFromLossAction,
+  generateSummaryAction,
+  ignoreLossAction,
+  unignoreLossAction,
+} from "../ai/actions";
 import { TabLink } from "./chrome";
 import type {
   PolishdAISettingsPublic,
+  PolishdIgnoredLoss,
   PolishdLossItem,
   PolishdProjectProfile,
   PolishdSummary,
@@ -125,7 +131,7 @@ export default function SummaryCard({
               </span>
               {stale && (
                 <span className="rounded-full bg-amber-950/50 px-2 py-0.5 text-amber-400">
-                  New data since this summary — refresh to update
+                  Something's changed since this summary — refresh to update
                 </span>
               )}
             </div>
@@ -200,6 +206,12 @@ function ProfileNudge({
 
 // ── Wins & losses ────────────────────────────────────────────────────────────
 
+/** The two verdicts on a loss sit side by side, and share their button style. */
+const microBtn =
+  "rounded border border-[#2e2e2e] px-1.5 py-0.5 text-[10px] text-[#888] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+const microLink =
+  "text-[10px] text-[#666] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
+
 /**
  * One-click "loss → GitHub issue". The server action verifies the report
  * against the repository's source first: confirmed reports become issues with
@@ -258,12 +270,187 @@ function FileBugButton({ loss }: { loss: PolishdLossItem }) {
         onClick={file}
         disabled={pending}
         title="Verify this problem against the source code, then create a GitHub issue with the technical details"
-        className="rounded border border-[#2e2e2e] px-1.5 py-0.5 text-[10px] text-[#888] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        className={microBtn}
       >
         {pending ? "Verifying…" : "File bug"}
       </button>
       {failed && <span className="text-[10px] text-red-400">{failed.message}</span>}
     </>
+  );
+}
+
+/**
+ * One loss, and the two things you can do with it: file it as a bug, or ignore
+ * it. Ignoring takes one click and no explanation — a reason is offered
+ * afterwards, because the fast path is "this isn't a problem, stop showing me
+ * it" and typing shouldn't be the toll for that. A reason is worth giving
+ * though: it's replayed to the model on every later summary, so "the second CTA
+ * is deliberate" stops the same finding coming back in different words.
+ *
+ * The dismissal is stored server-side immediately; the row stays put, struck
+ * through with an undo, and only disappears on the next render. Ignored losses
+ * never reappear — not from the cached summary, and not from a regenerate.
+ */
+function LossRow({ loss, githubConnected }: { loss: PolishdLossItem; githubConnected: boolean }) {
+  const [ignored, setIgnored] = useState<PolishdIgnoredLoss | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startIgnore] = useTransition();
+
+  const ignore = (reason?: string) =>
+    startIgnore(async () => {
+      setError(null);
+      const res = await ignoreLossAction(
+        { issue: loss.issue, evidence: loss.evidence },
+        reason,
+      );
+      if (res.ok) {
+        setIgnored(res.ignored);
+        setEditing(false);
+      } else setError(res.message);
+    });
+
+  const undo = () =>
+    startIgnore(async () => {
+      setError(null);
+      const res = await unignoreLossAction(loss.evidence);
+      if (res.ok) {
+        setIgnored(null);
+        setEditing(false);
+        setDraft("");
+      } else setError(res.message);
+    });
+
+  if (ignored) {
+    return (
+      <li className="flex gap-2 text-[13px] leading-snug text-[#666]">
+        <span className="mt-px shrink-0 text-[#444]">✕</span>
+        <span>
+          <span className="line-through decoration-[#3a3a3a]">{loss.issue}</span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <span className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#777]">
+              Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
+            </span>
+            {editing ? (
+              <ReasonForm
+                draft={draft}
+                setDraft={setDraft}
+                pending={pending}
+                onSubmit={() => ignore(draft.trim() || undefined)}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(ignored.reason ?? "");
+                    setEditing(true);
+                  }}
+                  disabled={pending}
+                  title="Tell the model why this isn't a problem — it reads this on every later summary"
+                  className={microLink}
+                >
+                  {ignored.reason ? "Edit reason" : "Add a reason"}
+                </button>
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={pending}
+                  title="Put this back — the model can report it again"
+                  className={microLink}
+                >
+                  {pending ? "Undoing…" : "Undo"}
+                </button>
+              </>
+            )}
+            {error && <span className="text-[10px] text-red-400">{error}</span>}
+          </span>
+        </span>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
+      <span className="mt-px shrink-0 text-red-400">✕</span>
+      <span>
+        {loss.issue}
+        <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+          <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
+            {loss.evidence}
+          </code>
+          {loss.location ? (
+            <code className="rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
+              {loss.location}
+            </code>
+          ) : (
+            <span
+              className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
+              title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
+            >
+              not matched to source
+            </span>
+          )}
+          {(githubConnected || !!loss.issueUrl) && <FileBugButton loss={loss} />}
+          <button
+            type="button"
+            onClick={() => ignore()}
+            disabled={pending}
+            title="Not a problem — drop it from this summary and stop the model reporting it again"
+            className={microBtn}
+          >
+            {pending ? "Ignoring…" : "Ignore"}
+          </button>
+          {error && <span className="text-[10px] text-red-400">{error}</span>}
+        </span>
+      </span>
+    </li>
+  );
+}
+
+/** The optional half of ignoring: why it isn't a problem, in the owner's words. */
+function ReasonForm({
+  draft,
+  setDraft,
+  pending,
+  onSubmit,
+  onCancel,
+}: {
+  draft: string;
+  setDraft: (v: string) => void;
+  pending: boolean;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+        }}
+        maxLength={240}
+        placeholder="Why isn't this a problem?"
+        aria-label="Reason for ignoring this loss"
+        className="w-56 rounded border border-[#2e2e2e] bg-[#0d0d0d] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#555] focus:border-[#555] focus:outline-none"
+      />
+      <button type="submit" disabled={pending} className={microBtn}>
+        {pending ? "Saving…" : "Save"}
+      </button>
+      <button type="button" onClick={onCancel} disabled={pending} className={microLink}>
+        Cancel
+      </button>
+    </form>
   );
 }
 
@@ -300,30 +487,7 @@ function WinsLosses({
           <div className={`${labelCls} mb-2 text-red-400`}>Losses</div>
           <ul className="space-y-2.5">
             {losses!.map((l, i) => (
-              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
-                <span className="mt-px shrink-0 text-red-400">✕</span>
-                <span>
-                  {l.issue}
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                    <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
-                      {l.evidence}
-                    </code>
-                    {l.location ? (
-                      <code className="rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
-                        {l.location}
-                      </code>
-                    ) : (
-                      <span
-                        className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
-                        title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
-                      >
-                        not matched to source
-                      </span>
-                    )}
-                    {(githubConnected || !!l.issueUrl) && <FileBugButton loss={l} />}
-                  </span>
-                </span>
-              </li>
+              <LossRow key={l.evidence || i} loss={l} githubConnected={githubConnected} />
             ))}
           </ul>
         </div>

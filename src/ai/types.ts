@@ -123,6 +123,31 @@ export interface PolishdLossItem {
   issueNumber?: number;
 }
 
+/**
+ * A loss the owner dismissed — the opposite verdict to filing a bug. Kept out
+ * of every summary that renders afterwards, and replayed (with its reason, when
+ * one was given) into the prompt of every later model call so the same problem
+ * isn't reported again.
+ */
+export interface PolishdIgnoredLoss {
+  /** The problem as the model stated it, when it was dismissed. */
+  issue: string;
+  /** The citation this dismissal is keyed by. */
+  evidence: string;
+  /** Why it isn't a problem, in the owner's words. Optional. */
+  reason?: string;
+  /** When it was first dismissed, ms since epoch. */
+  ignoredAt: number;
+}
+
+/** Result of dismissing a loss. */
+export type IgnoreLossResult =
+  | { ok: true; ignored: PolishdIgnoredLoss }
+  | { ok: false; message: string };
+
+/** Result of undoing a dismissal. */
+export type UnignoreLossResult = { ok: true } | { ok: false; message: string };
+
 /** A generated narrative summary, cached in the store. */
 export interface PolishdSummary {
   /** The paragraph(s) of narrative. */

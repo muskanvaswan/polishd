@@ -2,6 +2,33 @@
 
 ## 0.2.1
 
+### Losses can be ignored, and the model remembers why
+
+A loss had one answer next to it — **File bug** — and no way to say the other
+thing: that it isn't a problem. Nothing recorded that judgement, so the next
+regenerate found the deliberate two-step checkout again, and again.
+
+**Ignore** now sits beside File bug on every loss. One click, no explanation
+required: the loss leaves the card, leaves the cached summary immediately, and
+is dropped from every later summary *before* the four-loss cap applies — so
+dismissing one promotes the next real problem into its place rather than
+leaving a gap.
+
+A **reason** is optional and offered after the dismissal, so the fast path
+stays one click. Give one and it's replayed to the model verbatim on every
+later call, alongside the problem it dismissed — context the analytics digest
+can't carry ("the second CTA is deliberate", "that page is staff-only"). The
+model is told not to re-report a dismissed problem under any wording, and to
+read the rest of the data taking the stated reason as true. Reasons can be
+edited afterwards, and **Undo** puts a loss back where the model can find it
+again.
+
+Dismissals key off the same evidence citation the GitHub issue log uses, so a
+problem refound under different wording is still recognised as the one you
+already reviewed. They fold into the summary fingerprint too: ignoring
+something marks the summary stale exactly like new analytics does, so the next
+refresh really does re-ask the model.
+
 ### Setup moved out of the way, into a Settings tab
 
 The first screen of the dashboard was also its setup form. Provider, key, site

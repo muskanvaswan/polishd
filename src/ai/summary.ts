@@ -11,20 +11,29 @@
  *      profile.ts), generated once — the summary call never re-reads source.
  *      Only when analytics mention a component the profile doesn't cover do we
  *      do a tiny targeted read of the files naming it.
- *   3. We fingerprint the inputs (digest + profile) and cache the summary. A
- *      regenerate with no new data returns the cached text for free
+ *   3. We fingerprint the inputs (digest + profile + dismissals) and cache the
+ *      summary. A regenerate with no new data returns the cached text for free
  *      (`regenerated: false`).
  *   4. The system prompt is tight and the output is capped to a paragraph.
  */
 import { getMeta, setMeta } from "../server/store";
 import { loadPolishdDashboardData, type PolishdDashboardData } from "../server/queries";
 import { buildDigest, fingerprintDigest } from "./digest";
+import {
+  ignoreKey,
+  ignoredFingerprint,
+  ignoredKeys,
+  ignoredSection,
+  loadIgnoredLosses,
+  withoutIgnored,
+} from "./ignored";
 import { attachGithubIssues } from "./issues";
 import { callModel } from "./providers";
 import { coverageGaps, loadProjectProfile } from "./profile";
 import { collectTargeted, findInSource } from "./scan";
 import { resolveSettings } from "./settings";
 import type {
+  PolishdIgnoredLoss,
   PolishdLossItem,
   PolishdProjectProfile,
   PolishdSummary,
@@ -40,15 +49,24 @@ export {
 
 const SUMMARY_KEY = "ai_summary";
 
-/** The last generated summary, or null. Read-only — never calls a model. */
+/**
+ * The last generated summary, or null. Read-only — never calls a model.
+ *
+ * Losses the owner has dismissed since it was generated are filtered out here,
+ * so an ignore takes effect on the cached summary immediately rather than at
+ * the next regenerate. The stored copy keeps them, which is what makes an undo
+ * bring the loss back.
+ */
 export async function loadSummary(): Promise<PolishdSummary | null> {
   const raw = await getMeta(SUMMARY_KEY);
   if (!raw) return null;
+  let summary: PolishdSummary;
   try {
-    return JSON.parse(raw) as PolishdSummary;
+    summary = JSON.parse(raw) as PolishdSummary;
   } catch {
     return null;
   }
+  return withoutIgnored(summary, ignoredKeys(await loadIgnoredLosses()));
 }
 
 const SYSTEM_PROMPT =
@@ -71,7 +89,10 @@ const SYSTEM_PROMPT =
   "must be concrete (what is wrong, where, and what the numbers show), and " +
   "evidence must be the exact page path, CSS selector, or component name " +
   "copied verbatim from the digest that demonstrates it. Never invent a loss: " +
-  "if the data shows no real problems, return an empty array.";
+  "if the data shows no real problems, return an empty array. If the prompt " +
+  "lists problems the site owner has already reviewed and dismissed, do not " +
+  "report them again — not under a different citation or a different wording — " +
+  "and take any reason they gave as true when reading the rest of the data.";
 
 /** The model's raw loss shape, before server-side verification. */
 interface RawLoss {
@@ -119,12 +140,15 @@ function citationTokens(s: string): string[] {
 /**
  * Hold losses to their evidence bar. A loss survives only if its citation
  * actually appears in the prompt we sent (so it can't be invented), and is
- * then matched to a source file when the codebase is on disk.
+ * then matched to a source file when the codebase is on disk. Anything the
+ * owner has dismissed is dropped here, before the cap — so a dismissal frees
+ * its slot for the next real problem instead of leaving a gap.
  */
 function verifyLosses(
   raw: RawLoss[],
   promptText: string,
   sourceDirs: string | undefined,
+  ignored: Set<string>,
 ): PolishdLossItem[] {
   const hay = promptText.toLowerCase();
   const out: PolishdLossItem[] = [];
@@ -132,6 +156,7 @@ function verifyLosses(
     if (typeof l.issue !== "string" || !l.issue.trim()) continue;
     const evidence = typeof l.evidence === "string" ? l.evidence.trim() : "";
     if (!evidence) continue; // no citation, no loss
+    if (ignored.has(ignoreKey(evidence))) continue; // reviewed and dismissed
     const tokens = citationTokens(evidence);
     if (!tokens.length || !tokens.some((t) => hay.includes(t))) continue; // not in the data we sent
     const location = findInSource(tokens, sourceDirs);
@@ -147,16 +172,42 @@ function verifyLosses(
 }
 
 /**
- * The exact user message for a summary call, plus its cache fingerprint.
- * Fingerprint covers the digest AND the profile, so a re-scan (new profile)
- * marks the cached summary stale too.
+ * The one place the cache fingerprint is defined. It covers the digest, the
+ * profile AND the dismissals, so a re-scan or a newly ignored loss marks the
+ * cached summary stale exactly like new analytics does.
+ */
+function fingerprintInputs(
+  digest: string,
+  profile: PolishdProjectProfile | null,
+  ignored: PolishdIgnoredLoss[],
+): string {
+  const ignoredHash = ignoredFingerprint(ignored);
+  return fingerprintDigest(
+    [
+      digest,
+      profile ? `PROFILE:${profile.fingerprint}` : "",
+      ignoredHash ? `IGNORED:${ignoredHash}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+}
+
+/**
+ * The exact user message for a summary call, plus its cache fingerprint and
+ * the slice of it a citation is allowed to be grounded in.
+ *
+ * `grounding` is the message minus the dismissals: past problems are quoted
+ * back to the model as context, and quoting them must not turn their citations
+ * into fresh evidence a new loss can lean on (see verifyLosses).
  */
 function composePrompt(
   data: PolishdDashboardData,
   profile: PolishdProjectProfile | null,
   context: string | undefined,
   sourceDirs: string | undefined,
-): { user: string; fingerprint: string } {
+  ignored: PolishdIgnoredLoss[],
+): { user: string; grounding: string; fingerprint: string } {
   const digest = buildDigest(data, context);
   const sections: string[] = [];
 
@@ -178,13 +229,12 @@ function composePrompt(
     }
   }
 
-  sections.push(digest);
-  const user = sections.join("\n\n");
+  const dismissed = ignoredSection(ignored);
+  const grounding = [...sections, digest].join("\n\n");
   return {
-    user,
-    fingerprint: fingerprintDigest(
-      profile ? `${digest}\nPROFILE:${profile.fingerprint}` : digest,
-    ),
+    user: dismissed ? [...sections, dismissed, digest].join("\n\n") : grounding,
+    grounding,
+    fingerprint: fingerprintInputs(digest, profile, ignored),
   };
 }
 
@@ -212,12 +262,13 @@ export async function generateSummary(
     };
   }
 
-  const profile = await loadProjectProfile();
-  const { user, fingerprint } = composePrompt(
+  const [profile, ignored] = await Promise.all([loadProjectProfile(), loadIgnoredLosses()]);
+  const { user, grounding, fingerprint } = composePrompt(
     data,
     profile,
     settings.context,
     settings.sourceDirs,
+    ignored,
   );
 
   if (!opts.force) {
@@ -263,7 +314,7 @@ export async function generateSummary(
   // Link losses to their GitHub issues — filing new ones when the owner
   // enabled auto-filing, attaching already-filed ones either way.
   const losses = await attachGithubIssues(
-    verifyLosses(parsed.losses, user, settings.sourceDirs),
+    verifyLosses(parsed.losses, grounding, settings.sourceDirs, ignoredKeys(ignored)),
   );
   const summary: PolishdSummary = {
     text: parsed.story,
@@ -298,15 +349,18 @@ export async function loadSummaryState(
   if (!data.overview.ready || data.overview.totalEvents === 0) {
     return { summary, stale: false, currentFingerprint: null };
   }
-  const [{ settings }, profile] = await Promise.all([
+  const [{ settings }, profile, ignored] = await Promise.all([
     resolveSettings(),
     loadProjectProfile(),
+    loadIgnoredLosses(),
   ]);
   // Staleness only needs the fingerprint — skip the targeted source read by
-  // computing it the same way composePrompt does, without collecting excerpts.
-  const digest = buildDigest(data, settings.context);
-  const currentFingerprint = fingerprintDigest(
-    profile ? `${digest}\nPROFILE:${profile.fingerprint}` : digest,
+  // computing it from the same inputs composePrompt does, without collecting
+  // excerpts.
+  const currentFingerprint = fingerprintInputs(
+    buildDigest(data, settings.context),
+    profile,
+    ignored,
   );
   return {
     summary,
