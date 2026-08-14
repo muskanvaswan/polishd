@@ -36,15 +36,23 @@ import type { PolishdEventType } from "../shared/types";
  * guaranteed to have happened by the time this file is imported.
  */
 export function polishdEventsSource(): string {
+  // Telemetry rows (dashboard usage reported by *other* polishd installs,
+  // tagged with their hostname) live in the same table but are a different
+  // dataset: they must never count as this site's sessions, pages, or
+  // interactions, feed its AI digest, or rank among its features. They are
+  // read only by the installs queries below.
+  const conditions = ["install_id IS NULL"];
   const route = resolveDashboardRoute().replace(/\/+$/, "");
-  // A blank route means "exclude nothing" — without this guard the prefix test
+  // A blank route means "exclude no path" — without this guard the prefix test
   // below would match every path, and the dashboard would render permanently empty.
-  if (!route) return "events";
-  const literal = `'${route.replace(/'/g, "''")}'`;
-  const prefix = `'${`${route}/`.replace(/'/g, "''")}'`;
+  if (route) {
+    const literal = `'${route.replace(/'/g, "''")}'`;
+    const prefix = `'${`${route}/`.replace(/'/g, "''")}'`;
+    conditions.push(`path <> ${literal}`);
+    conditions.push(`substr(path, 1, ${route.length + 1}) <> ${prefix}`);
+  }
   return `(SELECT * FROM events
-     WHERE path <> ${literal}
-       AND substr(path, 1, ${route.length + 1}) <> ${prefix}) AS events`;
+     WHERE ${conditions.join("\n       AND ")}) AS events`;
 }
 
 export interface OverviewStats {
@@ -858,4 +866,95 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
       ts: num(r, "ts"),
     };
   });
+}
+
+// ── Cross-install telemetry (the installs view) ──────────────────────────────
+// Everything above reads through polishdEventsSource(), which filters
+// telemetry rows out; these two queries are the only readers of them. They
+// power the dashboard's Installs tab — present only on installations that
+// collect telemetry, i.e. whose database actually holds tagged rows.
+
+export interface TelemetryInstall {
+  /** The installation's hostname, as derived from its requests' Origin. */
+  install: string;
+  sessions: number;
+  events: number;
+  /** Dashboard tab views (page_view events). */
+  pageViews: number;
+  clicks: number;
+  rageClicks: number;
+  deadClicks: number;
+  /** Server receive time of the most recent event, ms since epoch. */
+  lastSeen: number;
+}
+
+/** One row per reporting installation, most recently active first. */
+export async function getTelemetryInstalls(limit = 100): Promise<TelemetryInstall[]> {
+  const rows = await query(
+    `SELECT install_id,
+            COUNT(DISTINCT session_id) AS sessions,
+            COUNT(*) AS events,
+            SUM(CASE WHEN type = 'page_view' THEN 1 ELSE 0 END) AS page_views,
+            SUM(CASE WHEN type = 'click' THEN 1 ELSE 0 END) AS clicks,
+            SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END) AS rage_clicks,
+            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END) AS dead_clicks,
+            MAX(received_at) AS last_seen
+     FROM events
+     WHERE install_id IS NOT NULL
+     GROUP BY install_id
+     ORDER BY last_seen DESC
+     LIMIT ?`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    install: r.install_id as string,
+    sessions: num(r, "sessions"),
+    events: num(r, "events"),
+    pageViews: num(r, "page_views"),
+    clicks: num(r, "clicks"),
+    rageClicks: num(r, "rage_clicks"),
+    deadClicks: num(r, "dead_clicks"),
+    lastSeen: num(r, "last_seen"),
+  }));
+}
+
+export interface TelemetryPathStat {
+  /** The namespaced dashboard path, e.g. "/~polishd/analytics". */
+  path: string;
+  views: number;
+  sessions: number;
+  installs: number;
+}
+
+/** Which dashboard tabs get used, across every reporting installation. */
+export async function getTelemetryTopPaths(limit = 10): Promise<TelemetryPathStat[]> {
+  const rows = await query(
+    `SELECT path,
+            COUNT(*) AS views,
+            COUNT(DISTINCT session_id) AS sessions,
+            COUNT(DISTINCT install_id) AS installs
+     FROM events
+     WHERE install_id IS NOT NULL AND type = 'page_view'
+     GROUP BY path
+     ORDER BY views DESC
+     LIMIT ?`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    path: r.path as string,
+    views: num(r, "views"),
+    sessions: num(r, "sessions"),
+    installs: num(r, "installs"),
+  }));
+}
+
+/**
+ * Whether any telemetry has ever landed here — the cheap gate that decides
+ * whether the dashboard shows an Installs tab at all. Almost every
+ * installation is a *sender*, not a collector, and for them the tab would
+ * only ever be an empty screen.
+ */
+export async function hasTelemetryInstalls(): Promise<boolean> {
+  const rows = await query(`SELECT 1 AS present FROM events WHERE install_id IS NOT NULL LIMIT 1`);
+  return rows.length > 0;
 }
