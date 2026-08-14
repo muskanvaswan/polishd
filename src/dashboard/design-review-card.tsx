@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { generateDesignReviewAction } from "../ai/actions";
 import type { PolishdDesignIssue, PolishdDesignReview } from "../ai/types";
 import { TabLink } from "./chrome";
+import { Annotated } from "./design-tokens";
 import { RefreshIcon, border, card, iconBtn, labelCls, primaryBtn, relTime } from "./ui";
 
 /** Re-run the deterministic metrics: refresh the server render in place. */
@@ -116,7 +117,9 @@ export default function DesignReviewCard({
 
         {review ? (
           <>
-            <p className="text-[14px] leading-relaxed text-[#e4e4e4]">{review.text}</p>
+            <p className="text-[14px] leading-relaxed text-[#e4e4e4]">
+              <Annotated text={review.text} />
+            </p>
             <StrengthsIssues strengths={review.strengths} issues={review.issues} />
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
               <span>
@@ -178,7 +181,9 @@ function StrengthsIssues({
             {strengths!.map((s, i) => (
               <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
                 <span className="mt-px shrink-0 text-emerald-500">✓</span>
-                <span>{s}</span>
+                <span>
+                  <Annotated text={s} />
+                </span>
               </li>
             ))}
           </ul>
@@ -193,13 +198,13 @@ function StrengthsIssues({
                 <span className="mt-px shrink-0 text-amber-400">✕</span>
                 <span>
                   {iss.issue}
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                    <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
-                      {iss.evidence}
-                    </code>
+                  <span className="mt-1.5 flex flex-col items-start gap-1">
+                    <span className="rounded bg-[#161616] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
+                      <Annotated text={iss.evidence} />
+                    </span>
                     {iss.suggestion && (
-                      <span className="rounded bg-[#101c14] px-1.5 py-0.5 text-[10px] text-emerald-500">
-                        → {iss.suggestion}
+                      <span className="rounded bg-[#101c14] px-2 py-1 text-[12px] leading-relaxed text-emerald-400">
+                        → <Annotated text={iss.suggestion} />
                       </span>
                     )}
                   </span>
