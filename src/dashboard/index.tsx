@@ -40,6 +40,8 @@ import {
   type PolishdTokenAuthOptions,
 } from "./token-auth";
 import { unlockPolishdDashboard } from "./unlock";
+import { loadPolishdTelemetryState } from "../server/telemetry";
+import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReviewState } from "../ai/design";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
@@ -887,6 +889,18 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       }
     }
 
+    // Dogfood telemetry — decided per render, after auth, so the consent
+    // prompt and the emitter are only ever served to the dashboard's owner.
+    const telemetry = await loadPolishdTelemetryState();
+    const telemetryUi = (
+      <>
+        {telemetry.status === "granted" && telemetry.installId && (
+          <PolishdTelemetryEmitter endpoint={telemetry.endpoint} installId={telemetry.installId} />
+        )}
+        {telemetry.status === "unset" && <PolishdTelemetryConsent />}
+      </>
+    );
+
     // Which tab to render, from the `?tab=` query the sidebar links carry.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
 
@@ -894,14 +908,17 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       const [design, settings] = await Promise.all([getDesignData(), getAISettingsPublic()]);
       const reviewState = await loadDesignReviewState(design);
       return wrap(
-        <DashboardChrome active="design">
-          <DesignPanel
-            data={design}
-            review={reviewState.review}
-            reviewStale={reviewState.stale}
-            settings={settings}
-          />
-        </DashboardChrome>,
+        <>
+          <DashboardChrome active="design">
+            <DesignPanel
+              data={design}
+              review={reviewState.review}
+              reviewStale={reviewState.stale}
+              settings={settings}
+            />
+          </DashboardChrome>
+          {telemetryUi}
+        </>,
       );
     }
 
@@ -916,14 +933,17 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       ]);
       const profileState = await loadProfileState({ monitored, topUsed });
       return wrap(
-        <DashboardChrome active="settings">
-          <SettingsView
-            initialSettings={settings}
-            initialProfile={profileState.profile}
-            initialGaps={profileState.gaps}
-            sourceAvailable={profileState.sourceAvailable}
-          />
-        </DashboardChrome>,
+        <>
+          <DashboardChrome active="settings">
+            <SettingsView
+              initialSettings={settings}
+              initialProfile={profileState.profile}
+              initialGaps={profileState.gaps}
+              sourceAvailable={profileState.sourceAvailable}
+            />
+          </DashboardChrome>
+          {telemetryUi}
+        </>,
       );
     }
 
@@ -963,17 +983,20 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     }
 
     return wrap(
-      <PolishdDashboard
-        data={data}
-        ai={{
-          summary: summaryState.summary,
-          settings,
-          stale: summaryState.stale,
-          profile: profileState.profile,
-          gaps: profileState.gaps,
-          sourceAvailable: profileState.sourceAvailable,
-        }}
-      />,
+      <>
+        <PolishdDashboard
+          data={data}
+          ai={{
+            summary: summaryState.summary,
+            settings,
+            stale: summaryState.stale,
+            profile: profileState.profile,
+            gaps: profileState.gaps,
+            sourceAvailable: profileState.sourceAvailable,
+          }}
+        />
+        {telemetryUi}
+      </>,
     );
   };
 }
