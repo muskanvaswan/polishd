@@ -1,7 +1,32 @@
 # polishd-site
 
 Landing page for **[@polishd/next](https://www.npmjs.com/package/@polishd/next)** —
-a Next.js (App Router) app, fully static, no data source.
+a Next.js (App Router) app. The page itself is static; the site also runs
+polishd (dogfooding it) and hosts the project's telemetry collector.
+
+## Polishd on the site
+
+The site installs its own package, exactly the way `polishd init` would wire
+any host app: `proxy.ts` mints the session cookie, `instrumentation-client.ts`
+starts capture, `app/api/polishd/route.ts` ingests, and the dashboard is at
+`/polishd`.
+
+On top of that, `app/api/polishd-telemetry/route.ts` is the **cross-install
+telemetry collector** — the endpoint every polishd installation's dashboard
+reports to when its owner opts in (see the root README's "Dashboard
+telemetry"). Those events land in this site's database tagged with an
+anonymous install id, so dashboard usage across all installations is read on
+this site's own `/polishd` dashboard.
+
+Production needs (Vercel → Project → Environment Variables):
+
+| Var | Purpose |
+|---|---|
+| `POLISHD_DATABASE_URL` | Pooled Postgres connection string — the site runs on an ephemeral FS, so SQLite can't persist |
+| `POLISHD_DASHBOARD_TOKEN` | Protects `/polishd`; generate with `openssl rand -hex 32` |
+| `POLISHD_ANALYTICS_SOURCE` | `telemetry` — the whole dashboard (Analytics, Design, AI summary) reads the cross-install telemetry instead of the site's own traffic |
+
+Local dev needs nothing — events land in `.polishd/analytics.db` (gitignored).
 
 ```bash
 npm install
