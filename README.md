@@ -491,8 +491,20 @@ import { definePolishdConfig } from "@polishd/next";
 export default definePolishdConfig({
   sampleRate: 1,
   rageClick: { count: 3, windowMs: 500 },
+  ignoreErrors: [],
 });
 ```
+
+Browser-extension errors are never recorded. `window` hears every throw in the
+tab, so an extension's failures — "Failed to connect to MetaMask" and its kin —
+would otherwise show up as your site's noisiest bugs. Rather than match error
+text, polishd asks whose script threw: the browser records every script your
+document actually fetched, extension code is never among them, so an error
+whose stack points outside that set is identifiable as injected without knowing
+what it's called. Confident extension errors are dropped at capture and again
+at ingest; errors that merely *can't* be attributed to your code are kept and
+labelled, not hidden. `ignoreErrors` (strings, matched case-insensitively, or
+regexes) drops anything else you'd rather not see.
 
 The dashboard never measures itself: nothing on `/polishd` (or below it) is
 captured, so reading your analytics can't show up as your site's most-used

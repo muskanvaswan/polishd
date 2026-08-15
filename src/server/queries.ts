@@ -13,6 +13,7 @@ import { getMeta, parseMeta, query, storeReady } from "./store";
 import { NO_SESSION_META_KEY, type NoSessionRecord } from "./ingest";
 import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
+import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEventType } from "../shared/types";
 
 /**
@@ -93,6 +94,13 @@ export interface RecentError {
   message: string;
   component?: string;
   ts: number;
+  /**
+   * Who the client attributed the throw to. Absent means the site's own code —
+   * the common case, left unlabeled. `foreign` is a script this page never
+   * loaded (injected from somewhere), `unknown` is an error with nothing
+   * attributable at all. Confident extension errors never make it this far.
+   */
+  origin?: "foreign" | "unknown";
 }
 
 export interface ElementStat {
@@ -860,23 +868,35 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
 }
 
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
+  // Extension errors are dropped at capture and again at ingest, but rows
+  // written before that filter existed are still in the table — and this list
+  // is where they were loudest. Over-fetch and drop them on the way out, so
+  // the fix applies to history and not just to new sessions.
   const rows = await query(
     `SELECT path, component, meta, ts
      FROM ${polishdEventsSource()} WHERE type = 'js_error'
      ORDER BY id DESC LIMIT ?`,
-    [limit],
+    [limit * 4],
   );
-  return rows.map((r) => {
-    let message = "Unknown error";
-    const meta = parseMeta(r.meta);
-    if (meta && typeof meta.message === "string") message = meta.message;
-    return {
-      path: r.path as string,
-      component: (r.component as string) ?? undefined,
-      message,
-      ts: num(r, "ts"),
-    };
-  });
+  return rows
+    .map((r) => {
+      const meta = parseMeta(r.meta);
+      const message = meta && typeof meta.message === "string" ? meta.message : "Unknown error";
+      const source = meta && typeof meta.source === "string" ? meta.source : "";
+      const origin: RecentError["origin"] =
+        meta?.origin === "foreign" || meta?.origin === "unknown" ? meta.origin : undefined;
+      return {
+        path: r.path as string,
+        component: (r.component as string) ?? undefined,
+        message,
+        source,
+        origin,
+        ts: num(r, "ts"),
+      };
+    })
+    .filter(({ message, source }) => !isIgnorableError({ message, source }))
+    .slice(0, limit)
+    .map(({ source: _source, ...error }) => error);
 }
 
 // ── Cross-install telemetry (the installs view) ──────────────────────────────
