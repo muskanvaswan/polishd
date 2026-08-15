@@ -574,10 +574,19 @@ export function PolishdDashboard({
             {errors.map((e, i) => (
               <div key={i} className={i > 0 ? divider : ""}>
                 <div className="px-5 py-3">
-                  <div className="font-mono text-[13px] text-red-400">{e.message}</div>
+                  {/* Errors the page can't claim as its own are dimmed rather
+                      than hidden: the classification is a judgement about
+                      where the code came from, so it's shown, not enforced. */}
+                  <div
+                    className={`font-mono text-[13px] ${e.origin ? "text-[#8a6a6a]" : "text-red-400"}`}
+                  >
+                    {e.message}
+                  </div>
                   <div className="mt-0.5 text-[11px] text-[#555]">
                     {e.path}
                     {e.component ? ` · ${e.component}` : ""}
+                    {e.origin === "foreign" ? " · not your code" : ""}
+                    {e.origin === "unknown" ? " · unattributable" : ""}
                   </div>
                 </div>
               </div>

@@ -8,8 +8,10 @@
  * events, and flushes on an interval, on soft navigation, and on pagehide.
  */
 import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
+import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
 import { scheduleDesignScan } from "./design-scan";
+import { errorOrigin, startScriptProvenance } from "./script-provenance";
 import {
   componentOf,
   deviceCategory,
@@ -37,6 +39,10 @@ export function initPolishd(options: InitOptions = {}): void {
   // Per-session sampling decision, stable for the page's lifetime.
   if (cfg.sampleRate < 1 && Math.random() > cfg.sampleRate) return;
   started = true;
+
+  // Start before anything else can throw: this is what lets an error name the
+  // script it came from, and it has to be listening first.
+  startScriptProvenance();
 
   const queue: PolishdEvent[] = [];
   let currentPath = location.pathname;
@@ -215,23 +221,53 @@ export function initPolishd(options: InitOptions = {}): void {
 
   // ---- errors --------------------------------------------------------------
 
-  const onError = (ev: ErrorEvent) => {
+  // `window` hears every throw in the tab, including the ones from extensions
+  // injected into the page. Those are not the site's bugs and nothing here can
+  // fix them, so they never become events.
+  //
+  // Provenance decides first and decides most: the scripts this document
+  // fetched are known (see `script-provenance.ts`), so code from anywhere else
+  // is identifiable without knowing what it's called. The message rules in
+  // `shared/error-noise.ts` only mop up what has no attributable frame at all —
+  // extension plumbing that throws with the page as its only stack entry.
+  //
+  // Errors that aren't the site's but aren't confidently an extension's are
+  // kept and labeled with `meta.origin`, never silently dropped.
+  const captureError = (
+    message: string,
+    origin: ReturnType<typeof errorOrigin>,
+    extra: Partial<PolishdEvent> & { meta: NonNullable<PolishdEvent["meta"]> },
+  ) => {
+    if (origin === "extension") return;
+    if (isIgnorableError({ message, source: String(extra.meta.source ?? ""), ignore: cfg.ignoreErrors })) {
+      return;
+    }
     push({
       type: "js_error",
-      component: componentOf(ev.target as Element | null),
+      ...extra,
       meta: {
-        message: String(ev.message).slice(0, 300),
-        source: ev.filename || "",
-        line: ev.lineno || 0,
+        ...extra.meta,
+        message: message.slice(0, 300),
+        // Absent means "site" — the common case shouldn't pay for the label.
+        ...(origin === "site" ? {} : { origin }),
       },
+    });
+  };
+
+  const onError = (ev: ErrorEvent) => {
+    const source = ev.filename || "";
+    captureError(String(ev.message), errorOrigin(source, ev.error?.stack), {
+      component: componentOf(ev.target as Element | null),
+      meta: { source, line: ev.lineno || 0 },
     });
   };
 
   const onRejection = (ev: PromiseRejectionEvent) => {
     const reason = ev.reason;
-    push({
-      type: "js_error",
-      meta: { message: String(reason?.message ?? reason).slice(0, 300), kind: "unhandledrejection" },
+    // A rejection carries no filename, so the stack is the only thing that can
+    // place the code that threw it.
+    captureError(String(reason?.message ?? reason), errorOrigin(undefined, reason?.stack), {
+      meta: { kind: "unhandledrejection" },
     });
   };
 

@@ -37,6 +37,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
+import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
 import {
   componentOf,
@@ -47,6 +48,7 @@ import {
   selectorOf,
 } from "../client/dom";
 import { scheduleDesignScan } from "../client/design-scan";
+import { errorOrigin, startScriptProvenance } from "../client/script-provenance";
 import type { PolishdTelemetryInstallState } from "../server/telemetry";
 import { denyPolishdTelemetry, grantPolishdTelemetry } from "./telemetry-consent";
 
@@ -186,16 +188,26 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
 
   // ---- errors ---------------------------------------------------------------
 
+  // Extension throws reach `window` here too — and the dashboard is a page the
+  // owner keeps open, so its tab collects them for as long as it's up. Same
+  // provenance test as first-party capture.
+  startScriptProvenance();
+
   addEventListener(
     "error",
     (ev) => {
       if (!onDashboard()) return;
+      const message = String(ev.message);
+      const source = ev.filename || "";
+      const origin = errorOrigin(source, ev.error?.stack);
+      if (origin === "extension" || isIgnorableError({ message, source })) return;
       push({
         type: "js_error",
         meta: {
-          message: String(ev.message).slice(0, 300),
-          source: ev.filename || "",
+          message: message.slice(0, 300),
+          source,
           line: ev.lineno || 0,
+          ...(origin === "site" ? {} : { origin }),
         },
       });
     },
@@ -204,11 +216,15 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
   addEventListener("unhandledrejection", (ev) => {
     if (!onDashboard()) return;
     const reason = ev.reason;
+    const message = String(reason?.message ?? reason);
+    const origin = errorOrigin(undefined, reason?.stack);
+    if (origin === "extension" || isIgnorableError({ message })) return;
     push({
       type: "js_error",
       meta: {
-        message: String(reason?.message ?? reason).slice(0, 300),
+        message: message.slice(0, 300),
         kind: "unhandledrejection",
+        ...(origin === "site" ? {} : { origin }),
       },
     });
   });

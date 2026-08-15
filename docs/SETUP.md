@@ -476,8 +476,33 @@ export default definePolishdConfig({
   rageClick: { count: 3, windowMs: 500 },     // N clicks on one element
   flushIntervalMs: 10_000,
   dashboardRoute: "/polishd",                 // never captured; see below
+  ignoreErrors: [],                           // extra error messages to drop
 });
 ```
+
+Errors thrown by **browser extensions are dropped automatically**. Your page's
+`error` handler hears every throw in the tab, not just your code's, so a wallet
+extension failing to reach its background worker ("Failed to connect to
+MetaMask") would otherwise land in your dashboard as one of your site's loudest
+bugs.
+
+This isn't a list of known extensions — it's worked out per error. The browser
+records every script your document actually fetched (Resource Timing), and
+extension code is never in it: the browser injects content scripts, your page
+never asked for them. So an error is classified by where its stack points:
+
+| Verdict | Meaning | What happens |
+| --- | --- | --- |
+| `site` | every frame is code you shipped — including third-party scripts your page loads, like Stripe | recorded normally |
+| `extension` | a frame names an extension URL | dropped |
+| `foreign` | a frame names a script your document never loaded | recorded, marked *not your code* |
+| `unknown` | nothing attributable — an opaque cross-origin `Script error.`, an empty stack | recorded, marked *unattributable* |
+
+Only `extension` is dropped, because only it is certain. The other two are
+shown dimmed in Recent errors rather than hidden — a filter that quietly
+discards what it can't identify is how a real bug goes missing. `ignoreErrors`
+is the escape hatch if you want them gone anyway: strings match
+case-insensitively anywhere in the message, regexes are tested as-is.
 
 The dashboard's own traffic is **never captured**. Reading your analytics is
 browsing too, and left alone it would rank "Refresh summary" as your site's

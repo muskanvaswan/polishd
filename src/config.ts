@@ -25,6 +25,16 @@ export interface PolishdConfig {
   sampleRate: number;
   /** Rage-click detection: N clicks on one element within `windowMs`. */
   rageClick: { count: number; windowMs: number };
+  /**
+   * Extra error messages to drop, on top of the built-in filtering.
+   *
+   * Errors thrown by browser extensions are always dropped — see
+   * `shared/error-noise.ts` for what that covers and why. This is the escape
+   * hatch for the rest: a noisy third-party embed, a known-benign warning, an
+   * error you've decided not to chase. Strings match case-insensitively
+   * anywhere in the message; regexes are tested against it as-is.
+   */
+  ignoreErrors: (string | RegExp)[];
   /** Local SQLite file used in dev. Ignored when POLISHD_DATABASE_URL is set. */
   databasePath: string;
   /** Name of the anonymous session cookie set by the middleware. */
@@ -46,6 +56,7 @@ export const defaultPolishdConfig: PolishdConfig = {
   maxBatchSize: 50,
   sampleRate: 1,
   rageClick: { count: 3, windowMs: 500 },
+  ignoreErrors: [],
   databasePath: ".polishd/analytics.db",
   sessionCookie: "polishd_session",
   dashboardRoute: "/polishd",
