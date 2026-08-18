@@ -19,6 +19,7 @@ import { after } from "next/server";
 import type { ReactNode } from "react";
 
 import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
+import { captureStatus } from "../shared/capture-status";
 
 import {
   getMonitoredComponents,
@@ -73,6 +74,13 @@ export const metadata: Metadata = {
   title: "Polishd — What gets measured gets improved",
   robots: { index: false, follow: false },
 };
+
+/** A share of traffic, kept readable when it rounds to nothing. */
+function formatShare(pct: number): string {
+  if (pct >= 10) return `${Math.round(pct)}%`;
+  if (pct >= 1) return `${pct.toFixed(1)}%`;
+  return "<1%";
+}
 
 // ── Tooltip ──────────────────────────────────────────────────────────────────
 function InfoTip({
@@ -280,22 +288,12 @@ export function PolishdDashboard({
   const { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored } =
     data;
 
-  // Events are arriving but landing without a session cookie, which means the
-  // proxy isn't running on those requests. When nothing at all has been
-  // stored, any drop is the whole story — show it. But on a site that IS
-  // storing events, a handful of cookie-less batches is background noise
-  // (bots posting to the public endpoint, a visitor with cookies blocked,
-  // someone's curl test), not a broken proxy — a real proxy failure drops
-  // *every* batch, so the count climbs in proportion to traffic. Require the
-  // drops to be both recent and material relative to what got stored before
-  // raising the alarm.
-  const proxyBroken =
-    health.lastNoSessionAt !== null &&
-    (overview.totalEvents === 0
-      ? true
-      : Date.now() - health.lastNoSessionAt < 3_600_000 &&
-        health.noSessionCount >= 3 &&
-        health.noSessionCount > overview.totalEvents / 400);
+  // Events arriving without a session cookie mean the proxy didn't run on
+  // those requests — or that something posted straight at the public endpoint.
+  // Telling those apart is the whole job of `captureStatus`, which lives in
+  // shared/capture-status.ts with the record ingest writes, and is tested.
+  const capture = captureStatus(health, overview.totalEvents);
+  const windowLabel = `${Math.round(health.windowMs / 3_600_000)}h`;
 
   return (
     <DashboardChrome active="analytics" showInstalls={showInstalls}>
@@ -330,16 +328,17 @@ export function PolishdDashboard({
         </div>
       )}
 
-      {proxyBroken && (
+      {capture.level === "broken" && (
         <div className="mb-8 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-[13px] text-red-400">
           <p className="font-medium text-red-300">
             Receiving events, but no session cookie — your proxy isn't running.
           </p>
           <p className="mt-1.5">
-            {health.noSessionCount.toLocaleString()}{" "}
-            {health.noSessionCount === 1 ? "batch has" : "batches have"} been dropped. Polishd
-            attributes every event to the anonymous cookie the proxy mints, so nothing is being
-            stored. Check that you have a{" "}
+            {capture.droppedBatches.toLocaleString()}{" "}
+            {capture.droppedBatches === 1 ? "batch has" : "batches have"} been dropped
+            {capture.nothingStored ? "" : ` and nothing has been stored in the last ${windowLabel}`}
+            . Polishd attributes every event to the anonymous cookie the proxy mints
+            {capture.nothingStored ? ", so nothing is being stored" : ""}. Check that you have a{" "}
             <span className="font-mono text-red-300">proxy.ts</span> (Next 16+) or{" "}
             <span className="font-mono text-red-300">middleware.ts</span> (Next 15) at your project
             root — matching your installed Next major — exporting a function of the same name, with{" "}
@@ -347,8 +346,27 @@ export function PolishdDashboard({
             literal that covers the pages you're capturing.
           </p>
           <p className="mt-1.5 text-red-500/80">
-            Run <span className="font-mono text-red-300">npx @polishd/next doctor</span> to check
-            this automatically.
+            Run{" "}
+            <span className="font-mono text-red-300">
+              npx @polishd/next doctor --url &lt;your deployed origin&gt;
+            </span>{" "}
+            to check this against the running site. Plain{" "}
+            <span className="font-mono text-red-300">doctor</span> only reads your source tree, so
+            it can pass every check while the deployed build still doesn't mint a cookie —{" "}
+            <span className="font-mono text-red-300">--url</span> is the part that proves it.
+          </p>
+        </div>
+      )}
+
+      {capture.level === "notice" && (
+        <div className={`mb-8 rounded-lg border ${border} bg-[#0f0f0f] px-4 py-3 text-[13px] text-[#999]`}>
+          <p>
+            {capture.droppedBatches.toLocaleString()}{" "}
+            {capture.droppedBatches === 1 ? "batch" : "batches"} arrived without a session cookie in
+            the last {windowLabel}
+            {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (bots, or
+            visitors with cookies blocked). Those events aren't stored; capture itself is working
+            {capture.storedSinceDrop ? " — a batch has been stored since the most recent drop" : ""}.
           </p>
         </div>
       )}

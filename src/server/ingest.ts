@@ -11,6 +11,7 @@ import {
   resolveDashboardRoute,
   type PolishdConfig,
 } from "../config";
+import { foldNoSessionDrop, parseNoSessionRecord } from "../shared/capture-status";
 import { isIgnorableError } from "../shared/error-noise";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { getMeta, insertEvents, setMeta } from "./store";
@@ -39,15 +40,23 @@ const MAX_DESIGN_PAYLOAD_LEN = 32_000;
  */
 export const NO_SESSION_META_KEY = "no_session_rejects";
 
-/** Shape stored under {@link NO_SESSION_META_KEY}. */
-export interface NoSessionRecord {
-  count: number;
-  lastAt: number;
-}
+/** Re-exported so callers keep importing the record shape from ingest. */
+export type { NoSessionRecord } from "../shared/capture-status";
 
 // A broken proxy means *every* beacon is rejected, so writing per rejection
 // would answer a diagnostic with a write storm. Collapse them instead: count
 // in memory, persist at most once a minute.
+//
+// The in-memory half of that only works while the module stays alive. On
+// serverless every cold start resets it, so sparse traffic — scattered bot
+// POSTs, exactly the noise the throttle exists to absorb — used to persist
+// roughly 1:1. The stored `lastAt` is the half that survives, so it gates the
+// write too: a fresh instance reads what the last one wrote and stays quiet
+// if the minute isn't up. Its own tally is then lost with the instance, which
+// is the right trade — this counter is a health signal, not an audit log, and
+// under-reporting scattered noise is the behaviour that was intended all
+// along. A genuinely broken proxy still writes every minute, and the
+// dashboard's real evidence there is that nothing is being stored at all.
 const RECORD_INTERVAL_MS = 60_000;
 let lastPersistedAt = 0;
 let unpersisted = 0;
@@ -60,14 +69,14 @@ async function recordNoSession(): Promise<void> {
   const batch = unpersisted;
   unpersisted = 0;
   try {
-    let count = 0;
-    const raw = await getMeta(NO_SESSION_META_KEY);
-    if (raw) {
-      const prev = JSON.parse(raw) as Partial<NoSessionRecord>;
-      if (typeof prev.count === "number" && Number.isFinite(prev.count)) count = prev.count;
+    const prev = parseNoSessionRecord(await getMeta(NO_SESSION_META_KEY));
+    if (prev && now - prev.lastAt < RECORD_INTERVAL_MS) {
+      // Another invocation (or this one) wrote inside the minute. Hand the
+      // tally back so a warm instance folds it into the next write.
+      unpersisted += batch;
+      return;
     }
-    const next: NoSessionRecord = { count: count + batch, lastAt: now };
-    await setMeta(NO_SESSION_META_KEY, JSON.stringify(next));
+    await setMeta(NO_SESSION_META_KEY, JSON.stringify(foldNoSessionDrop(prev, now, batch)));
   } catch {
     // Diagnostics must never take ingest down with them. A store that can't
     // record the rejection still returns a clean result to the beacon.

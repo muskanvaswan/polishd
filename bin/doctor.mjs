@@ -349,8 +349,15 @@ function report(results, origin) {
       c.dim(`, ${results.filter((r) => r.status === PASS).length} checks passed`),
   );
   if (!origin) {
+    // "no problems" means the source tree is right, which is not the same as
+    // the deployed site minting cookies — a build that ships without the proxy
+    // passes every check here. Say so, so a green run isn't read as proof.
     console.log(
-      c.dim("\nRun with --url http://localhost:3000 to also verify the cookie and ingest live."),
+      c.dim(
+        "\nThese are static checks on your source tree. Run with" +
+          " --url http://localhost:3000 (or your deployed origin) to verify the" +
+          " cookie and ingest on the running site.",
+      ),
     );
   }
   return fails > 0 ? 1 : 0;

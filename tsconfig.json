@@ -9,6 +9,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    // Tests import their subject as `./x.ts` so `node --test` can resolve it
+    // without a bundler. Only legal under noEmit; the build config, which
+    // emits, turns it back off and excludes the tests instead.
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
     "declaration": true,
