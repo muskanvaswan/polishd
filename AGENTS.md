@@ -348,7 +348,7 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Every `/api/*` route 404s | Proxy matcher matches `/api` | Restore the `api` exclusion in the matcher |
 | Dashboard renders unstyled | `@polishd/next/dashboard.css` not imported in the page | Phase 4 |
 | Dashboard is empty, warning about the store | No writable backend | Set `POLISHD_DATABASE_URL`, or check Node ≥ 22.5 in dev |
-| Dashboard shows *"no session cookie — your proxy isn't running"* | Proxy missing, misnamed for the Next major, matcher not covering the path, or a botched merge | Phase 3c and `doctor --url` |
+| Dashboard shows *"no session cookie — your proxy isn't running"* | Proxy missing, misnamed for the Next major, matcher not covering the path, or a botched merge. Red means *nothing is being stored* — with events landing you get a neutral note instead | Phase 3c and `doctor --url <origin>`; plain `doctor` only reads the source tree, so it can pass while a deployed build still mints no cookie |
 | Beacons return 200 but nothing is stored | Same as above — ingest answers `{ok:true,stored:0,reason:"no_session"}` so the client cannot see a failure | `doctor --url http://localhost:3000` |
 | Proxy and ingest disagree on the cookie name | `sessionCookie` threaded into one layer but not another | Set `POLISHD_SESSION_COOKIE`; both read it |
 | `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` | Node < 22.5 | Upgrade Node, or configure Postgres |

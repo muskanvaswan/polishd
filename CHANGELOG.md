@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### The "your proxy isn't running" banner stops crying wolf
+
+A correctly installed, verifiably healthy site could show the red banner
+indefinitely. The 0.2.2 rule compared an *all-time* drop total against an
+all-time event total behind a one-hour recency gate, so the two halves covered
+different time ranges: one fresh cookie-less batch — a crawler POSTing at the
+public endpoint — re-armed every drop the install had ever recorded, including
+the ones from before the proxy was first deployed. At the 1-in-400 ratio, 7
+drops only needed fewer than 2,800 lifetime events to trip, which is most
+personal sites for months.
+
+- Drops are now bucketed by the hour, so the alert can compare drops and
+  stored events over **the same 24-hour window**. Records written before this
+  release carry no buckets, which means their history counts toward no window
+  and cannot re-arm anything.
+- The strongest signal is now the cheapest one: an event stored *after* the
+  most recent drop proves the proxy is minting cookies right now, because
+  every event is attributed to that cookie and a broken proxy drops every
+  batch. No threshold to tune.
+- Severity is split. Red — "your proxy isn't running" — is reserved for
+  nothing stored at all, or nothing stored in the window while drops keep
+  arriving. Otherwise the dashboard shows a neutral note: *N batches arrived
+  without a session cookie (bots, or visitors with cookies blocked) — X% of
+  traffic*, which is useful and true.
+- "so nothing is being stored" only renders when nothing has been stored. It
+  used to sit directly above stat tiles counting stored sessions and events.
+- The banner now points at `doctor --url <origin>` and says why: plain
+  `doctor` reads the source tree, so it can pass every check while a deployed
+  build still doesn't mint a cookie. Sending someone to a command that
+  answers "12 checks passed" was most of what made this alert expensive.
+- The 60-second write collapse in `recordNoSession()` survives cold starts.
+  Its counters were module-level, so serverless reset them on every
+  invocation and the sparse traffic the throttle exists to absorb persisted
+  roughly 1:1; the durable `lastAt` now gates the write too.
+- The rule lives in `src/shared/capture-status.ts` — pure, no database, no
+  React — with tests (`npm test`).
+
 ### Site snapshots on the Design tab
 
 The Design tab grows a **Site snapshots** card: one click screenshots every

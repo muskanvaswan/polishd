@@ -10,7 +10,13 @@
  * spelled `SUM(CASE WHEN … THEN 1 ELSE 0 END)` rather than SQLite's `SUM(x = y)`.
  */
 import { getMeta, parseMeta, query, storeReady } from "./store";
-import { NO_SESSION_META_KEY, type NoSessionRecord } from "./ingest";
+import {
+  CAPTURE_WINDOW_MS,
+  noSessionCountSince,
+  parseNoSessionRecord,
+  type CaptureHealth,
+} from "../shared/capture-status";
+import { NO_SESSION_META_KEY } from "./ingest";
 import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
 import { isIgnorableError } from "../shared/error-noise";
@@ -799,37 +805,64 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
 
 // ── Capture health ───────────────────────────────────────────────────────────
 
-/** Whether capture itself is wired up, as opposed to what it captured. */
-export interface CaptureHealth {
-  /** Beacons dropped because the request carried no session cookie. */
-  noSessionCount: number;
-  /** When the most recent such drop happened (ms epoch), or null for none. */
-  lastNoSessionAt: number | null;
-}
+export type { CaptureHealth } from "../shared/capture-status";
 
 /**
- * Read the proxy-health counter recorded by ingest.
+ * Read the proxy-health counters: the drop record ingest writes, plus what
+ * the events table says about storing over the same window.
  *
- * This is the one number that distinguishes "nobody has visited yet" from
- * "everybody has visited and every event was thrown away", which otherwise
- * look identical on the dashboard: an empty page with no error.
+ * The pair is the point. A drop count on its own cannot tell "nobody has
+ * visited yet" from "everybody visited and every event was thrown away" —
+ * that is why it is recorded — but neither can it tell a broken proxy from a
+ * crawler POSTing at a public endpoint. `lastStoredAt` settles that outright:
+ * every event is attributed to the cookie the proxy mints, so a store dated
+ * after the most recent drop means the proxy is minting right now. The
+ * windowed counts let the dashboard describe the rest in proportion.
  */
 export async function getCaptureHealth(): Promise<CaptureHealth> {
-  const empty: CaptureHealth = { noSessionCount: 0, lastNoSessionAt: null };
+  const windowMs = CAPTURE_WINDOW_MS;
+  const empty: CaptureHealth = {
+    noSessionCount: 0,
+    recentNoSessionCount: 0,
+    lastNoSessionAt: null,
+    lastStoredAt: null,
+    recentEvents: 0,
+    recentBatches: 0,
+    windowMs,
+  };
   if (!(await storeReady())) return empty;
-  try {
-    const raw = await getMeta(NO_SESSION_META_KEY);
-    if (!raw) return empty;
-    const rec = JSON.parse(raw) as Partial<NoSessionRecord>;
-    return {
-      noSessionCount:
-        typeof rec.count === "number" && Number.isFinite(rec.count) ? rec.count : 0,
-      lastNoSessionAt:
-        typeof rec.lastAt === "number" && Number.isFinite(rec.lastAt) ? rec.lastAt : null,
-    };
-  } catch {
-    return empty;
-  }
+
+  const since = Date.now() - windowMs;
+  // `received_at` is stamped once per insert call, so distinct values count
+  // batches — approximately: two batches landing in the same millisecond
+  // collapse into one. Good enough for a percentage, and it costs no schema.
+  const [rows, raw] = await Promise.all([
+    query(
+      `SELECT
+         MAX(received_at)                                                AS "lastStoredAt",
+         SUM(CASE WHEN received_at >= ? THEN 1 ELSE 0 END)               AS "recentEvents",
+         COUNT(DISTINCT CASE WHEN received_at >= ? THEN received_at END) AS "recentBatches"
+       FROM ${polishdEventsSource()}`,
+      [since, since],
+    ),
+    getMeta(NO_SESSION_META_KEY),
+  ]);
+  const row = rows[0];
+  // MAX() over an empty table is NULL, which `num` would flatten to 0 — and a
+  // stored-at of 0 reads as "stored in 1970", i.e. older than any drop. Keep
+  // the absence.
+  const everStored = row?.lastStoredAt !== null && row?.lastStoredAt !== undefined;
+
+  const rec = parseNoSessionRecord(raw);
+  return {
+    noSessionCount: rec?.count ?? 0,
+    recentNoSessionCount: noSessionCountSince(rec, since),
+    lastNoSessionAt: rec && rec.lastAt > 0 ? rec.lastAt : null,
+    lastStoredAt: everStored ? num(row, "lastStoredAt") : null,
+    recentEvents: num(row, "recentEvents"),
+    recentBatches: num(row, "recentBatches"),
+    windowMs,
+  };
 }
 
 // ── Aggregate loader ─────────────────────────────────────────────────────────
