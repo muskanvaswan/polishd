@@ -424,6 +424,23 @@ Nothing extra to install or wire: the scan ships with the existing client,
 flows through the existing ingest route, and the dashboard itself is never
 scanned.
 
+### Site snapshots
+
+The Design tab can also **screenshot the site itself** — every scanned route,
+phone and desktop, light and dark — and render the shots as a gallery, so the
+measured tokens sit next to what the pages actually look like. Capture uses
+[allpages](https://www.npmjs.com/package/allpages) (Playwright underneath): it
+launches your installed Chrome or Edge, falling back to Playwright's Chromium
+(`npx playwright install chromium` once, if you have neither). The origin to
+shoot is taken from the request that rendered the dashboard, or set
+`POLISHD_SITE_ORIGIN` to override it. Images live on disk under
+`.polishd/snapshots/` (override with `POLISHD_SNAPSHOT_DIR`; the last 6
+snapshots are kept), and each snapshot is stamped with the design-metrics
+fingerprint at capture time — so a snapshot taken before a round of design
+fixes can be held against one taken after. Capture is a dev-machine feature:
+serverless filesystems are read-only, and the button will say so rather than
+fail silently.
+
 ## Component-level tracking
 
 Wrap any element to track it explicitly. Interactive controls get hover + click

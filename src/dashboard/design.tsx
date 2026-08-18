@@ -17,7 +17,9 @@ import type {
   PolishdDesignData,
 } from "../server/design";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
+import type { PolishdSnapshot } from "../server/snapshots";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
+import SnapshotsCard from "./snapshots";
 import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
 import OverflowRow from "./overflow-row";
 import ShowMore from "./show-more";
@@ -426,9 +428,10 @@ export interface DesignPanelProps {
   review: PolishdDesignReview | null;
   reviewStale: boolean;
   settings: PolishdAISettingsPublic;
+  snapshots: PolishdSnapshot[];
 }
 
-export function DesignPanel({ data, review, reviewStale, settings }: DesignPanelProps) {
+export function DesignPanel({ data, review, reviewStale, settings, snapshots }: DesignPanelProps) {
   const hasScans = data.pages.length > 0;
   return (
     <main className="text-white">
@@ -473,6 +476,9 @@ export function DesignPanel({ data, review, reviewStale, settings }: DesignPanel
           </p>
         </div>
       )}
+
+      {/* The site as it actually renders — screenshots of every scanned page */}
+      <SnapshotsCard initial={snapshots} />
 
       {/* AI aesthetic read of the measured system */}
       <DesignReviewCard
