@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Site snapshots on the Design tab
+
+The Design tab grows a **Site snapshots** card: one click screenshots every
+scanned route of the site — phone and desktop, light and dark — and renders
+the shots as a filterable gallery with a full-page lightbox. Capture runs
+through the new `allpages` dependency (Playwright underneath), launching the
+developer's own Chrome/Edge before falling back to Playwright's Chromium, and
+never auto-downloads a browser. The origin is learned from the request that
+rendered the dashboard (`POLISHD_SITE_ORIGIN` overrides); shots land under
+`.polishd/snapshots/` (`POLISHD_SNAPSHOT_DIR` overrides, last 6 runs kept)
+with only an index in the store, and every image travels to the browser
+through an auth-guarded server action rather than a new public route. Each
+snapshot is stamped with the design-metrics fingerprint at capture time — the
+hook for before/after visual diffing as design suggestions get applied. This
+is the package's first runtime dependency beyond the optional `pg`.
+
 ### Errors are attributed to the code that threw them
 
 `window` hears every throw in the tab, so an extension's failures — "Failed to
