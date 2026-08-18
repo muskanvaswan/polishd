@@ -292,6 +292,7 @@ function PageDrawer({ page, onClose }: { page: TopPage | null; onClose: () => vo
 function PageRow({ page, onOpen }: { page: TopPage; onOpen: () => void }) {
   return (
     <tr
+      data-component="page-open"
       onClick={onOpen}
       className={`group cursor-pointer ${divider} transition-colors hover:bg-[#111]`}
     >

@@ -29,6 +29,7 @@ export default function ShowMore({
       <div className="border-t border-[#2e2e2e] px-4 py-2.5 sm:px-5">
         <button
           type="button"
+          data-component="show-more"
           onClick={() => setOpen((o) => !o)}
           className="text-[11px] font-medium text-[#888] transition-colors hover:text-white"
         >

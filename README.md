@@ -476,6 +476,9 @@ once; nothing is sent unless you say yes. What's shared when you do:
   runs — and an anonymous per-browser-session id. No cookies, no
   fingerprinting, no URLs, page content, or user data from your site — your
   analytics never leave your database.
+- Once per session, whether a **model is connected** and which provider/model
+  it is — never the key, never any setting beyond those two names. This is how
+  the project learns which AI setups to test against.
 
 Say no and it never asks again. Change your mind, or disable it fleet-wide,
 with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of
@@ -505,8 +508,20 @@ import { definePolishdConfig } from "@polishd/next";
 export default definePolishdConfig({
   sampleRate: 1,
   rageClick: { count: 3, windowMs: 500 },
+  ignoreErrors: [],
 });
 ```
+
+Browser-extension errors are never recorded. `window` hears every throw in the
+tab, so an extension's failures — "Failed to connect to MetaMask" and its kin —
+would otherwise show up as your site's noisiest bugs. Rather than match error
+text, polishd asks whose script threw: the browser records every script your
+document actually fetched, extension code is never among them, so an error
+whose stack points outside that set is identifiable as injected without knowing
+what it's called. Confident extension errors are dropped at capture and again
+at ingest; errors that merely *can't* be attributed to your code are kept and
+labelled, not hidden. `ignoreErrors` (strings, matched case-insensitively, or
+regexes) drops anything else you'd rather not see.
 
 The dashboard never measures itself: nothing on `/polishd` (or below it) is
 captured, so reading your analytics can't show up as your site's most-used

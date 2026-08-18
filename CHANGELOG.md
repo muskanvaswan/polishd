@@ -18,6 +18,55 @@ snapshot is stamped with the design-metrics fingerprint at capture time — the
 hook for before/after visual diffing as design suggestions get applied. This
 is the package's first runtime dependency beyond the optional `pg`.
 
+### Errors are attributed to the code that threw them
+
+`window` hears every throw in the tab, so an extension's failures — "Failed to
+connect to MetaMask" being the canonical one — arrived as `js_error` events
+indistinguishable from real bugs, often as the loudest error on the dashboard.
+
+Rather than match error text, the client now works out *whose script threw*.
+Resource Timing records every script the document actually fetched; extension
+code is absent from it, because the browser injects content scripts and the
+page never requested them. Comparing an error's stack against that live set
+identifies injected code without knowing what it's called, so a new extension
+needs no new pattern. Four verdicts come out: `site` (every frame is code you
+shipped), `extension` (a frame names an extension URL scheme, including blobs
+an extension minted at runtime), `foreign` (a frame names a script this
+document never loaded), and `unknown` (nothing attributable — an opaque
+cross-origin `Script error.`, an empty stack).
+
+Only `extension` is dropped. `foreign` and `unknown` are kept, tagged with
+`meta.origin`, and shown dimmed in Recent errors as "not your code" /
+"unattributable" — a filter that silently eats what it can't identify is how a
+real bug goes missing. A short list of message patterns remains as a last
+resort for extension plumbing that throws with no attributable frame at all.
+
+The drop also runs at ingest (a cached bundle can predate the filter, and the
+endpoint is a public POST) and on the way out of `getRecentErrors`, so rows
+written before this stop showing up too. New `ignoreErrors` config option —
+strings matched case-insensitively, or regexes — drops anything else you've
+decided not to chase.
+
+### Telemetry answers the product questions clicks can't
+
+The dashboard telemetry emitter now sends one `install_state` event per
+session — whether a model is connected and which provider/model, resolved
+server-side, never the key — and the consent prompt discloses it. On the
+collecting side, the Installs tab grew a "With a model" stat and a per-domain
+Model column built from each install's latest report, so connecting,
+switching, or disconnecting a model reads correctly.
+
+The dashboard's own controls also carry `data-component` names now
+(`ai-summary-refresh`, `ai-summary-generate`, `ai-connect-model`,
+`journey-open`, `loss-file-bug`, `loss-ignore`, `design-review-refresh`,
+`settings-scan-codebase`, `show-more`, coarse `settings`/`ai-summary`
+containers, …), so with `POLISHD_ANALYTICS_SOURCE=telemetry` the collector's
+Most-used-features table groups dashboard clicks by feature instead of raw
+selectors — the same component-level story polishd tells its hosts, told
+about itself. The attributes are inert for host apps.
+
+## 0.2.2
+
 ### Cross-install telemetry ingest
 
 A new `@polishd/next/telemetry` entry point exports a CORS-enabled ingest

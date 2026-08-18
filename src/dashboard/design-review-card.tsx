@@ -29,6 +29,7 @@ export function RefreshMetricsButton() {
   return (
     <button
       type="button"
+      data-component="design-metrics-refresh"
       onClick={() => startRefresh(() => router.refresh())}
       disabled={pending}
       title="Recompute the design metrics from the latest page scans"
@@ -92,6 +93,7 @@ export default function DesignReviewCard({
         </div>
         <button
           type="button"
+          data-component="design-review-refresh"
           onClick={() => generate(review !== null)}
           disabled={pending || !canGenerate}
           title={
@@ -144,6 +146,7 @@ export default function DesignReviewCard({
             {hasApiKey ? (
               <button
                 type="button"
+                data-component="design-review-generate"
                 onClick={() => generate(false)}
                 disabled={pending || !canGenerate}
                 className={primaryBtn}

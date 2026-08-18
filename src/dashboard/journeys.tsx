@@ -104,6 +104,7 @@ const STEP_STYLE: Record<
   component_view: { dot: "bg-purple-400", verb: "Viewed component", verbTone: "text-purple-300" },
   mount: { dot: "bg-purple-400", verb: "Rendered component", verbTone: "text-purple-300" },
   design_scan: { dot: "bg-[#444]", verb: "Design scan", verbTone: "text-[#888]" },
+  install_state: { dot: "bg-[#444]", verb: "Install state", verbTone: "text-[#888]" },
 };
 
 function JourneyStepRow({
@@ -163,6 +164,7 @@ function JourneyListCard({
   return (
     <button
       type="button"
+      data-component="journey-open"
       onClick={onOpen}
       className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#111] sm:gap-4 sm:px-5 sm:py-3.5 ${divider} first:border-t-0`}
     >
@@ -268,6 +270,7 @@ function JourneyDrawer({
               </span>
               <button
                 type="button"
+                data-component="journey-close"
                 onClick={onClose}
                 aria-label="Close"
                 className="ml-auto flex h-7 w-7 items-center justify-center rounded-md border border-[#2e2e2e] text-[#888] transition-colors hover:bg-[#111] hover:text-white"

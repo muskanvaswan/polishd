@@ -21,10 +21,13 @@ function TogglePills<T extends string>({
   options,
   value,
   onChange,
+  component,
 }: {
   options: readonly T[];
   value: T;
   onChange: (v: T) => void;
+  /** `data-component` name for dashboard telemetry — see the card below. */
+  component: string;
 }) {
   return (
     <span className="flex overflow-hidden rounded-md border border-[#2e2e2e]">
@@ -32,6 +35,7 @@ function TogglePills<T extends string>({
         <button
           key={opt}
           type="button"
+          data-component={component}
           onClick={() => onChange(opt)}
           className={`px-2.5 py-1 text-[11px] capitalize transition-colors ${
             opt === value ? "bg-[#1e1e1e] text-white" : "text-[#777] hover:text-[#aaa]"
@@ -77,6 +81,7 @@ function ShotTile({
     <figure className="min-w-0">
       <button
         type="button"
+        data-component="design-snapshot-open"
         onClick={() => src && onZoom(src, shot.route)}
         disabled={!src}
         title={src ? `${shot.route} — click to enlarge` : shot.route}
@@ -148,7 +153,10 @@ export default function SnapshotsCard({ initial }: SnapshotsCardProps) {
     : [];
 
   return (
-    <section className={`mb-8 ${card} overflow-hidden`}>
+    // The data-component names here feed polishd's own dashboard telemetry:
+    // clicks group under these on the collecting side, so "does anyone shoot
+    // a second snapshot?" is answerable. Inert for host apps.
+    <section data-component="design-snapshots" className={`mb-8 ${card} overflow-hidden`}>
       <div
         className={`flex flex-wrap items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}
       >
@@ -163,12 +171,23 @@ export default function SnapshotsCard({ initial }: SnapshotsCardProps) {
         <div className="flex flex-wrap items-center gap-2">
           {selected && (
             <>
-              <TogglePills options={DEVICES} value={device} onChange={setDevice} />
+              <TogglePills
+                options={DEVICES}
+                value={device}
+                onChange={setDevice}
+                component="design-snapshot-device"
+              />
               {!selected.noDarkMode && (
-                <TogglePills options={THEMES} value={theme} onChange={setTheme} />
+                <TogglePills
+                  options={THEMES}
+                  value={theme}
+                  onChange={setTheme}
+                  component="design-snapshot-theme"
+                />
               )}
               {snapshots.length > 1 && (
                 <select
+                  data-component="design-snapshot-history"
                   value={selected.id}
                   onChange={(e) => setSelectedId(e.target.value)}
                   className="rounded-md border border-[#2e2e2e] bg-[#111] px-2 py-1 text-[11px] text-[#aaa] focus:border-[#555] focus:outline-none"
@@ -184,6 +203,7 @@ export default function SnapshotsCard({ initial }: SnapshotsCardProps) {
           )}
           <button
             type="button"
+            data-component="design-snapshot-capture"
             onClick={capture}
             disabled={pending}
             title="Screenshot every scanned page — phone and desktop, light and dark"

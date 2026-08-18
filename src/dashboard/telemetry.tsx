@@ -37,6 +37,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
+import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
 import {
   componentOf,
@@ -47,6 +48,8 @@ import {
   selectorOf,
 } from "../client/dom";
 import { scheduleDesignScan } from "../client/design-scan";
+import { errorOrigin, startScriptProvenance } from "../client/script-provenance";
+import type { PolishdTelemetryInstallState } from "../server/telemetry";
 import { denyPolishdTelemetry, grantPolishdTelemetry } from "./telemetry-consent";
 
 const PATH_PREFIX = "/~polishd";
@@ -82,7 +85,7 @@ function sessionId(): string {
   }
 }
 
-function start(endpoint: string): void {
+function start(endpoint: string, installState: PolishdTelemetryInstallState | null): void {
   const sid = sessionId();
   // The route the dashboard is mounted at, learned from where we woke up.
   // Capture is suspended whenever the URL wanders off it — the listeners
@@ -185,16 +188,26 @@ function start(endpoint: string): void {
 
   // ---- errors ---------------------------------------------------------------
 
+  // Extension throws reach `window` here too — and the dashboard is a page the
+  // owner keeps open, so its tab collects them for as long as it's up. Same
+  // provenance test as first-party capture.
+  startScriptProvenance();
+
   addEventListener(
     "error",
     (ev) => {
       if (!onDashboard()) return;
+      const message = String(ev.message);
+      const source = ev.filename || "";
+      const origin = errorOrigin(source, ev.error?.stack);
+      if (origin === "extension" || isIgnorableError({ message, source })) return;
       push({
         type: "js_error",
         meta: {
-          message: String(ev.message).slice(0, 300),
-          source: ev.filename || "",
+          message: message.slice(0, 300),
+          source,
           line: ev.lineno || 0,
+          ...(origin === "site" ? {} : { origin }),
         },
       });
     },
@@ -203,11 +216,15 @@ function start(endpoint: string): void {
   addEventListener("unhandledrejection", (ev) => {
     if (!onDashboard()) return;
     const reason = ev.reason;
+    const message = String(reason?.message ?? reason);
+    const origin = errorOrigin(undefined, reason?.stack);
+    if (origin === "extension" || isIgnorableError({ message })) return;
     push({
       type: "js_error",
       meta: {
-        message: String(reason?.message ?? reason).slice(0, 300),
+        message: message.slice(0, 300),
         kind: "unhandledrejection",
+        ...(origin === "site" ? {} : { origin }),
       },
     });
   });
@@ -269,6 +286,31 @@ function start(endpoint: string): void {
   if (w > 0) {
     push({ type: "viewport", value: w, text: deviceCategory(w) });
   }
+
+  // One install-state snapshot per session: whether a model is connected and
+  // which provider/model — the product questions ("how many installs actually
+  // configure AI?") that click events can't answer. Server-resolved, no key.
+  if (installState) {
+    const STATE_KEY = "polishd_telemetry_state";
+    let sent = false;
+    try {
+      sent = sessionStorage.getItem(STATE_KEY) !== null;
+      if (!sent) sessionStorage.setItem(STATE_KEY, "1");
+    } catch {
+      /* storage blocked — a duplicate per page load is tolerable */
+    }
+    if (!sent) {
+      push({
+        type: "install_state",
+        meta: {
+          hasModel: installState.hasModel,
+          provider: installState.provider,
+          model: installState.model,
+        },
+      });
+    }
+  }
+
   push({ type: "page_view", path: currentPath });
   emitDesignScan();
 }
@@ -278,13 +320,19 @@ function start(endpoint: string): void {
  * starts the capture singleton once per page load (the listeners are global
  * and deliberately never torn down — capture suspends off-dashboard instead).
  */
-export function PolishdTelemetryEmitter({ endpoint }: { endpoint: string }) {
+export function PolishdTelemetryEmitter({
+  endpoint,
+  installState = null,
+}: {
+  endpoint: string;
+  installState?: PolishdTelemetryInstallState | null;
+}) {
   useEffect(() => {
     if (window.__polishdTelemetryStarted) return;
     if (navigator.doNotTrack === "1") return;
     window.__polishdTelemetryStarted = true;
-    start(endpoint);
-  }, [endpoint]);
+    start(endpoint, installState);
+  }, [endpoint, installState]);
   return null;
 }
 
@@ -324,8 +372,9 @@ export function PolishdTelemetryConsent() {
       <p className="text-[13px] font-medium text-white">Help improve polishd?</p>
       <p className="mt-1.5 text-[12px] leading-relaxed text-[#888]">
         Share anonymous usage of <span className="text-[#aaa]">this dashboard</span> — clicks and
-        tab views inside it, reported under your site&apos;s domain. Never your site&apos;s
-        analytics, never your visitors&apos; data. Opt out any time with{" "}
+        tab views inside it, plus which model provider you&apos;ve connected (never the key) —
+        reported under your site&apos;s domain. Never your site&apos;s analytics, never your
+        visitors&apos; data. Opt out any time with{" "}
         <code className="font-mono text-[11px] text-[#aaa]">POLISHD_TELEMETRY=off</code>.
       </p>
       <div className="mt-3 flex gap-2">
