@@ -429,9 +429,18 @@ export interface DesignPanelProps {
   reviewStale: boolean;
   settings: PolishdAISettingsPublic;
   snapshots: PolishdSnapshot[];
+  /** A known-in-advance reason captures will fail here, or null. */
+  captureIssue: string | null;
 }
 
-export function DesignPanel({ data, review, reviewStale, settings, snapshots }: DesignPanelProps) {
+export function DesignPanel({
+  data,
+  review,
+  reviewStale,
+  settings,
+  snapshots,
+  captureIssue,
+}: DesignPanelProps) {
   const hasScans = data.pages.length > 0;
   return (
     <main className="text-white">
@@ -478,7 +487,7 @@ export function DesignPanel({ data, review, reviewStale, settings, snapshots }: 
       )}
 
       {/* The site as it actually renders — screenshots of every scanned page */}
-      <SnapshotsCard initial={snapshots} />
+      <SnapshotsCard initial={snapshots} captureIssue={captureIssue} />
 
       {/* AI aesthetic read of the measured system */}
       <DesignReviewCard
