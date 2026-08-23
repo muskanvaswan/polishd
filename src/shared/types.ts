@@ -14,9 +14,9 @@
 export type PolishdEventType =
   | "page_view" // a route was viewed (initial load or soft navigation)
   | "click" // a normal click on an element
-  | "rage_click" // 3+ rapid clicks on the same element (frustration)
-  | "dead_click" // a click on a non-interactive element (confusion)
-  | "scroll_depth" // max scroll reached on a page before leaving it
+  | "rage_click" // 3+ rapid clicks on the same element (frustration; text-selection bursts excluded)
+  | "dead_click" // a click on a non-interactive, non-text element (confusion)
+  | "scroll_depth" // max scroll reached on a page before leaving it (only pages tall enough to scroll)
   | "viewport" // device/viewport size sampled once at session start
   | "js_error" // an uncaught error or unhandled rejection
   | "web_vital" // a Core Web Vital sample (LCP, CLS, INP)
@@ -24,6 +24,10 @@ export type PolishdEventType =
   | "component_view" // time a PolishdMonitor component spent in the viewport; value = ms
   | "mount" // a content-tracked PolishdMonitor component was rendered (mounted)
   | "session_end" // the session's last page was unloaded
+  // Server-assigned only, never sent by a client: a historical dead/rage click
+  // retyped by the one-time reclassification because it landed on text
+  // (reading, not friction). Kept in the table, counted by no aggregate.
+  | "text_click"
   | "design_scan" // one page's rendered design metrics (fonts, colors, radii, spacing)
   | "install_state"; // a telemetry install's own state (model connected, provider/model)
 

@@ -44,6 +44,8 @@ import {
   deviceCategory,
   hasTextSelection,
   isInteractive,
+  isSelectionGesture,
+  isTextTarget,
   labelOf,
   selectorOf,
 } from "../client/dom";
@@ -141,7 +143,7 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
       if (selector === lastClick.selector && now - lastClick.time < RAGE_WINDOW_MS) {
         lastClick.count++;
         lastClick.time = now;
-        if (lastClick.count === RAGE_COUNT) {
+        if (lastClick.count === RAGE_COUNT && !isSelectionGesture(target)) {
           push({ type: "rage_click", selector, component, text });
         }
       } else {
@@ -149,7 +151,7 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
       }
 
       if (!isInteractive(target)) {
-        if (hasTextSelection()) return;
+        if (hasTextSelection() || isTextTarget(target)) return;
         push({ type: "dead_click", selector, component, text });
       } else {
         push({ type: "click", selector, component, text });
@@ -172,7 +174,8 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
       const t = ev.target;
       const el = t instanceof Element ? t : document.documentElement;
       const scrollable = el.scrollHeight - el.clientHeight;
-      if (scrollable <= 0) return;
+      // Regions that barely scroll reach 100% trivially — no attention signal.
+      if (scrollable < el.clientHeight * 0.1) return;
       const pct = Math.min(100, Math.round((el.scrollTop / scrollable) * 100));
       if (pct > maxScrollPct) maxScrollPct = pct;
     },

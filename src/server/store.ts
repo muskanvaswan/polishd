@@ -379,6 +379,25 @@ export async function query(sql: string, params: unknown[] = []): Promise<Row[]>
   }
 }
 
+/**
+ * Run a portable write statement (UPDATE/DELETE), or no-op without a store.
+ * Returns whether the statement ran. Same `?` placeholder contract as `query`.
+ */
+export async function exec(sql: string, params: unknown[] = []): Promise<boolean> {
+  const b = await getBackend();
+  if (!b) return false;
+  try {
+    await b.exec(sql, params);
+    return true;
+  } catch (err) {
+    console.warn(
+      "[polishd] exec failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
 // ── Key/value metadata (polishd_meta) ──────────────────────────────────────────
 // A tiny single-row-per-key store for things that aren't events: the AI
 // settings the dashboard owner configures, and the last generated AI summary

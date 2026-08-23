@@ -76,6 +76,13 @@ const SYSTEM_PROMPT =
   "usually preceded by a project profile describing the site's purpose, pages, " +
   "and components — treat the profile as authoritative context for what every " +
   "identifier means.\n\n" +
+  "Reading the signals: dead and rage clicks already exclude clicks on text " +
+  "(cursor placement, select-to-copy), so the reported counts are genuine " +
+  "friction on things that looked actionable. Scroll depth is only measured " +
+  "where there is meaningful room to scroll; a page or component with no " +
+  "scroll figure fit on one screen — treat that as no signal, never as " +
+  "disengagement, and don't celebrate 100% scroll on its own without deep " +
+  "scroll distance behind it.\n\n" +
   "Respond with ONLY a JSON object (no markdown fences, no preamble):\n" +
   '{ "story": string, "wins": string[], "losses": [{ "issue": string, "evidence": string }] }\n\n' +
   "story: a single tight paragraph (3-5 sentences) telling the site owner how " +
