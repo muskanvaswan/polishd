@@ -407,6 +407,10 @@ here, and the issue body is one click away without leaving the dashboard. An
 issue that can no longer be read — deleted, transferred, or beyond what the
 token now covers — keeps its row and says exactly that.
 
+Opening the tab costs a single GitHub API call in the ordinary case, not one
+per issue: the repo's issue list hands back a hundred whole issues at a time,
+which is more than polishd is ever likely to have filed.
+
 ## Design review
 
 The dashboard's **Design** tab (in the sidebar) is your site's brand guideline

@@ -14,6 +14,12 @@
  * fine-grained PAT with Contents (read), Issues (write), and Pull requests
  * (write) on the one repo is all it needs.
  */
+import {
+  ISSUE_PAGE_SIZE,
+  MAX_ISSUE_PAGES,
+  keepPaging,
+  worthListing,
+} from "./issue-pages";
 import { resolveSettings } from "./settings";
 import type {
   PolishdGithubIssue,
@@ -273,25 +279,69 @@ export async function readGithubIssue(number: number): Promise<PolishdGithubIssu
   }
 }
 
-/** How many issue reads are in flight at once — polite to GitHub, quick enough. */
+/** How many individual issue reads run at once, when it comes to that. */
 const ISSUE_FETCH_CONCURRENCY = 6;
 
 /**
- * Read many issues by number, a few at a time, preserving the input order.
- * Numbers that can't be read come back as null in their own slot.
+ * Read a known set of issues by number, in as few API calls as possible.
+ *
+ * The naive way — one call per number — is what the repo's own issue list
+ * saves us from: it returns whole issue objects, body and all, a hundred at a
+ * time, so a single call usually answers for every issue polishd has ever
+ * filed. When to stop asking for pages is its own rule, in issue-pages.ts.
+ *
+ * Anything the pages didn't reach is read individually afterwards, which is
+ * also the whole strategy when there's only one number to find.
+ *
+ * Numbers that can't be read at all (deleted, transferred, token access
+ * narrowed) are simply absent from the returned map.
  */
 export async function readGithubIssues(
   numbers: number[],
-): Promise<(PolishdGithubIssue | null)[]> {
-  const out: (PolishdGithubIssue | null)[] = new Array(numbers.length).fill(null);
-  for (let i = 0; i < numbers.length; i += ISSUE_FETCH_CONCURRENCY) {
-    const slice = numbers.slice(i, i + ISSUE_FETCH_CONCURRENCY);
-    const read = await Promise.all(slice.map((n) => readGithubIssue(n)));
-    read.forEach((issue, j) => {
-      out[i + j] = issue;
+): Promise<Map<number, PolishdGithubIssue>> {
+  const found = new Map<number, PolishdGithubIssue>();
+  const conn = await connection();
+  if (!conn || numbers.length === 0) return found;
+
+  const wanted = new Set(numbers);
+  const oldestWanted = Math.min(...numbers);
+
+  let pagesRead = 0;
+  let morePages = worthListing(wanted.size);
+  while (morePages) {
+    let batch: IssueResponse[];
+    try {
+      batch = await gh<IssueResponse[]>(
+        conn.token,
+        "GET",
+        `/repos/${conn.repo}/issues?state=all&per_page=${ISSUE_PAGE_SIZE}&page=${pagesRead + 1}`,
+      );
+    } catch {
+      break; // fall through to the per-issue reads
+    }
+    pagesRead++;
+    let lowestSeen = Infinity;
+    for (const raw of batch) {
+      if (wanted.has(raw.number)) found.set(raw.number, toIssue(raw));
+      lowestSeen = Math.min(lowestSeen, raw.number);
+    }
+    morePages = keepPaging({
+      pagesRead,
+      batchSize: batch.length,
+      lowestSeen,
+      oldestWanted,
+      outstanding: wanted.size - found.size,
     });
   }
-  return out;
+
+  const missing = numbers.filter((n) => !found.has(n));
+  for (let i = 0; i < missing.length; i += ISSUE_FETCH_CONCURRENCY) {
+    const slice = missing.slice(i, i + ISSUE_FETCH_CONCURRENCY);
+    for (const issue of await Promise.all(slice.map((n) => readGithubIssue(n)))) {
+      if (issue) found.set(issue.number, issue);
+    }
+  }
+  return found;
 }
 
 /** File an issue in the connected repo. Throws on failure. */

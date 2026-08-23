@@ -23,6 +23,14 @@ otherwise).
 - An issue that can no longer be read — deleted, transferred, token access
   revoked — keeps its row and says so, rather than quietly disappearing from
   a count you were trusting.
+- Loading the tab is **one GitHub API call**, not one per issue. The repo's
+  issue list returns whole issues, body and all, a hundred at a time, so a
+  single page answers for every issue polishd has ever filed. Issue numbers
+  only climb and the list comes back newest-first, so a page that has dropped
+  below the oldest number we want proves no later page can hold it, and paging
+  stops; anything buried past a three-page budget is read individually. The
+  rule lives in `src/ai/issue-pages.ts` — pure, no network — with tests
+  (`npm test`).
 
 ### The "your proxy isn't running" banner stops crying wolf
 

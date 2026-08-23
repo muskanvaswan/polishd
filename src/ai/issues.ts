@@ -394,9 +394,9 @@ export async function attachGithubIssues(losses: PolishdLossItem[]): Promise<Pol
 // ── Listing (the Issues tab) ─────────────────────────────────────────────────
 
 /**
- * How many filed issues the tab hydrates from GitHub. One API call each, so
- * this is the ceiling on what listing costs; a log longer than this keeps its
- * newest entries.
+ * How many filed issues the tab hydrates from GitHub. A log longer than this
+ * keeps its newest entries. It matches GitHub's page size on purpose: that's
+ * how many `readGithubIssues` can answer for in a single API call.
  */
 const MAX_LISTED = 100;
 
@@ -433,14 +433,14 @@ export async function listFiledIssues(): Promise<PolishdFiledIssue[]> {
   const details = await readGithubIssues(filed.map((f) => f.entry.number));
 
   return filed
-    .map(({ evidence, entry }, i) => ({
+    .map(({ evidence, entry }) => ({
       evidence,
       claim: entry.issue,
       verdict: entry.verdict,
       filedAt: entry.filedAt,
       number: entry.number,
       url: entry.url,
-      detail: details[i],
+      detail: details.get(entry.number) ?? null,
     }))
     // GitHub's `created_at` beats our own record of when we filed: it's the
     // same moment, but every issue has it, including the ones logged before
