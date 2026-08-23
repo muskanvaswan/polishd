@@ -50,7 +50,7 @@ import { loadDesignReviewState } from "../ai/design";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import { getDesignData } from "../server/design";
-import { listSnapshots } from "../server/snapshots";
+import { listSnapshots, snapshotCaptureIssue } from "../server/snapshots";
 import type {
   PolishdAISettingsPublic,
   PolishdProjectProfile,
@@ -937,10 +937,11 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
 
     if (rawTab === "design") {
-      const [design, settings, snapshots] = await Promise.all([
+      const [design, settings, snapshots, captureIssue] = await Promise.all([
         getDesignData(),
         getAISettingsPublic(),
         listSnapshots(),
+        snapshotCaptureIssue(),
       ]);
       const reviewState = await loadDesignReviewState(design);
       return wrap(
@@ -952,6 +953,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
               reviewStale={reviewState.stale}
               settings={settings}
               snapshots={snapshots}
+              captureIssue={captureIssue}
             />
           </DashboardChrome>
           {telemetryUi}

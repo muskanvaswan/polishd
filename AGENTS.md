@@ -325,6 +325,7 @@ survive there.
 | Variable | Required | Purpose |
 |---|---|---|
 | `POLISHD_DATABASE_URL` | for production capture | Pooled Postgres connection string |
+| `BLOB_READ_WRITE_TOKEN` | for production site snapshots | Injected automatically when a Vercel Blob store is connected; snapshot images upload there instead of the (read-only) filesystem |
 | `POLISHD_DASHBOARD_TOKEN` | for production, unless auth is wired | Protects `/polishd`. `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | no | `true` to serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | no | Rename the session cookie; read by both proxy and ingest |

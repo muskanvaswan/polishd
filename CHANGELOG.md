@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Site snapshots now work in production
+
+Capturing a snapshot on a serverless host used to fail on two fronts at once:
+no browser to launch and no writable filesystem to keep the images on. Both
+are now handled, and neither needs configuration beyond connecting a Vercel
+Blob store to the project:
+
+- When `BLOB_READ_WRITE_TOKEN` is present (Vercel injects it once a Blob store
+  is connected), shots are staged in the system temp directory and uploaded to
+  Vercel Blob instead of `.polishd/snapshots/`. Pruning deletes the blobs;
+  a failed upload cleans up after itself so a half-stored snapshot never
+  survives. Blob pathnames get a random suffix and the dashboard still serves
+  every image through the auth-gated server action.
+- When no local Chrome, Edge, or Playwright Chromium can launch on Linux,
+  capture falls back to `@sparticuz/chromium` — a Chromium built to run inside
+  Lambda-shaped sandboxes. It and `@vercel/blob` ship as optional
+  dependencies, so a standard `npm install` brings them along and
+  `--omit=optional` keeps them out.
+- An install run with `--omit=optional` loses the feature but not the plot:
+  when the environment shows a missing optional dependency will be needed
+  (a Blob token with no `@vercel/blob`, a Vercel host with no
+  `@sparticuz/chromium`), the gallery says so up front and disables the
+  capture button, instead of failing a minute into a doomed run. Failures
+  that can only surface at capture time name the missing piece precisely.
+- Local development is unchanged: your own Chrome first, images on disk,
+  same index, same gallery.
+
 ### Reading is not friction: text clicks and trivial scrolls stop counting
 
 Three signals could report engagement or frustration where there was only

@@ -437,9 +437,19 @@ shoot is taken from the request that rendered the dashboard, or set
 `.polishd/snapshots/` (override with `POLISHD_SNAPSHOT_DIR`; the last 6
 snapshots are kept), and each snapshot is stamped with the design-metrics
 fingerprint at capture time — so a snapshot taken before a round of design
-fixes can be held against one taken after. Capture is a dev-machine feature:
-serverless filesystems are read-only, and the button will say so rather than
-fail silently.
+fixes can be held against one taken after.
+
+**In production on Vercel**, capture works too — connect a
+[Blob store](https://vercel.com/docs/vercel-blob) to the project and that's
+the whole setup: the `BLOB_READ_WRITE_TOKEN` it injects switches image storage
+from disk to Blob, and the browser comes from `@sparticuz/chromium` (a
+Chromium built for serverless sandboxes, installed automatically as an
+optional dependency). The snapshot index rides in the same database the rest
+of Polishd already requires in production, so no other wiring changes. If a
+capture of many routes brushes against your function's time limit, raise it
+with `export const maxDuration = 300` in the dashboard's `page.tsx`. On hosts
+with neither a writable filesystem nor a Blob token, the button explains what's
+missing rather than failing silently.
 
 ## Component-level tracking
 
