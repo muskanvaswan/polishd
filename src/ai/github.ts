@@ -5,16 +5,27 @@
  * onboarding. Capabilities, all scoped to that one repo: read and search source
  * (Contents + code-search APIs — lets the AI layer ground its findings in real
  * code even where the source tree isn't on disk, e.g. Vercel), create branches,
- * open pull requests, and file issues. The "loss → verified bug" orchestration
- * that uses this client lives in issues.ts.
+ * open pull requests, and file issues — then read those issues back, which is
+ * what the dashboard's Issues tab lists. The "loss → verified bug"
+ * orchestration that uses this client lives in issues.ts.
  *
  * The token lives in the same server-side settings blob as the model API key
  * and never reaches the browser; the client only sees a "connected" flag. A
  * fine-grained PAT with Contents (read), Issues (write), and Pull requests
  * (write) on the one repo is all it needs.
  */
+import {
+  ISSUE_PAGE_SIZE,
+  MAX_ISSUE_PAGES,
+  keepPaging,
+  worthListing,
+} from "./issue-pages";
 import { resolveSettings } from "./settings";
-import type { PolishdGithubStatus, VerifyGithubResult } from "./types";
+import type {
+  PolishdGithubIssue,
+  PolishdGithubStatus,
+  VerifyGithubResult,
+} from "./types";
 
 const API = "https://api.github.com";
 
@@ -211,6 +222,127 @@ export async function createGithubPullRequest(input: {
 }
 
 // ── Issues ───────────────────────────────────────────────────────────────────
+
+/** The issue payload GitHub returns, in the shape this client cares about. */
+interface IssueResponse {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url: string;
+  state: string;
+  state_reason?: string | null;
+  labels?: (string | { name?: string })[];
+  user?: { login?: string } | null;
+  assignees?: { login?: string }[] | null;
+  comments?: number;
+  created_at: string;
+  updated_at: string;
+  closed_at?: string | null;
+}
+
+function toIssue(raw: IssueResponse): PolishdGithubIssue {
+  return {
+    number: raw.number,
+    title: raw.title,
+    body: raw.body ?? "",
+    url: raw.html_url,
+    state: raw.state === "closed" ? "closed" : "open",
+    stateReason: raw.state_reason ?? undefined,
+    labels: (raw.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : l.name))
+      .filter((n): n is string => typeof n === "string" && n.length > 0),
+    author: raw.user?.login ?? undefined,
+    assignees: (raw.assignees ?? [])
+      .map((a) => a.login)
+      .filter((n): n is string => typeof n === "string" && n.length > 0),
+    comments: raw.comments ?? 0,
+    createdAt: Date.parse(raw.created_at),
+    updatedAt: Date.parse(raw.updated_at),
+    closedAt: raw.closed_at ? Date.parse(raw.closed_at) : undefined,
+  };
+}
+
+/**
+ * Read one issue by number. Returns null when it can't be read — deleted,
+ * transferred, or the token lost access — so a single missing issue never
+ * takes down the list that contains it.
+ */
+export async function readGithubIssue(number: number): Promise<PolishdGithubIssue | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  try {
+    return toIssue(
+      await gh<IssueResponse>(conn.token, "GET", `/repos/${conn.repo}/issues/${number}`),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** How many individual issue reads run at once, when it comes to that. */
+const ISSUE_FETCH_CONCURRENCY = 6;
+
+/**
+ * Read a known set of issues by number, in as few API calls as possible.
+ *
+ * The naive way — one call per number — is what the repo's own issue list
+ * saves us from: it returns whole issue objects, body and all, a hundred at a
+ * time, so a single call usually answers for every issue polishd has ever
+ * filed. When to stop asking for pages is its own rule, in issue-pages.ts.
+ *
+ * Anything the pages didn't reach is read individually afterwards, which is
+ * also the whole strategy when there's only one number to find.
+ *
+ * Numbers that can't be read at all (deleted, transferred, token access
+ * narrowed) are simply absent from the returned map.
+ */
+export async function readGithubIssues(
+  numbers: number[],
+): Promise<Map<number, PolishdGithubIssue>> {
+  const found = new Map<number, PolishdGithubIssue>();
+  const conn = await connection();
+  if (!conn || numbers.length === 0) return found;
+
+  const wanted = new Set(numbers);
+  const oldestWanted = Math.min(...numbers);
+
+  let pagesRead = 0;
+  let morePages = worthListing(wanted.size);
+  while (morePages) {
+    let batch: IssueResponse[];
+    try {
+      batch = await gh<IssueResponse[]>(
+        conn.token,
+        "GET",
+        `/repos/${conn.repo}/issues?state=all&per_page=${ISSUE_PAGE_SIZE}&page=${pagesRead + 1}`,
+      );
+    } catch {
+      break; // fall through to the per-issue reads
+    }
+    pagesRead++;
+    let lowestSeen = Infinity;
+    for (const raw of batch) {
+      if (wanted.has(raw.number)) found.set(raw.number, toIssue(raw));
+      lowestSeen = Math.min(lowestSeen, raw.number);
+    }
+    morePages = keepPaging({
+      pagesRead,
+      batchSize: batch.length,
+      lowestSeen,
+      oldestWanted,
+      outstanding: wanted.size - found.size,
+    });
+  }
+
+  const missing = numbers.filter((n) => !found.has(n));
+  for (let i = 0; i < missing.length; i += ISSUE_FETCH_CONCURRENCY) {
+    const slice = missing.slice(i, i + ISSUE_FETCH_CONCURRENCY);
+    for (const issue of await Promise.all(slice.map((n) => readGithubIssue(n)))) {
+      if (issue) found.set(issue.number, issue);
+    }
+  }
+  return found;
+}
 
 /** File an issue in the connected repo. Throws on failure. */
 export async function createGithubIssue(input: {

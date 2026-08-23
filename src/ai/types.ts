@@ -256,6 +256,53 @@ export type GithubError =
   | "not-a-bug" // source verification disproved the report — nothing filed
   | "github-error"; // the GitHub API call failed
 
+// ── Filed issues (the Issues tab) ────────────────────────────────────────────
+
+/**
+ * One issue as GitHub reports it right now, trimmed to what the dashboard
+ * shows. Read fresh on every render of the Issues tab — the state, labels and
+ * comment count are whatever the tracker says, not what polishd filed.
+ */
+export interface PolishdGithubIssue {
+  number: number;
+  title: string;
+  /** The issue body, as markdown. */
+  body: string;
+  url: string;
+  state: "open" | "closed";
+  /** GitHub's reason for the close, e.g. "completed" / "not_planned". */
+  stateReason?: string;
+  labels: string[];
+  /** Login of whoever the token filed as. */
+  author?: string;
+  assignees: string[];
+  comments: number;
+  createdAt: number;
+  updatedAt: number;
+  closedAt?: number;
+}
+
+/**
+ * A bug polishd filed, as the Issues tab shows it: what the dashboard knows
+ * locally (the analytics citation it came from, the verdict that let it
+ * through) joined to what GitHub reports now. `detail` is null when the issue
+ * can no longer be read — deleted, transferred, or the token lost access —
+ * and the row falls back to the stored number and URL.
+ */
+export interface PolishdFiledIssue {
+  /** The analytics citation this issue was filed from. */
+  evidence: string;
+  /** The problem as the summary stated it. Absent on older filings. */
+  claim?: string;
+  /** Whether the source verified the report. Absent on older filings. */
+  verdict?: "confirmed" | "inconclusive";
+  /** When polishd filed it, ms since epoch. Absent on older filings. */
+  filedAt?: number;
+  number: number;
+  url: string;
+  detail: PolishdGithubIssue | null;
+}
+
 // ── Model listing ────────────────────────────────────────────────────────────
 
 /** Result of asking a provider which models are available to the configured key. */

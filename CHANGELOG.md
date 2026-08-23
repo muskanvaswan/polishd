@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### An Issues tab: every bug polishd filed, in one list
+
+Filed issues used to exist only inside the loss that produced them — one
+summary, one card, gone at the next regenerate. The dashboard grows an
+**Issues** tab that lists them all, newest first, and appears only once a
+GitHub repository is connected (nothing to list, and no way to list it,
+otherwise).
+
+- Each row joins two sources. The analytics **evidence**, the claim as the
+  summary stated it, and the verdict the source verification reached are
+  polishd's own record; the title, state, labels, assignees, comment count and
+  body are read live from GitHub on every render, so a bug closed an hour ago
+  reads as closed here.
+- The issue log the dedupe already kept is what makes the list *ours* rather
+  than the repo's — a repo full of other people's issues stays that way. New
+  filings additionally record the claim, the verdict and the filing time;
+  entries written by earlier versions have only a number and a URL and still
+  render, dated from GitHub's own `created_at`.
+- An issue that can no longer be read — deleted, transferred, token access
+  revoked — keeps its row and says so, rather than quietly disappearing from
+  a count you were trusting.
+- Loading the tab is **one GitHub API call**, not one per issue. The repo's
+  issue list returns whole issues, body and all, a hundred at a time, so a
+  single page answers for every issue polishd has ever filed. Issue numbers
+  only climb and the list comes back newest-first, so a page that has dropped
+  below the oldest number we want proves no later page can hold it, and paging
+  stops; anything buried past a three-page budget is read individually. The
+  rule lives in `src/ai/issue-pages.ts` — pure, no network — with tests
+  (`npm test`).
+
 ### Site snapshots now work in production
 
 Capturing a snapshot on a serverless host used to fail on two fronts at once:

@@ -37,13 +37,30 @@ import {
   type ReactNode,
 } from "react";
 
-import { ChartIcon, DropletIcon, GearIcon, GlobeIcon, SpinnerIcon, card, labelCls } from "./ui";
+import {
+  ChartIcon,
+  DropletIcon,
+  GearIcon,
+  GlobeIcon,
+  IssueIcon,
+  SpinnerIcon,
+  card,
+  labelCls,
+} from "./ui";
 
-export type PolishdDashboardTab = "analytics" | "design" | "installs" | "settings";
+export type PolishdDashboardTab =
+  | "analytics"
+  | "design"
+  | "issues"
+  | "installs"
+  | "settings";
 
 const TABS: { id: PolishdDashboardTab; name: string; icon: ReactNode }[] = [
   { id: "analytics", name: "Analytics", icon: <ChartIcon /> },
   { id: "design", name: "Design", icon: <DropletIcon /> },
+  // Shown only once a GitHub repo is connected — the tab has nothing to list,
+  // and no way to list it, until there's a tracker to read.
+  { id: "issues", name: "Issues", icon: <IssueIcon /> },
   // Shown only on installations that collect cross-install telemetry — for
   // everyone else (the senders) it would be a permanently empty screen.
   { id: "installs", name: "Installs", icon: <GlobeIcon /> },
@@ -121,11 +138,14 @@ function scrollTopFrom(node: HTMLElement | null): void {
 export default function DashboardChrome({
   active,
   showInstalls = false,
+  showIssues = false,
   children,
 }: {
   active: PolishdDashboardTab;
   /** Render the Installs tab (only collectors of telemetry pass true). */
   showInstalls?: boolean;
+  /** Render the Issues tab (only installs with GitHub connected pass true). */
+  showIssues?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -142,6 +162,13 @@ export default function DashboardChrome({
 
   const selected = target ?? active;
   const loading = pending && target !== null;
+
+  // The tabs that only exist on some installations. Anything absent here is
+  // always shown.
+  const earned: Partial<Record<PolishdDashboardTab, boolean>> = {
+    issues: showIssues,
+    installs: showInstalls,
+  };
 
   const navigate = (tab: PolishdDashboardTab) => {
     if (tab === selected) return;
@@ -165,9 +192,10 @@ export default function DashboardChrome({
                 className="mt-1 flex gap-1.5 lg:mt-5 lg:flex-col"
               >
                 {TABS.filter(
-                  // Direct navigation to ?tab=installs still shows the rail
-                  // entry, so the page never renders with no tab highlighted.
-                  (tab) => tab.id !== "installs" || showInstalls || active === "installs",
+                  // Direct navigation to a tab this install hasn't earned
+                  // still shows its rail entry, so the page never renders with
+                  // no tab highlighted.
+                  (tab) => earned[tab.id] !== false || active === tab.id,
                 ).map((tab) => {
                   const isSelected = selected === tab.id;
                   return (
