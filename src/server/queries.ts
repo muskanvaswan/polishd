@@ -10,6 +10,7 @@
  * spelled `SUM(CASE WHEN … THEN 1 ELSE 0 END)` rather than SQLite's `SUM(x = y)`.
  */
 import { getMeta, parseMeta, query, storeReady } from "./store";
+import { ensureReclassifiedHistory } from "./reclassify";
 import {
   CAPTURE_WINDOW_MS,
   noSessionCountSince,
@@ -773,7 +774,14 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
     let acc = dims.get(name);
     if (!acc) dims.set(name, (acc = { hMax: 0, hSeen: false, dSum: 0, dN: 0 }));
     if (typeof meta.height === "number") { acc.hSeen = true; if (meta.height > acc.hMax) acc.hMax = meta.height; }
-    if (typeof meta.scrollDepth === "number") { acc.dSum += meta.scrollDepth; acc.dN++; }
+    // Current clients only send scrollDepth for components taller than the
+    // viewport; older ones sent it always, so a component that fit on screen
+    // reported a trivial 100%. Apply the same rule to history: ignore depth
+    // from rows whose recorded height fits a typical viewport.
+    if (
+      typeof meta.scrollDepth === "number" &&
+      !(typeof meta.height === "number" && meta.height <= 700)
+    ) { acc.dSum += meta.scrollDepth; acc.dN++; }
   }
 
   const toNum = (v: unknown) => {
@@ -885,6 +893,9 @@ export interface PolishdDashboardData {
  * dashboard) so the AI summary layer can reuse it without importing React.
  */
 export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> {
+  // One-time sweep retyping historical text clicks recorded as dead/rage under
+  // the old rules — after it, every aggregate below reads corrected history.
+  await ensureReclassifiedHistory();
   const [overview, health, pages, elements, devices, topUsed, journeys, errors, monitored] =
     await Promise.all([
       getOverview(),

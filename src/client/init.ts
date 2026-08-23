@@ -17,6 +17,8 @@ import {
   deviceCategory,
   hasTextSelection,
   isInteractive,
+  isSelectionGesture,
+  isTextTarget,
   labelOf,
   selectorOf,
 } from "./dom";
@@ -132,7 +134,9 @@ export function initPolishd(options: InitOptions = {}): void {
     if (selector === lastClick.selector && now - lastClick.time < cfg.rageClick.windowMs) {
       lastClick.count++;
       lastClick.time = now;
-      if (lastClick.count === cfg.rageClick.count) {
+      if (lastClick.count === cfg.rageClick.count && !isSelectionGesture(target)) {
+        // Double/triple-clicking prose selects a word or paragraph — that
+        // burst is intent to copy, not frustration.
         push({ type: "rage_click", selector, component, text });
       }
     } else {
@@ -141,9 +145,11 @@ export function initPolishd(options: InitOptions = {}): void {
 
     // Dead: click that hits nothing interactive (likely confusion).
     if (!isInteractive(target)) {
-      // A drag-to-highlight fires a click on the (non-interactive) text node on
-      // mouse-up. That's intent, not confusion — don't log it as a dead click.
-      if (hasTextSelection()) return;
+      // Two shapes of click are about the text, not a dead control: a
+      // drag-to-highlight firing its click on mouse-up, and a click landing on
+      // a text element (cursor placement, the start of a selection). Neither
+      // is confusion — don't log them as dead clicks.
+      if (hasTextSelection() || isTextTarget(target)) return;
       push({ type: "dead_click", selector, component, text });
     } else {
       push({ type: "click", selector, component, text });
@@ -215,7 +221,11 @@ export function initPolishd(options: InitOptions = {}): void {
   const onScroll = () => {
     const doc = document.documentElement;
     const scrollable = doc.scrollHeight - doc.clientHeight;
-    const pct = scrollable <= 0 ? 100 : Math.round((doc.scrollTop / scrollable) * 100);
+    // A page with (nearly) nothing to scroll hits 100% by existing — depth
+    // carries no attention signal there, so record nothing and let the page
+    // read "no scroll data" instead of a flattering 100.
+    if (scrollable < doc.clientHeight * 0.1) return;
+    const pct = Math.round((doc.scrollTop / scrollable) * 100);
     if (pct > maxScrollPct) maxScrollPct = Math.min(100, pct);
   };
 

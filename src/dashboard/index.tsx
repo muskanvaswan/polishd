@@ -398,13 +398,13 @@ export function PolishdDashboard({
             label="Rage clicks"
             value={overview.rageClicks}
             tone="text-red-500"
-            tip="3+ clicks on the same element within 500ms. A strong signal of frustration — something looks clickable or is broken."
+            tip="3+ clicks on the same element within 500ms. A strong signal of frustration — something looks clickable or is broken. Double/triple-clicks that select text don't count."
           />
           <Stat
             label="Dead clicks"
             value={overview.deadClicks}
             tone="text-[#f5a623]"
-            tip="Clicks on non-interactive elements (no link, button, or role within 4 ancestors). Users expected something to happen but nothing did."
+            tip="Clicks on non-interactive elements (no link, button, or role within 4 ancestors). Users expected something to happen but nothing did. Clicks on text are excluded — that's reading, not confusion."
           />
           <Stat
             label="JS errors"
@@ -485,7 +485,7 @@ export function PolishdDashboard({
                     <Th tip="Times this region rendered (mount events). Only content-tracked monitors emit these.">Mounts</Th>
                     <Th tip="Times this component entered the viewport for ≥500ms.">Views</Th>
                     <Th tip="Average time visible per viewport visit — a proxy for reading/engagement time.">Avg time</Th>
-                    <Th tip="Average % of the component's height scrolled through per visit. 100% = user reached the bottom.">Scroll depth</Th>
+                    <Th tip="Average % of the component's height scrolled through per visit. 100% = user reached the bottom. Only measured for components taller than one screen — shorter ones show no value.">Scroll depth</Th>
                     <Th tip="Largest rendered height in px seen for this component — for an article, its full content height.">Height</Th>
                     <Th tip="Normal (non-rage, non-dead) clicks.">Clicks</Th>
                     <Th tip="Deliberate pointer hovers (≥200ms dwell).">Hovers</Th>

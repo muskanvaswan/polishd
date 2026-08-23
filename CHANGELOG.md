@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Reading is not friction: text clicks and trivial scrolls stop counting
+
+Three signals could report engagement or frustration where there was only
+reading, inflating exactly the numbers the AI summary leans on hardest.
+
+- **Dead clicks skip text.** A click inside a paragraph, heading, list item,
+  or other prose block — or on standalone text long enough to read as content
+  (40+ chars) — is cursor placement or the start of a selection, not a user
+  expecting something to happen. It no longer records a `dead_click`. Clicks
+  on non-interactive *layout* elements still do, and so do short standalone
+  labels (`<div>Submit</div>`, `<span>Click here</span>`) — that shape is
+  exactly what a mis-wired fake control looks like.
+- **Rage clicks skip select-a-word/paragraph.** Double- and triple-clicking
+  prose selects text; a rapid burst on a non-interactive text target no
+  longer records a `rage_click`. Hammering a real button — or a fake one with
+  a short label — still does.
+- **History gets the same fix.** A one-time sweep (versioned via
+  `polishd_meta`, run on the first dashboard load after upgrading) re-runs
+  the new classification over already-stored `dead_click`/`rage_click` rows,
+  using the stored selector path and label. Matching rows are retyped to
+  `text_click` — kept in the table, counted by no aggregate — never deleted.
+  Rage rows whose selector path contains an interactive element are left
+  untouched. Ingest applies the same retype to arriving events, so a cached
+  client bundle — or a telemetry emitter still on an older package — can't
+  keep refilling the table with the old semantics after the sweep has run. Old `component_view` rows always carried a scroll depth, so at
+  read time depth from components short enough to fit a typical viewport
+  (≤700px) is ignored; page-level `scroll_depth` history is unaffected (a
+  recorded depth needed a real scroll event, and genuine deep scrolls can't
+  be told apart after the fact).
+- **100% scroll requires somewhere to scroll.** A page (or dashboard region)
+  whose scrollable distance is under 10% of the viewport reaches "100%" by
+  existing, so it now records no `scroll_depth` at all; likewise
+  `<PolishdMonitor content>` only reports scroll-through for components
+  taller than one screen. Aggregates already treat absent as "no data" (shown
+  as —), never 0.
+- Both capture layers (host site and the dashboard's own telemetry) share the
+  new classification via `src/client/dom.ts`, so they can't drift.
+- The AI digest now omits scroll % where it wasn't measurable and the system
+  prompt tells the model these semantics — no more "users read to the bottom!"
+  wins on pages that fit in one viewport, and reported dead/rage counts can be
+  taken as genuine friction.
+
 ### The "your proxy isn't running" banner stops crying wolf
 
 A correctly installed, verifiably healthy site could show the red banner
