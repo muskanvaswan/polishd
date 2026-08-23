@@ -71,11 +71,14 @@ export function buildDigest(data: PolishdDashboardData, context?: string): strin
     .sort((a, b) => b.score - a.score)
     .slice(0, 6);
   if (worst.length) {
-    lines.push("PAGES WITH FRICTION (worst first):");
+    lines.push(
+      "PAGES WITH FRICTION (worst first; scroll depth is only measured on pages tall enough to scroll — absent means no signal, not disengagement):",
+    );
     for (const p of worst) {
+      const scroll = p.avgScrollDepth === null ? "" : `, scroll ${r(p.avgScrollDepth)}%`;
       lines.push(
         `  - ${p.path}: ${p.sessions} sessions, ${p.rageClicks} rage, ` +
-          `${p.deadClicks} dead, ${p.jsErrors} err, scroll ${r(p.avgScrollDepth)}%`,
+          `${p.deadClicks} dead, ${p.jsErrors} err${scroll}`,
       );
     }
   }

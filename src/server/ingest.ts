@@ -13,6 +13,7 @@ import {
 } from "../config";
 import { foldNoSessionDrop, parseNoSessionRecord } from "../shared/capture-status";
 import { isIgnorableError } from "../shared/error-noise";
+import { reclassifiedClickType } from "../shared/text-signals";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { getMeta, insertEvents, setMeta } from "./store";
 
@@ -145,6 +146,14 @@ function sanitize(raw: unknown): PolishdEvent | null {
     }
     out.meta = meta;
   }
+
+  // The current client never records a dead/rage click on text (reading, not
+  // friction) — but a cached bundle can lag that rule by a full session, and a
+  // telemetry emitter on an older package by whole releases. So the rule that
+  // actually holds lives here too: retype stragglers to `text_click`, exactly
+  // what the one-time sweep does to rows already stored.
+  out.type = reclassifiedClickType(out.type, out.selector, out.text) as PolishdEvent["type"];
+
   return out;
 }
 

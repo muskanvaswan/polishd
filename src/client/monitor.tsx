@@ -155,7 +155,11 @@ export function PolishdMonitor({ name, children, className, content = false }: P
         meta: {
           width: Math.round(maxWidthPx),
           height: Math.round(maxHeightPx),
-          scrollDepth: maxScrollDepth,
+          // A component that fits in the viewport is "100% scrolled" the
+          // moment it appears — depth only means something when the reader had
+          // to scroll to get through it, so shorter components omit it (the
+          // aggregation treats absent as no data, not 0).
+          ...(maxHeightPx > window.innerHeight ? { scrollDepth: maxScrollDepth } : {}),
           views: viewCount,
         },
       });
