@@ -336,7 +336,7 @@ export default function TopPagesTable({ pages }: { pages: TopPage[] }) {
                 </Th>
                 <Th tip="page_view events — loads plus soft navigations to this route.">Views</Th>
                 <Th tip="Rage clicks (3+ in 500ms on one element) on this page.">Rage</Th>
-                <Th tip="Dead clicks (on non-interactive elements) on this page.">Dead</Th>
+                <Th tip="Dead clicks (on non-interactive, non-text elements) on this page.">Dead</Th>
                 <Th tip="JS errors thrown on this page.">Errors</Th>
                 <Th tip="Open the sessions-over-time chart.">{""}</Th>
               </tr>

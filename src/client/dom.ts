@@ -7,12 +7,17 @@
  * and the two can never drift apart.
  */
 
-const INTERACTIVE = new Set(["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL", "SUMMARY"]);
+import {
+  INLINE_TEXT_TAGS,
+  INTERACTIVE_TAGS,
+  PROSE_MIN_CHARS,
+  PROSE_TAGS,
+} from "../shared/text-signals";
 
 export const isInteractive = (el: Element | null): boolean => {
   let node: Element | null = el;
   for (let depth = 0; node && depth < 4; depth++) {
-    if (INTERACTIVE.has(node.tagName)) return true;
+    if (INTERACTIVE_TAGS.has(node.tagName.toLowerCase())) return true;
     const role = node.getAttribute("role");
     if (role && /button|link|menuitem|tab|checkbox|radio|switch/.test(role)) return true;
     if (node.hasAttribute("onclick") || (node as HTMLElement).isContentEditable) return true;
@@ -26,6 +31,49 @@ export const hasTextSelection = (): boolean => {
   const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
   return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
 };
+
+/** Does the element directly hold rendered text (not just element children)? */
+const hasDirectText = (el: Element): boolean => {
+  for (const child of el.childNodes) {
+    if (child.nodeType === 3 /* TEXT_NODE */ && child.textContent?.trim()) return true;
+  }
+  return false;
+};
+
+/**
+ * True when the click landed on text the user is reading.
+ *
+ * Two shapes qualify:
+ *  1. Anything inside a block-level prose element (paragraph, heading, list
+ *     item…) — including a bold word or code span nested in one. Same walk
+ *     depth as `isInteractive`.
+ *  2. A standalone inline text element or a generic container directly holding
+ *     its own text (clicking the text in `<div>hello</div>` targets the div),
+ *     but only past the prose length threshold. A short standalone label —
+ *     `<div>Submit</div>`, `<span>Click here</span>` — is exactly what a
+ *     mis-wired fake control looks like, so it stays eligible for dead/rage
+ *     detection.
+ */
+export const isTextTarget = (el: Element | null): boolean => {
+  let node: Element | null = el;
+  for (let depth = 0; node && depth < 4; depth++) {
+    if (PROSE_TAGS.has(node.tagName.toLowerCase())) return true;
+    node = node.parentElement;
+  }
+  if (!el) return false;
+  if (!INLINE_TEXT_TAGS.has(el.tagName.toLowerCase()) && !hasDirectText(el)) return false;
+  return (el.textContent || "").replace(/\s+/g, " ").trim().length >= PROSE_MIN_CHARS;
+};
+
+/**
+ * True when a rapid-click burst reads as select-a-word / select-a-paragraph
+ * (double- and triple-clicking prose) rather than frustration. Deliberately
+ * *not* based on `hasTextSelection()`: hammering a fake button selects its
+ * label as a side effect, and that burst is exactly the rage we want to keep.
+ * Interactive targets never match — hammering a real button is always rage.
+ */
+export const isSelectionGesture = (el: Element | null): boolean =>
+  !isInteractive(el) && isTextTarget(el);
 
 /** Walk up for the nearest `data-component`, the key synthesis signal. */
 export const componentOf = (el: Element | null): string | undefined => {
