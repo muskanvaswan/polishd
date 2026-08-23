@@ -133,6 +133,26 @@ export function GlobeIcon() {
   );
 }
 
+/** GitHub's issue glyph: a ring with a dot in it. */
+export function IssueIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** The tab rail's in-flight marker: same 13px box as the icon it replaces. */
 export function SpinnerIcon() {
   return (

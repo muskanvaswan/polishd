@@ -16,7 +16,8 @@
  *
  * Verdicts and filed issues are logged per evidence citation, so the same
  * problem — refound by a regenerated summary or clicked twice — is neither
- * re-investigated nor re-filed.
+ * re-investigated nor re-filed. That log is also what the dashboard's Issues
+ * tab reads: `listFiledIssues` joins it to the live issues on GitHub.
  */
 import { getMeta, setMeta } from "../server/store";
 import {
@@ -24,12 +25,17 @@ import {
   getGithubStatus,
   isGithubConnected,
   readGithubFile,
+  readGithubIssues,
   searchGithubCode,
 } from "./github";
 import { loadProjectProfile } from "./profile";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
-import type { PolishdLossItem, CreateIssueResult } from "./types";
+import type {
+  PolishdFiledIssue,
+  PolishdLossItem,
+  CreateIssueResult,
+} from "./types";
 
 /** The slice of a loss the pipeline needs. */
 type Loss = Pick<PolishdLossItem, "issue" | "evidence" | "location">;
@@ -38,10 +44,27 @@ type Loss = Pick<PolishdLossItem, "issue" | "evidence" | "location">;
 
 const ISSUE_LOG_KEY = "github_issue_log";
 
-/** Per-evidence outcome: a filed issue, or a rejection we won't re-litigate. */
-type LogEntry =
-  | { url: string; number: number }
-  | { rejected: true; reason: string };
+/**
+ * Per-evidence outcome: a filed issue, or a rejection we won't re-litigate.
+ *
+ * The filed half carries the context GitHub can't tell us later — the
+ * analytics claim it came from, the verdict that let it through, when we filed
+ * it — because that's what makes the Issues tab more than a copy of the
+ * tracker. Every one of those fields is optional: entries written by earlier
+ * versions have only the url and the number, and still read fine.
+ */
+type FiledEntry = {
+  url: string;
+  number: number;
+  /** The problem as the summary stated it. */
+  issue?: string;
+  /** Whether the source verified the report before it was filed. */
+  verdict?: "confirmed" | "inconclusive";
+  /** When it was filed, ms since epoch. */
+  filedAt?: number;
+};
+
+type LogEntry = FiledEntry | { rejected: true; reason: string };
 
 type IssueLog = Record<string, LogEntry>;
 
@@ -302,7 +325,7 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
     if ("rejected" in existing) {
       return { ok: false, error: "not-a-bug", message: existing.reason };
     }
-    return { ok: true, ...existing };
+    return { ok: true, url: existing.url, number: existing.number };
   }
 
   const inv = await investigateLoss(loss);
@@ -322,7 +345,12 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
       body: issueBody(loss, inv, fileUrl),
       labels: ["bug"],
     });
-    await recordLog(key, issue);
+    await recordLog(key, {
+      ...issue,
+      issue: loss.issue,
+      verdict: inv.verdict,
+      filedAt: Date.now(),
+    });
     return { ok: true, url: issue.url, number: issue.number };
   } catch (err) {
     return {
@@ -361,4 +389,65 @@ export async function attachGithubIssues(losses: PolishdLossItem[]): Promise<Pol
     );
   }
   return out;
+}
+
+// ── Listing (the Issues tab) ─────────────────────────────────────────────────
+
+/**
+ * How many filed issues the tab hydrates from GitHub. One API call each, so
+ * this is the ceiling on what listing costs; a log longer than this keeps its
+ * newest entries.
+ */
+const MAX_LISTED = 100;
+
+/**
+ * Newest first, by whatever the entry knows about its own age. Entries from
+ * before `filedAt` existed fall behind the dated ones and order among
+ * themselves by issue number, which is chronological within a repo.
+ */
+function newestFirst(a: FiledEntry, b: FiledEntry): number {
+  return (b.filedAt ?? 0) - (a.filedAt ?? 0) || b.number - a.number;
+}
+
+/**
+ * Every issue polishd has filed in the connected repo, newest first, each one
+ * joined to its live state on GitHub.
+ *
+ * The log is the source of truth for *which* issues are ours — the repo's own
+ * issue list is full of everyone else's — and GitHub is the source of truth
+ * for everything about them since: title edits, labels, comments, whether
+ * someone closed it. An issue that can't be read comes back with a null
+ * `detail` rather than disappearing, so a deleted or transferred issue is
+ * visible as exactly that. Returns [] when nothing is connected.
+ */
+export async function listFiledIssues(): Promise<PolishdFiledIssue[]> {
+  if (!(await isGithubConnected())) return [];
+
+  const filed = Object.entries(await loadIssueLog())
+    .flatMap(([evidence, entry]) =>
+      "rejected" in entry ? [] : [{ evidence, entry }],
+    )
+    .sort((a, b) => newestFirst(a.entry, b.entry))
+    .slice(0, MAX_LISTED);
+
+  const details = await readGithubIssues(filed.map((f) => f.entry.number));
+
+  return filed
+    .map(({ evidence, entry }, i) => ({
+      evidence,
+      claim: entry.issue,
+      verdict: entry.verdict,
+      filedAt: entry.filedAt,
+      number: entry.number,
+      url: entry.url,
+      detail: details[i],
+    }))
+    // GitHub's `created_at` beats our own record of when we filed: it's the
+    // same moment, but every issue has it, including the ones logged before
+    // `filedAt` existed.
+    .sort(
+      (a, b) =>
+        (b.detail?.createdAt ?? b.filedAt ?? b.number) -
+        (a.detail?.createdAt ?? a.filedAt ?? a.number),
+    );
 }

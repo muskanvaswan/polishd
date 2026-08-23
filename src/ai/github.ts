@@ -5,8 +5,9 @@
  * onboarding. Capabilities, all scoped to that one repo: read and search source
  * (Contents + code-search APIs — lets the AI layer ground its findings in real
  * code even where the source tree isn't on disk, e.g. Vercel), create branches,
- * open pull requests, and file issues. The "loss → verified bug" orchestration
- * that uses this client lives in issues.ts.
+ * open pull requests, and file issues — then read those issues back, which is
+ * what the dashboard's Issues tab lists. The "loss → verified bug"
+ * orchestration that uses this client lives in issues.ts.
  *
  * The token lives in the same server-side settings blob as the model API key
  * and never reaches the browser; the client only sees a "connected" flag. A
@@ -14,7 +15,11 @@
  * (write) on the one repo is all it needs.
  */
 import { resolveSettings } from "./settings";
-import type { PolishdGithubStatus, VerifyGithubResult } from "./types";
+import type {
+  PolishdGithubIssue,
+  PolishdGithubStatus,
+  VerifyGithubResult,
+} from "./types";
 
 const API = "https://api.github.com";
 
@@ -211,6 +216,83 @@ export async function createGithubPullRequest(input: {
 }
 
 // ── Issues ───────────────────────────────────────────────────────────────────
+
+/** The issue payload GitHub returns, in the shape this client cares about. */
+interface IssueResponse {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url: string;
+  state: string;
+  state_reason?: string | null;
+  labels?: (string | { name?: string })[];
+  user?: { login?: string } | null;
+  assignees?: { login?: string }[] | null;
+  comments?: number;
+  created_at: string;
+  updated_at: string;
+  closed_at?: string | null;
+}
+
+function toIssue(raw: IssueResponse): PolishdGithubIssue {
+  return {
+    number: raw.number,
+    title: raw.title,
+    body: raw.body ?? "",
+    url: raw.html_url,
+    state: raw.state === "closed" ? "closed" : "open",
+    stateReason: raw.state_reason ?? undefined,
+    labels: (raw.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : l.name))
+      .filter((n): n is string => typeof n === "string" && n.length > 0),
+    author: raw.user?.login ?? undefined,
+    assignees: (raw.assignees ?? [])
+      .map((a) => a.login)
+      .filter((n): n is string => typeof n === "string" && n.length > 0),
+    comments: raw.comments ?? 0,
+    createdAt: Date.parse(raw.created_at),
+    updatedAt: Date.parse(raw.updated_at),
+    closedAt: raw.closed_at ? Date.parse(raw.closed_at) : undefined,
+  };
+}
+
+/**
+ * Read one issue by number. Returns null when it can't be read — deleted,
+ * transferred, or the token lost access — so a single missing issue never
+ * takes down the list that contains it.
+ */
+export async function readGithubIssue(number: number): Promise<PolishdGithubIssue | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  try {
+    return toIssue(
+      await gh<IssueResponse>(conn.token, "GET", `/repos/${conn.repo}/issues/${number}`),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** How many issue reads are in flight at once — polite to GitHub, quick enough. */
+const ISSUE_FETCH_CONCURRENCY = 6;
+
+/**
+ * Read many issues by number, a few at a time, preserving the input order.
+ * Numbers that can't be read come back as null in their own slot.
+ */
+export async function readGithubIssues(
+  numbers: number[],
+): Promise<(PolishdGithubIssue | null)[]> {
+  const out: (PolishdGithubIssue | null)[] = new Array(numbers.length).fill(null);
+  for (let i = 0; i < numbers.length; i += ISSUE_FETCH_CONCURRENCY) {
+    const slice = numbers.slice(i, i + ISSUE_FETCH_CONCURRENCY);
+    const read = await Promise.all(slice.map((n) => readGithubIssue(n)));
+    read.forEach((issue, j) => {
+      out[i + j] = issue;
+    });
+  }
+  return out;
+}
 
 /** File an issue in the connected repo. Throws on failure. */
 export async function createGithubIssue(input: {

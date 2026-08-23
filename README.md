@@ -390,6 +390,23 @@ again.
 Ignoring a loss marks the summary stale, exactly like new analytics does, so
 the next refresh actually re-asks the model with the dismissal in hand.
 
+### The Issues tab
+
+Filing a bug is easy to lose track of — it happens inside one loss, on one
+summary, and then the summary regenerates. The **Issues** tab is the standing
+list: every issue polishd has filed in the connected repo, newest first,
+whether you clicked **File bug** yourself or auto-filing did it for you. The
+tab only appears once a GitHub repository is connected.
+
+Each row joins what polishd knows to what GitHub knows. The **evidence** — the
+selector, component or path the analytics cited — and whether the source
+verification confirmed the report are polishd's own record, kept at filing
+time. The title, state, labels, assignees and comment count are read live from
+GitHub on every render, so a bug someone closed an hour ago reads as closed
+here, and the issue body is one click away without leaving the dashboard. An
+issue that can no longer be read — deleted, transferred, or beyond what the
+token now covers — keeps its row and says exactly that.
+
 ## Design review
 
 The dashboard's **Design** tab (in the sidebar) is your site's brand guideline
