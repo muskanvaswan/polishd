@@ -93,6 +93,14 @@ Blob store to the project:
   `@sparticuz/chromium`), the gallery says so up front and disables the
   capture button, instead of failing a minute into a doomed run. Failures
   that can only surface at capture time name the missing piece precisely.
+- A deployment with **no Blob store connected at all** gets the same
+  treatment. Without the token, storage falls back to disk — which on a
+  serverless host is read-only and gone by the next invocation, so every
+  capture was doomed before it started and said only "is the filesystem
+  writable?" a minute later. The gallery now names the actual gap and the
+  one-time fix (connect a Blob store, redeploy) before the button is pressed,
+  and the capture action refuses the same way for callers that never rendered
+  the dashboard.
 - Local development is unchanged: your own Chrome first, images on disk,
   same index, same gallery.
 

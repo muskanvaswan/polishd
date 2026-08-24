@@ -297,13 +297,27 @@ async function launchBrowser(): Promise<{ browser: Browser } | { message: string
 
 /**
  * A problem that will make the next capture fail, detectable from the
- * environment alone — or null when none is. Both extra dependencies install
- * by default (they're `optionalDependencies`), so this exists for the
- * `--omit=optional` install: when the environment says a dependency will be
- * needed but the import misses, the dashboard can say so up front rather than
- * a minute into a doomed capture.
+ * environment alone — or null when none is. Covers the two setup gaps a
+ * serverless deploy can have: no Blob store connected (nowhere for images to
+ * live when the filesystem is read-only), and the `--omit=optional` install
+ * missing a dependency the environment says will be needed. Either way the
+ * dashboard can say so up front rather than a minute into a doomed capture,
+ * and `captureSnapshot` runs the same check for callers that never rendered
+ * the dashboard.
  */
 export async function snapshotCaptureIssue(): Promise<string | null> {
+  // On Vercel the filesystem is read-only and reset between invocations, so
+  // disk storage — the fallback when no Blob token is present — cannot work.
+  // Without a connected store every capture is doomed before it starts.
+  if (process.env.VERCEL && !blobConfigured()) {
+    return (
+      "Snapshot images have nowhere to live on this deployment: the filesystem " +
+      "is read-only and no Blob store is connected. Connect a Vercel Blob store " +
+      "to the project (Storage → Blob in the Vercel dashboard) — the " +
+      "BLOB_READ_WRITE_TOKEN it injects switches snapshot storage over " +
+      "automatically — then redeploy."
+    );
+  }
   if (blobConfigured()) {
     try {
       await import("@vercel/blob");
@@ -350,6 +364,13 @@ export async function captureSnapshot(
         "Run locally or configure a database — see DATABASE.md.",
     };
   }
+
+  // The same preflight the dashboard runs before enabling the capture button.
+  // Actions are reachable without the dashboard ever rendering, so a doomed
+  // environment must fail here too — with the diagnosis, not a minute of
+  // capture ending in an EROFS.
+  const issue = await snapshotCaptureIssue();
+  if (issue) return { ok: false, message: issue };
 
   let run: typeof import("allpages").allpages;
   try {
