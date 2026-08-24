@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### The dashboard streams instead of loading all at once
+
+Every tab used to wait for its slowest query before sending a single byte —
+click Analytics and the whole page arrived at the speed of the journeys
+sampler. The page is now built on React Suspense streaming:
+
+- The **chrome, header, and section titles render immediately**; each card
+  shows a skeleton and fills in the moment its own data resolves, in whatever
+  order the queries finish.
+- Each Analytics section is its own async server component awaiting **only
+  the queries it renders**, so a slow aggregate can't hold back a fast one.
+  A per-request cache (`src/dashboard/data.ts`, React `cache()`) keeps
+  sections that share inputs — the AI summary hashes the whole dataset for
+  its staleness check — from re-running any query.
+- The other tabs (Design, Issues, Installs, Settings) load behind the same
+  skeleton the tab rail already shows while navigating, so the handoff from
+  "navigating" to "loading data" is seamless.
+- `PolishdDashboard` is unchanged for hosts that render it themselves from
+  preloaded data; `createPolishdPage()` is what streams.
+
 ### Every Overview tile opens its own graph
 
 The six numbers at the top of the Analytics tab were all-time totals, which
