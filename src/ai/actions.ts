@@ -15,6 +15,7 @@
  */
 import { requirePolishdAuth } from "./guard";
 import { generateDesignReview } from "./design";
+import { suggestIssueFix } from "./fix";
 import { verifyGithubConnection } from "./github";
 import { ignoreLoss, unignoreLoss } from "./ignored";
 import { createIssueFromLoss } from "./issues";
@@ -36,6 +37,7 @@ import type {
   GenerateSummaryResult,
   IgnoreLossResult,
   ListModelsResult,
+  SuggestFixResult,
   UnignoreLossResult,
   VerifyGithubResult,
 } from "./types";
@@ -104,6 +106,19 @@ export async function createIssueFromLossAction(
 ): Promise<CreateIssueResult> {
   await requirePolishdAuth();
   return createIssueFromLoss(loss);
+}
+
+/**
+ * Classify one filed issue (interaction vs design) and propose a fix grounded
+ * in the repository's source and in published practice, with the file-by-file
+ * implementation path. Cached per issue; `force` regenerates.
+ */
+export async function suggestIssueFixAction(
+  issueNumber: number,
+  force = false,
+): Promise<SuggestFixResult> {
+  await requirePolishdAuth();
+  return suggestIssueFix(issueNumber, force);
 }
 
 /**

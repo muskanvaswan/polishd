@@ -61,6 +61,7 @@ import { unlockPolishdDashboard } from "./unlock";
 import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReviewState } from "../ai/design";
+import { listFixSuggestions } from "../ai/fix";
 import { isGithubConnected } from "../ai/github";
 import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
@@ -911,11 +912,20 @@ async function DesignTabData() {
 async function IssuesTabData({ connected }: { connected: boolean }) {
   // Reachable by URL with nothing connected, in which case the listing is
   // empty and the view says how to fix that.
-  const [issues, settings] = await Promise.all([
+  const [issues, settings, suggestions] = await Promise.all([
     listFiledIssues(),
     getAISettingsPublic(),
+    listFixSuggestions(),
   ]);
-  return <IssuesView issues={issues} repo={settings.githubRepo} connected={connected} />;
+  return (
+    <IssuesView
+      issues={issues}
+      repo={settings.githubRepo}
+      connected={connected}
+      suggestions={suggestions}
+      canSuggest={settings.hasApiKey}
+    />
+  );
 }
 
 async function InstallsTabData() {
