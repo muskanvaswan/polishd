@@ -21,6 +21,7 @@ import { NO_SESSION_META_KEY } from "./ingest";
 import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
 import { isIgnorableError } from "../shared/error-noise";
+import { trendWindow } from "../shared/metric-buckets";
 import type { PolishdEventType } from "../shared/types";
 
 /**
@@ -366,6 +367,154 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
   };
 
   return pages.map((p): TopPage => ({ ...p, trend: buildTrend(byPath.get(p.path)) }));
+}
+
+// ── Overview metric trends ───────────────────────────────────────────────────
+// The six numbers at the top of the dashboard are all-time totals, which say
+// nothing about *when* anything happened. These series are what the tiles open
+// into: the same six metrics bucketed over time, at both granularities, so the
+// chart can switch between them without another round trip.
+
+/** The overview tiles, each of which has a series in `MetricPoint`. */
+export type MetricKey =
+  | "sessions"
+  | "pageViews"
+  | "rageClicks"
+  | "deadClicks"
+  | "jsErrors"
+  | "totalEvents";
+
+/** How wide one bucket is. Both are always computed; the reader picks. */
+export type TrendGranularity = "hour" | "day";
+
+/**
+ * One time bucket, carrying every overview metric at once.
+ *
+ * All six ride together because they come from one grouped scan and the chart
+ * lets you flip between metrics — paying for six columns once is cheaper than
+ * six queries, and much cheaper than a fetch per switch.
+ */
+export interface MetricPoint {
+  /** Bucket start — UTC, ms since epoch. */
+  ts: number;
+  /** Short axis label: "Jun 14" daily, "15:00" hourly. */
+  label: string;
+  /** Unambiguous label for the tooltip: "Jun 14, 15:00 UTC". */
+  title: string;
+  /**
+   * Distinct sessions *active* in the bucket. A session that spans two hours
+   * is counted in both, so hourly totals sum to more than the daily figure —
+   * each bucket answers "how many people were here then", not a share of one.
+   */
+  sessions: number;
+  pageViews: number;
+  rageClicks: number;
+  deadClicks: number;
+  jsErrors: number;
+  /** Every captured event in the bucket, of any type. */
+  totalEvents: number;
+}
+
+export interface MetricTrends {
+  /** Hourly buckets, oldest → newest, gap-filled. Empty when there's no data. */
+  hour: MetricPoint[];
+  /** Daily buckets, oldest → newest, gap-filled. Empty when there's no data. */
+  day: MetricPoint[];
+}
+
+const HOUR_MS = 3_600_000;
+/** Cap the hourly window so the chart stays readable — two days of detail. */
+const MAX_TREND_HOURS = 48;
+
+function fmtHour(ts: number): string {
+  return `${String(new Date(ts).getUTCHours()).padStart(2, "0")}:00`;
+}
+
+function fmtLongDay(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * One granularity of the overview series.
+ *
+ * Bucketing is `ts / bucketMs` integer division, which both backends do the
+ * same way on an integer column, so the grouping happens in the database and
+ * only one row per bucket comes back — unlike the page trend, which pulls raw
+ * page_view rows because it also needs per-path session sets.
+ *
+ * Buckets are UTC, matching the daily page trend: the label is rendered on the
+ * server, and any local-timezone rendering would depend on where the server
+ * happens to run rather than where the reader is.
+ */
+async function metricSeries(
+  bucketMs: number,
+  maxBuckets: number,
+  fmt: (ts: number) => { label: string; title: string },
+): Promise<MetricPoint[]> {
+  const rows = await query(
+    `SELECT (ts / ${bucketMs})                                       AS bucket,
+            COUNT(*)                                                 AS "totalEvents",
+            COUNT(DISTINCT session_id)                               AS sessions,
+            SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)     AS "pageViews",
+            SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)     AS "rageClicks",
+            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)     AS "deadClicks",
+            SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)     AS "jsErrors"
+     FROM ${polishdEventsSource()}
+     GROUP BY (ts / ${bucketMs})`,
+  );
+
+  const counts = new Map<number, Omit<MetricPoint, "ts" | "label" | "title">>();
+  for (const r of rows) {
+    counts.set(num(r, "bucket"), {
+      sessions: num(r, "sessions"),
+      pageViews: num(r, "pageViews"),
+      rageClicks: num(r, "rageClicks"),
+      deadClicks: num(r, "deadClicks"),
+      jsErrors: num(r, "jsErrors"),
+      totalEvents: num(r, "totalEvents"),
+    });
+  }
+
+  // Which buckets get drawn — gap filling, the cap and clock skew — is decided
+  // in shared/metric-buckets.ts, which is pure and tested. Buckets with no row
+  // are the zeros it filled in.
+  return trendWindow(counts.keys(), maxBuckets, Math.floor(Date.now() / bucketMs)).map(
+    (b): MetricPoint => {
+      const ts = b * bucketMs;
+      const c = counts.get(b);
+      return {
+        ts,
+        ...fmt(ts),
+        sessions: c?.sessions ?? 0,
+        pageViews: c?.pageViews ?? 0,
+        rageClicks: c?.rageClicks ?? 0,
+        deadClicks: c?.deadClicks ?? 0,
+        jsErrors: c?.jsErrors ?? 0,
+        totalEvents: c?.totalEvents ?? 0,
+      };
+    },
+  );
+}
+
+/** Both granularities of the overview series, for the stat tiles' charts. */
+export async function getMetricTrends(): Promise<MetricTrends> {
+  if (!(await storeReady())) return { hour: [], day: [] };
+  const [hour, day] = await Promise.all([
+    metricSeries(HOUR_MS, MAX_TREND_HOURS, (ts) => ({
+      label: fmtHour(ts),
+      title: `${fmtDay(ts)}, ${fmtHour(ts)} UTC`,
+    })),
+    metricSeries(DAY_MS, MAX_TREND_DAYS, (ts) => ({
+      label: fmtDay(ts),
+      title: fmtLongDay(ts),
+    })),
+  ]);
+  return { hour, day };
 }
 
 /**
@@ -880,6 +1029,8 @@ export interface PolishdDashboardData {
   overview: Awaited<ReturnType<typeof getOverview>>;
   health: CaptureHealth;
   pages: Awaited<ReturnType<typeof getTopPages>>;
+  /** Overview metrics over time, at both granularities. */
+  trends: MetricTrends;
   elements: Awaited<ReturnType<typeof getElementStats>>;
   devices: Awaited<ReturnType<typeof getDeviceBreakdown>>;
   topUsed: Awaited<ReturnType<typeof getTopInteractions>>;
@@ -895,20 +1046,45 @@ export interface PolishdDashboardData {
 export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> {
   // One-time sweep retyping historical text clicks recorded as dead/rage under
   // the old rules — after it, every aggregate below reads corrected history.
+  // The trend series count the same dead_click/rage_click rows the tiles do, so
+  // they have to be on this side of the sweep too, or the chart would contradict
+  // the number above it.
   await ensureReclassifiedHistory();
-  const [overview, health, pages, elements, devices, topUsed, journeys, errors, monitored] =
-    await Promise.all([
-      getOverview(),
-      getCaptureHealth(),
-      getTopPages(8),
-      getElementStats(12),
-      getDeviceBreakdown(),
-      getTopInteractions(12),
-      getSessionJourneys(6),
-      getRecentErrors(8),
-      getMonitoredComponents(),
-    ]);
-  return { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored };
+  const [
+    overview,
+    health,
+    pages,
+    trends,
+    elements,
+    devices,
+    topUsed,
+    journeys,
+    errors,
+    monitored,
+  ] = await Promise.all([
+    getOverview(),
+    getCaptureHealth(),
+    getTopPages(8),
+    getMetricTrends(),
+    getElementStats(12),
+    getDeviceBreakdown(),
+    getTopInteractions(12),
+    getSessionJourneys(6),
+    getRecentErrors(8),
+    getMonitoredComponents(),
+  ]);
+  return {
+    overview,
+    health,
+    pages,
+    trends,
+    elements,
+    devices,
+    topUsed,
+    journeys,
+    errors,
+    monitored,
+  };
 }
 
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {

@@ -68,7 +68,8 @@ import JourneyList from "./journeys";
 import TopPagesTable from "./pages";
 import SettingsView from "./settings";
 import SummaryCard from "./summary";
-import { border, card, divider, labelCls as label } from "./ui";
+import OverviewStatTiles from "./metric-trends";
+import { InfoTip, border, card, divider, labelCls as label } from "./ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,59 +84,6 @@ function formatShare(pct: number): string {
   if (pct >= 10) return `${Math.round(pct)}%`;
   if (pct >= 1) return `${pct.toFixed(1)}%`;
   return "<1%";
-}
-
-// ── Tooltip ──────────────────────────────────────────────────────────────────
-function InfoTip({
-  text,
-  anchor = "center",
-  below = false,
-}: {
-  text: string;
-  anchor?: "left" | "center" | "right";
-  below?: boolean;
-}) {
-  const anchorClass =
-    anchor === "left" ? "left-0" : anchor === "right" ? "right-0" : "left-1/2 -translate-x-1/2";
-  const vClass = below ? "top-full mt-2" : "bottom-full mb-2";
-  return (
-    <span className="group/tip relative ml-1 inline-flex translate-y-px cursor-help align-middle">
-      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#444] text-[9px] font-bold leading-none text-[#666]">
-        i
-      </span>
-      <span
-        role="tooltip"
-        className={`pointer-events-none absolute ${vClass} ${anchorClass} z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-[#2e2e2e] bg-[#111] px-3 py-2 text-left text-[12px] font-normal normal-case leading-snug tracking-normal text-[#aaa] opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tip:opacity-100`}
-      >
-        {text}
-      </span>
-    </span>
-  );
-}
-
-// ── Stat card ────────────────────────────────────────────────────────────────
-function Stat({
-  label: labelText,
-  value,
-  tip,
-  tone = "text-white",
-}: {
-  label: string;
-  value: number;
-  tip: string;
-  tone?: string;
-}) {
-  return (
-    <div className={`${card} px-4 py-4`}>
-      <div className={`text-[28px] font-semibold tabular-nums leading-none ${tone}`}>
-        {value.toLocaleString()}
-      </div>
-      <div className={`mt-2 flex items-center ${label}`}>
-        {labelText}
-        <InfoTip text={tip} />
-      </div>
-    </div>
-  );
 }
 
 // ── Table header cell ────────────────────────────────────────────────────────
@@ -291,8 +239,18 @@ export function PolishdDashboard({
   /** Forwarded to the chrome: whether a GitHub repo is connected. */
   showIssues?: boolean;
 }) {
-  const { overview, health, pages, elements, devices, topUsed, journeys, errors, monitored } =
-    data;
+  const {
+    overview,
+    health,
+    pages,
+    trends,
+    elements,
+    devices,
+    topUsed,
+    journeys,
+    errors,
+    monitored,
+  } = data;
 
   // Events arriving without a session cookie mean the proxy didn't run on
   // those requests — or that something posted straight at the public endpoint.
@@ -387,43 +345,19 @@ export function PolishdDashboard({
         sourceAvailable={ai.sourceAvailable}
       />
 
-      {/* Stats */}
-      <Section title="Overview">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat
-            label="Sessions"
-            value={overview.sessions}
-            tip="Distinct anonymous visitors, counted by the polishd_session cookie. One cookie = one session; no fingerprinting."
-          />
-          <Stat
-            label="Page views"
-            value={overview.pageViews}
-            tip="page_view events — initial page loads plus client-side (soft) navigations between routes."
-          />
-          <Stat
-            label="Rage clicks"
-            value={overview.rageClicks}
-            tone="text-red-500"
-            tip="3+ clicks on the same element within 500ms. A strong signal of frustration — something looks clickable or is broken. Double/triple-clicks that select text don't count."
-          />
-          <Stat
-            label="Dead clicks"
-            value={overview.deadClicks}
-            tone="text-[#f5a623]"
-            tip="Clicks on non-interactive elements (no link, button, or role within 4 ancestors). Users expected something to happen but nothing did. Clicks on text are excluded — that's reading, not confusion."
-          />
-          <Stat
-            label="JS errors"
-            value={overview.jsErrors}
-            tone="text-red-500"
-            tip="Uncaught exceptions and unhandled promise rejections, with page and component context."
-          />
-          <Stat
-            label="Events"
-            value={overview.totalEvents}
-            tip="Total raw signals captured across all event types."
-          />
-        </div>
+      {/* Stats — every tile opens its own metric over time */}
+      <Section
+        title={
+          <>
+            Overview
+            <InfoTip
+              anchor="left"
+              text="All-time totals for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day."
+            />
+          </>
+        }
+      >
+        <OverviewStatTiles overview={overview} trends={trends} />
       </Section>
 
       {/* Device sizes */}

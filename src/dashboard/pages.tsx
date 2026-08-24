@@ -4,46 +4,14 @@
  * Polishd — "Top pages" table + sessions-over-time drawer (client).
  *
  * Lists the most-visited pages; clicking a row opens a bottom drawer with a
- * bar chart of distinct sessions per day for that page. A bottom drawer (rather
- * than a side panel) suits a wide time-series chart and keeps the table in view
- * above it.
+ * chart of distinct sessions per day for that page. The drawer shell itself
+ * lives in ./drawer — the Overview tiles open into the same one.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { PageTrendPoint, TopPage } from "../server/queries";
-
-const border = "border-[#2e2e2e]";
-const card = `border ${border} rounded-lg bg-[#0a0a0a]`;
-const divider = `border-t ${border}`;
-const labelCls = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#666]";
-
-// ── Tooltip + header cell (compact copies of the dashboard's, for the client) ──
-function InfoTip({
-  text,
-  anchor = "right",
-  below = false,
-}: {
-  text: string;
-  anchor?: "left" | "right";
-  below?: boolean;
-}) {
-  const vClass = below ? "top-full mt-2" : "bottom-full mb-2";
-  return (
-    <span className="group/tip relative ml-1 inline-flex translate-y-px cursor-help align-middle">
-      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#444] text-[9px] font-bold leading-none text-[#666]">
-        i
-      </span>
-      <span
-        role="tooltip"
-        className={`pointer-events-none absolute ${vClass} ${
-          anchor === "left" ? "left-0" : "right-0"
-        } z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-[#2e2e2e] bg-[#111] px-3 py-2 text-left text-[12px] font-normal normal-case leading-snug tracking-normal text-[#aaa] opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tip:opacity-100`}
-      >
-        {text}
-      </span>
-    </span>
-  );
-}
+import BottomDrawer, { DrawerHeader } from "./drawer";
+import { InfoTip, border, card, divider, labelCls, yScale } from "./ui";
 
 function Th({
   children,
@@ -115,20 +83,6 @@ function PageMeta({ page }: { page: TopPage }) {
 }
 
 // ── Sessions-over-time line chart ─────────────────────────────────────────────
-
-/** A nice 0-based integer tick scale for the y-axis. */
-function yScale(peak: number): { top: number; ticks: number[] } {
-  const target = 4; // aim for ~4 gridlines
-  if (peak <= target) {
-    const top = Math.max(peak, 1);
-    return { top, ticks: Array.from({ length: top + 1 }, (_, i) => i) };
-  }
-  const step = Math.ceil(peak / target);
-  const top = step * Math.ceil(peak / step);
-  const ticks: number[] = [];
-  for (let v = 0; v <= top; v += step) ticks.push(v);
-  return { top, ticks };
-}
 
 function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
   if (trend.length === 0) {
@@ -221,70 +175,21 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
 
 // ── Bottom drawer ─────────────────────────────────────────────────────────────
 function PageDrawer({ page, onClose }: { page: TopPage | null; onClose: () => void }) {
-  useEffect(() => {
-    if (!page) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [page, onClose]);
-
-  const open = page !== null;
-
   return (
-    <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
-      {/* backdrop */}
-      <div
-        onClick={onClose}
-        className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
-          open ? "opacity-100" : "opacity-0"
-        }`}
-      />
-      {/* panel */}
-      <div
-        className={`absolute inset-x-0 bottom-0 transition-transform duration-200 ease-out ${
-          open ? "translate-y-0" : "translate-y-full"
-        }`}
-      >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Page sessions over time"
-          className={`mx-auto max-h-[80vh] max-w-5xl overflow-y-auto rounded-t-xl border ${border} bg-[#0a0a0a] px-4 pb-6 pt-4 shadow-2xl sm:px-6 sm:pb-8 sm:pt-5`}
-        >
-          {page && (
-            <>
-              {/* drag affordance */}
-              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#2e2e2e]" />
-              {/* header */}
-              <div className="mb-6 flex items-start justify-between gap-4">
-                <div>
-                  <div className={labelCls}>Page</div>
-                  <h3 className="mt-1 font-mono text-[16px] text-white">{page.path}</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label="Close"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#2e2e2e] text-[#888] transition-colors hover:bg-[#111] hover:text-white"
-                >
-                  ✕
-                </button>
-              </div>
-              <PageMeta page={page} />
-              <div className={`mb-3 mt-6 ${labelCls}`}>Sessions over time</div>
-              <SessionsChart trend={page.trend} />
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    <BottomDrawer open={page !== null} onClose={onClose} label="Page sessions over time">
+      {page && (
+        <>
+          <DrawerHeader
+            eyebrow="Page"
+            title={<h3 className="font-mono text-[16px] text-white">{page.path}</h3>}
+            onClose={onClose}
+          />
+          <PageMeta page={page} />
+          <div className={`mb-3 mt-6 ${labelCls}`}>Sessions over time</div>
+          <SessionsChart trend={page.trend} />
+        </>
+      )}
+    </BottomDrawer>
   );
 }
 
