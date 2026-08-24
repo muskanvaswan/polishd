@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Snapshot capture survives serverless time limits
+
+Capturing a site snapshot on Vercel could fail with no error box at all — the
+whole Design tab crashed into Next's error boundary. The cause: the capture ran
+as **one long server action**, and a serverless host that hits its function
+time limit kills the function mid-shoot, so the action rejects with no result
+and the client had no catch for it. A connected Blob store couldn't help; the
+request itself was the problem.
+
+- **Capture is now chunked into one short server call per page**: begin → one
+  call per route (both devices, both themes) → finish. No single request has
+  to outlive a function time limit, so upgrading the package is the whole fix
+  — no host configuration required. In-flight state is parked in the store
+  between calls; the client contributes nothing but ids, and a new capture
+  sweeps an unfinished predecessor, images included.
+- **Failures degrade to messages everywhere.** Every action call is caught on
+  the client (a page whose call fails is reported and skipped, not fatal),
+  and every server path returns a diagnosis instead of throwing — including
+  the previously uncaught `playwright-core` load.
+- The capture button shows **per-page progress** ("Shooting page 3 of 7…").
+- `polishd init` now writes `export const maxDuration = 300` into the
+  dashboard page it generates, and the docs recommend it — headroom for heavy
+  pages on hosts with strict limits, no longer a requirement.
+
 ### The dashboard streams instead of loading all at once
 
 Every tab used to wait for its slowest query before sending a single byte —
