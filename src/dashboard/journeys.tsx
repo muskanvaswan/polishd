@@ -97,6 +97,7 @@ const STEP_STYLE: Record<
   },
   session_end: { dot: "bg-[#666]", verb: "Left the site", verbTone: "text-[#888]" },
   // Non-action types never reach the flow chart, but the map must be total.
+  text_click: { dot: "bg-[#444]", verb: "Clicked text", verbTone: "text-[#888]" },
   scroll_depth: { dot: "bg-[#444]", verb: "Scrolled", verbTone: "text-[#888]" },
   viewport: { dot: "bg-[#444]", verb: "Viewport", verbTone: "text-[#888]" },
   web_vital: { dot: "bg-[#444]", verb: "Web vital", verbTone: "text-[#888]" },

@@ -39,6 +39,104 @@ The bottom drawer itself, the info tooltip and the axis-tick maths are now
 shared (`src/dashboard/drawer.tsx`, `src/dashboard/ui.tsx`) instead of copied
 between the Top-pages table and this, which is what stopped the two charts
 drifting apart.
+### An Issues tab: every bug polishd filed, in one list
+
+Filed issues used to exist only inside the loss that produced them — one
+summary, one card, gone at the next regenerate. The dashboard grows an
+**Issues** tab that lists them all, newest first, and appears only once a
+GitHub repository is connected (nothing to list, and no way to list it,
+otherwise).
+
+- Each row joins two sources. The analytics **evidence**, the claim as the
+  summary stated it, and the verdict the source verification reached are
+  polishd's own record; the title, state, labels, assignees, comment count and
+  body are read live from GitHub on every render, so a bug closed an hour ago
+  reads as closed here.
+- The issue log the dedupe already kept is what makes the list *ours* rather
+  than the repo's — a repo full of other people's issues stays that way. New
+  filings additionally record the claim, the verdict and the filing time;
+  entries written by earlier versions have only a number and a URL and still
+  render, dated from GitHub's own `created_at`.
+- An issue that can no longer be read — deleted, transferred, token access
+  revoked — keeps its row and says so, rather than quietly disappearing from
+  a count you were trusting.
+- Loading the tab is **one GitHub API call**, not one per issue. The repo's
+  issue list returns whole issues, body and all, a hundred at a time, so a
+  single page answers for every issue polishd has ever filed. Issue numbers
+  only climb and the list comes back newest-first, so a page that has dropped
+  below the oldest number we want proves no later page can hold it, and paging
+  stops; anything buried past a three-page budget is read individually. The
+  rule lives in `src/ai/issue-pages.ts` — pure, no network — with tests
+  (`npm test`).
+
+### Site snapshots now work in production
+
+Capturing a snapshot on a serverless host used to fail on two fronts at once:
+no browser to launch and no writable filesystem to keep the images on. Both
+are now handled, and neither needs configuration beyond connecting a Vercel
+Blob store to the project:
+
+- When `BLOB_READ_WRITE_TOKEN` is present (Vercel injects it once a Blob store
+  is connected), shots are staged in the system temp directory and uploaded to
+  Vercel Blob instead of `.polishd/snapshots/`. Pruning deletes the blobs;
+  a failed upload cleans up after itself so a half-stored snapshot never
+  survives. Blob pathnames get a random suffix and the dashboard still serves
+  every image through the auth-gated server action.
+- When no local Chrome, Edge, or Playwright Chromium can launch on Linux,
+  capture falls back to `@sparticuz/chromium` — a Chromium built to run inside
+  Lambda-shaped sandboxes. It and `@vercel/blob` ship as optional
+  dependencies, so a standard `npm install` brings them along and
+  `--omit=optional` keeps them out.
+- An install run with `--omit=optional` loses the feature but not the plot:
+  when the environment shows a missing optional dependency will be needed
+  (a Blob token with no `@vercel/blob`, a Vercel host with no
+  `@sparticuz/chromium`), the gallery says so up front and disables the
+  capture button, instead of failing a minute into a doomed run. Failures
+  that can only surface at capture time name the missing piece precisely.
+- Local development is unchanged: your own Chrome first, images on disk,
+  same index, same gallery.
+
+### Reading is not friction: text clicks and trivial scrolls stop counting
+
+Three signals could report engagement or frustration where there was only
+reading, inflating exactly the numbers the AI summary leans on hardest.
+
+- **Dead clicks skip text.** A click inside a paragraph, heading, list item,
+  or other prose block — or on standalone text long enough to read as content
+  (40+ chars) — is cursor placement or the start of a selection, not a user
+  expecting something to happen. It no longer records a `dead_click`. Clicks
+  on non-interactive *layout* elements still do, and so do short standalone
+  labels (`<div>Submit</div>`, `<span>Click here</span>`) — that shape is
+  exactly what a mis-wired fake control looks like.
+- **Rage clicks skip select-a-word/paragraph.** Double- and triple-clicking
+  prose selects text; a rapid burst on a non-interactive text target no
+  longer records a `rage_click`. Hammering a real button — or a fake one with
+  a short label — still does.
+- **History gets the same fix.** A one-time sweep (versioned via
+  `polishd_meta`, run on the first dashboard load after upgrading) re-runs
+  the new classification over already-stored `dead_click`/`rage_click` rows,
+  using the stored selector path and label. Matching rows are retyped to
+  `text_click` — kept in the table, counted by no aggregate — never deleted.
+  Rage rows whose selector path contains an interactive element are left
+  untouched. Ingest applies the same retype to arriving events, so a cached
+  client bundle — or a telemetry emitter still on an older package — can't
+  keep refilling the table with the old semantics after the sweep has run. Old `component_view` rows always carried a scroll depth, so at
+  read time depth from components short enough to fit a typical viewport
+  (≤700px) is ignored; page-level `scroll_depth` history is unaffected (a
+  recorded depth needed a real scroll event, and genuine deep scrolls can't
+  be told apart after the fact).
+- **100% scroll requires somewhere to scroll.** A page (or dashboard region)
+  whose scrollable distance is under 10% of the viewport reaches "100%" by
+  existing, so it now records no `scroll_depth` at all; likewise
+  `<PolishdMonitor content>` only reports scroll-through for components
+  taller than one screen. Aggregates already treat absent as "no data" (shown
+  as —), never 0.
+- Both capture layers (host site and the dashboard's own telemetry) share the
+  new classification via `src/client/dom.ts`, so they can't drift.
+- The AI digest now omits scroll % where it wasn't measurable and the system
+  prompt tells the model these semantics — no more "users read to the bottom!"
+  wins on pages that fit in one viewport, and reported dead/rage counts can be
+  taken as genuine friction.
 
 ### The "your proxy isn't running" banner stops crying wolf
 

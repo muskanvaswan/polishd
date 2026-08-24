@@ -47,10 +47,12 @@ import { unlockPolishdDashboard } from "./unlock";
 import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReviewState } from "../ai/design";
+import { isGithubConnected } from "../ai/github";
+import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import { getDesignData } from "../server/design";
-import { listSnapshots } from "../server/snapshots";
+import { listSnapshots, snapshotCaptureIssue } from "../server/snapshots";
 import type {
   PolishdAISettingsPublic,
   PolishdProjectProfile,
@@ -59,6 +61,7 @@ import type {
 import DashboardChrome from "./chrome";
 import { DesignPanel } from "./design";
 import InstallsView from "./installs";
+import IssuesView from "./issues";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
@@ -227,11 +230,14 @@ export function PolishdDashboard({
   data,
   ai,
   showInstalls = false,
+  showIssues = false,
 }: {
   data: PolishdDashboardData;
   ai: PolishdAIBundle;
   /** Forwarded to the chrome: whether this install collects telemetry. */
   showInstalls?: boolean;
+  /** Forwarded to the chrome: whether a GitHub repo is connected. */
+  showIssues?: boolean;
 }) {
   const {
     overview,
@@ -254,7 +260,7 @@ export function PolishdDashboard({
   const windowLabel = `${Math.round(health.windowMs / 3_600_000)}h`;
 
   return (
-    <DashboardChrome active="analytics" showInstalls={showInstalls}>
+    <DashboardChrome active="analytics" showInstalls={showInstalls} showIssues={showIssues}>
     <main className="text-white">
       {/* Header */}
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
@@ -419,7 +425,7 @@ export function PolishdDashboard({
                     <Th tip="Times this region rendered (mount events). Only content-tracked monitors emit these.">Mounts</Th>
                     <Th tip="Times this component entered the viewport for ≥500ms.">Views</Th>
                     <Th tip="Average time visible per viewport visit — a proxy for reading/engagement time.">Avg time</Th>
-                    <Th tip="Average % of the component's height scrolled through per visit. 100% = user reached the bottom.">Scroll depth</Th>
+                    <Th tip="Average % of the component's height scrolled through per visit. 100% = user reached the bottom. Only measured for components taller than one screen — shorter ones show no value.">Scroll depth</Th>
                     <Th tip="Largest rendered height in px seen for this component — for an article, its full content height.">Height</Th>
                     <Th tip="Normal (non-rage, non-dead) clicks.">Clicks</Th>
                     <Th tip="Deliberate pointer hovers (≥200ms dwell).">Hovers</Th>
@@ -850,10 +856,12 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     // Dogfood telemetry — decided per render, after auth, so the consent
     // prompt and the emitter are only ever served to the dashboard's owner.
     // `showInstalls` is the collector-side counterpart: whether any tagged
-    // telemetry has landed here, which is what earns the Installs tab.
-    const [telemetry, showInstalls] = await Promise.all([
+    // telemetry has landed here, which is what earns the Installs tab, and
+    // `showIssues` is the same idea for the tracker the Issues tab reads.
+    const [telemetry, showInstalls, showIssues] = await Promise.all([
       loadPolishdTelemetryState(),
       hasTelemetryInstalls(),
+      isGithubConnected(),
     ]);
     const telemetryUi = (
       <>
@@ -871,22 +879,41 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
 
     if (rawTab === "design") {
-      const [design, settings, snapshots] = await Promise.all([
+      const [design, settings, snapshots, captureIssue] = await Promise.all([
         getDesignData(),
         getAISettingsPublic(),
         listSnapshots(),
+        snapshotCaptureIssue(),
       ]);
       const reviewState = await loadDesignReviewState(design);
       return wrap(
         <>
-          <DashboardChrome active="design" showInstalls={showInstalls}>
+          <DashboardChrome active="design" showInstalls={showInstalls} showIssues={showIssues}>
             <DesignPanel
               data={design}
               review={reviewState.review}
               reviewStale={reviewState.stale}
               settings={settings}
               snapshots={snapshots}
+              captureIssue={captureIssue}
             />
+          </DashboardChrome>
+          {telemetryUi}
+        </>,
+      );
+    }
+
+    if (rawTab === "issues") {
+      // Reachable by URL with nothing connected, in which case the listing is
+      // empty and the view says how to fix that.
+      const [issues, settings] = await Promise.all([
+        listFiledIssues(),
+        getAISettingsPublic(),
+      ]);
+      return wrap(
+        <>
+          <DashboardChrome active="issues" showInstalls={showInstalls} showIssues={showIssues}>
+            <IssuesView issues={issues} repo={settings.githubRepo} connected={showIssues} />
           </DashboardChrome>
           {telemetryUi}
         </>,
@@ -900,7 +927,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       ]);
       return wrap(
         <>
-          <DashboardChrome active="installs" showInstalls={showInstalls}>
+          <DashboardChrome active="installs" showInstalls={showInstalls} showIssues={showIssues}>
             <InstallsView installs={installs} topPaths={topPaths} />
           </DashboardChrome>
           {telemetryUi}
@@ -920,7 +947,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       const profileState = await loadProfileState({ monitored, topUsed });
       return wrap(
         <>
-          <DashboardChrome active="settings" showInstalls={showInstalls}>
+          <DashboardChrome active="settings" showInstalls={showInstalls} showIssues={showIssues}>
             <SettingsView
               initialSettings={settings}
               initialProfile={profileState.profile}
@@ -973,6 +1000,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         <PolishdDashboard
           data={data}
           showInstalls={showInstalls}
+          showIssues={showIssues}
           ai={{
             summary: summaryState.summary,
             settings,

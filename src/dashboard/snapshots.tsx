@@ -5,8 +5,9 @@
  *
  * Renders the site's captured screenshots as a device/theme-filterable grid,
  * with a button that shoots a fresh set. Images are fetched lazily per tile
- * through a server action (they live on the server's disk, not at any URL) and
- * a clicked tile expands into a full-height lightbox.
+ * through a server action (they live on the server's disk or in Vercel Blob —
+ * either way the dashboard never hands out a direct URL) and a clicked tile
+ * expands into a full-height lightbox.
  */
 import { useEffect, useState, useTransition } from "react";
 
@@ -111,9 +112,16 @@ function ShotTile({
 
 export interface SnapshotsCardProps {
   initial: PolishdSnapshot[];
+  /**
+   * A reason captures are known to fail in this environment (an optional
+   * dependency the host needs was omitted from the install), detected
+   * server-side at render. Non-null disables the capture button and explains
+   * why up front, instead of a minute into a doomed run.
+   */
+  captureIssue: string | null;
 }
 
-export default function SnapshotsCard({ initial }: SnapshotsCardProps) {
+export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardProps) {
   const [snapshots, setSnapshots] = useState<PolishdSnapshot[]>(initial);
   const [selectedId, setSelectedId] = useState<string | null>(initial[0]?.id ?? null);
   const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
@@ -205,8 +213,11 @@ export default function SnapshotsCard({ initial }: SnapshotsCardProps) {
             type="button"
             data-component="design-snapshot-capture"
             onClick={capture}
-            disabled={pending}
-            title="Screenshot every scanned page — phone and desktop, light and dark"
+            disabled={pending || captureIssue !== null}
+            title={
+              captureIssue ??
+              "Screenshot every scanned page — phone and desktop, light and dark"
+            }
             className={primaryBtn}
           >
             <span className="flex items-center gap-1.5">
@@ -218,6 +229,11 @@ export default function SnapshotsCard({ initial }: SnapshotsCardProps) {
       </div>
 
       <div className="px-4 py-4 sm:px-5 sm:py-5">
+        {captureIssue && (
+          <div className="mb-3 rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-[12px] text-amber-400">
+            {captureIssue}
+          </div>
+        )}
         {error && (
           <div className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">
             {error}

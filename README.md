@@ -390,6 +390,27 @@ again.
 Ignoring a loss marks the summary stale, exactly like new analytics does, so
 the next refresh actually re-asks the model with the dismissal in hand.
 
+### The Issues tab
+
+Filing a bug is easy to lose track of — it happens inside one loss, on one
+summary, and then the summary regenerates. The **Issues** tab is the standing
+list: every issue polishd has filed in the connected repo, newest first,
+whether you clicked **File bug** yourself or auto-filing did it for you. The
+tab only appears once a GitHub repository is connected.
+
+Each row joins what polishd knows to what GitHub knows. The **evidence** — the
+selector, component or path the analytics cited — and whether the source
+verification confirmed the report are polishd's own record, kept at filing
+time. The title, state, labels, assignees and comment count are read live from
+GitHub on every render, so a bug someone closed an hour ago reads as closed
+here, and the issue body is one click away without leaving the dashboard. An
+issue that can no longer be read — deleted, transferred, or beyond what the
+token now covers — keeps its row and says exactly that.
+
+Opening the tab costs a single GitHub API call in the ordinary case, not one
+per issue: the repo's issue list hands back a hundred whole issues at a time,
+which is more than polishd is ever likely to have filed.
+
 ## Design review
 
 The dashboard's **Design** tab (in the sidebar) is your site's brand guideline
@@ -437,9 +458,19 @@ shoot is taken from the request that rendered the dashboard, or set
 `.polishd/snapshots/` (override with `POLISHD_SNAPSHOT_DIR`; the last 6
 snapshots are kept), and each snapshot is stamped with the design-metrics
 fingerprint at capture time — so a snapshot taken before a round of design
-fixes can be held against one taken after. Capture is a dev-machine feature:
-serverless filesystems are read-only, and the button will say so rather than
-fail silently.
+fixes can be held against one taken after.
+
+**In production on Vercel**, capture works too — connect a
+[Blob store](https://vercel.com/docs/vercel-blob) to the project and that's
+the whole setup: the `BLOB_READ_WRITE_TOKEN` it injects switches image storage
+from disk to Blob, and the browser comes from `@sparticuz/chromium` (a
+Chromium built for serverless sandboxes, installed automatically as an
+optional dependency). The snapshot index rides in the same database the rest
+of Polishd already requires in production, so no other wiring changes. If a
+capture of many routes brushes against your function's time limit, raise it
+with `export const maxDuration = 300` in the dashboard's `page.tsx`. On hosts
+with neither a writable filesystem nor a Blob token, the button explains what's
+missing rather than failing silently.
 
 ## Component-level tracking
 

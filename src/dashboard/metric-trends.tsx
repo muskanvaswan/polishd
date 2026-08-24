@@ -67,7 +67,7 @@ const METRICS: MetricMeta[] = [
   {
     key: "rageClicks",
     label: "Rage clicks",
-    tip: "3+ clicks on the same element within 500ms. A strong signal of frustration — something looks clickable or is broken. Click for rage clicks over time.",
+    tip: "3+ clicks on the same element within 500ms. A strong signal of frustration — something looks clickable or is broken. Double/triple-clicks that select text don't count. Click for rage clicks over time.",
     tone: "text-red-500",
     accent: "#ef4444",
     additive: true,
@@ -76,7 +76,7 @@ const METRICS: MetricMeta[] = [
   {
     key: "deadClicks",
     label: "Dead clicks",
-    tip: "Clicks on non-interactive elements (no link, button, or role within 4 ancestors). Users expected something to happen but nothing did. Click for dead clicks over time.",
+    tip: "Clicks on non-interactive elements (no link, button, or role within 4 ancestors). Users expected something to happen but nothing did. Clicks on text are excluded — that's reading, not confusion. Click for dead clicks over time.",
     tone: "text-[#f5a623]",
     accent: "#f5a623",
     additive: true,
