@@ -196,6 +196,9 @@ import { createPolishdPage } from "@polishd/next/dashboard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Server actions inherit this page's time limit; 300s gives site-snapshot
+// capture headroom on hosts with strict function limits.
+export const maxDuration = 300;
 
 export default createPolishdPage();
 ```
@@ -436,6 +439,13 @@ SQLite file cannot persist there. Production capture needs Postgres.
 2. Set `POLISHD_DATABASE_URL` to the **pooled** connection string.
 3. Set your host's Node version to 22.x or later.
 4. Deploy. Tables are created automatically on first use.
+
+For **site snapshots** in production on Vercel, connect a
+[Blob store](https://vercel.com/docs/vercel-blob) — its `BLOB_READ_WRITE_TOKEN`
+switches image storage over automatically. Capture runs as one short server
+call per page so it fits inside function time limits; keeping
+`export const maxDuration = 300` on the dashboard's `page.tsx` adds headroom
+for heavy pages.
 
 See [DATABASE.md](../DATABASE.md) for schema, pooling notes, and retention.
 

@@ -140,7 +140,10 @@ export function runInit(argv, cwd) {
         `import { createPolishdPage } from "@polishd/next/dashboard";\n\n` +
         `// Next requires these to be declared inline in the page module.\n` +
         `export const runtime = "nodejs";\n` +
-        `export const dynamic = "force-dynamic";\n\n` +
+        `export const dynamic = "force-dynamic";\n` +
+        `// Server actions inherit this page's time limit; 300s gives\n` +
+        `// site-snapshot capture headroom on hosts with strict function limits.\n` +
+        `export const maxDuration = 300;\n\n` +
         `// In production the dashboard refuses to render until you either set\n` +
         `// POLISHD_DASHBOARD_TOKEN, pass your own \`authenticate\`, or opt out\n` +
         `// explicitly with POLISHD_DASHBOARD_PUBLIC=true. It can change your AI\n` +
