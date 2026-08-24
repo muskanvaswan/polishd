@@ -192,6 +192,9 @@ export interface PolishdDesignIssue {
   evidence: string;
   /** A concrete fix, when the model offered one. */
   suggestion?: string;
+  /** GitHub issue filed for this problem, attached when the tab loads. */
+  issueUrl?: string;
+  issueNumber?: number;
 }
 
 /**

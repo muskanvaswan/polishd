@@ -17,7 +17,7 @@ import { requirePolishdAuth } from "./guard";
 import { generateDesignReview } from "./design";
 import { verifyGithubConnection } from "./github";
 import { ignoreLoss, unignoreLoss } from "./ignored";
-import { createIssueFromLoss } from "./issues";
+import { createIssueFromDesignIssue, createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
 import { loadPolishdDashboardData } from "../server/queries";
 import {
@@ -29,6 +29,7 @@ import {
 import { generateSummary } from "./summary";
 import type {
   PolishdAISettingsPublic,
+  PolishdDesignIssue,
   PolishdLossItem,
   CreateIssueResult,
   GenerateDesignReviewResult,
@@ -104,6 +105,18 @@ export async function createIssueFromLossAction(
 ): Promise<CreateIssueResult> {
   await requirePolishdAuth();
   return createIssueFromLoss(loss);
+}
+
+/**
+ * The same verify-then-file pipeline for one of the design review's issues —
+ * the evidence is a measured design token (hex, px value, page path) instead
+ * of an analytics identifier.
+ */
+export async function createIssueFromDesignIssueAction(
+  issue: Pick<PolishdDesignIssue, "issue" | "evidence" | "suggestion">,
+): Promise<CreateIssueResult> {
+  await requirePolishdAuth();
+  return createIssueFromDesignIssue(issue);
 }
 
 /**

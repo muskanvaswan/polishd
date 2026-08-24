@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Design-review issues can be filed as bugs
+
+The aesthetic review's "Breaking the system" list used to be read-only; the
+same one-click **File bug** button the summary's losses have now sits on each
+design issue when GitHub is connected. It runs the same verify-then-file
+pipeline — the model checks the flagged design token (a hex color, a px value,
+a page path) against the repository's source, files a GitHub issue with the
+technical analysis and the review's own suggested fix when it holds up, and
+answers "not a bug" with the reasoning when the code shows the value is
+deliberate. Filed issues show up in the Issues tab like any other, dedupe on
+their evidence citation, and render as their issue link when the tab reloads.
+
 ### Snapshot capture survives serverless time limits
 
 Capturing a site snapshot on Vercel could fail with no error box at all — the
