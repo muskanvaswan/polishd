@@ -1,13 +1,14 @@
 /**
  * Polishd — the dashboard's shared visual vocabulary.
  *
- * Class strings and small icons used by more than one panel. They lived as
- * copies in every file until the settings form moved into its own tab and the
- * copies started to drift; one definition is what keeps the Analytics, Design
- * and Settings tabs looking like the same product.
+ * Class strings, small icons and chart maths used by more than one panel. They
+ * lived as copies in every file until the settings form moved into its own tab
+ * and the copies started to drift; one definition is what keeps the Analytics,
+ * Design and Settings tabs looking like the same product.
  *
- * No `"use client"` here on purpose — plain constants and stateless SVG work in
- * either environment, and the server-rendered panels import them too.
+ * No `"use client"` here on purpose — plain constants, stateless SVG and
+ * hover-only markup work in either environment, and the server-rendered panels
+ * import them too.
  */
 
 export const border = "border-[#2e2e2e]";
@@ -32,6 +33,61 @@ export function relTime(ms: number): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
+}
+
+/**
+ * A 0-based integer tick scale for a count axis.
+ *
+ * Counts are whole things — sessions, clicks, errors — so a "2.5 rage clicks"
+ * gridline is a lie the reader has to decode. This picks a whole-number step
+ * that lands on about four gridlines and returns the top of the axis with it.
+ */
+export function yScale(peak: number): { top: number; ticks: number[] } {
+  const target = 4; // aim for ~4 gridlines
+  if (peak <= target) {
+    const top = Math.max(peak, 1);
+    return { top, ticks: Array.from({ length: top + 1 }, (_, i) => i) };
+  }
+  const step = Math.ceil(peak / target);
+  const top = step * Math.ceil(peak / step);
+  const ticks: number[] = [];
+  for (let v = 0; v <= top; v += step) ticks.push(v);
+  return { top, ticks };
+}
+
+/**
+ * The little "i" that explains how a number is calculated.
+ *
+ * Pure CSS hover — no state, no event handlers — so the server-rendered panels
+ * and the client ones can share this one definition. It lived as two drifting
+ * copies (the Analytics page and the Top-pages table) before the stat tiles
+ * needed a third.
+ */
+export function InfoTip({
+  text,
+  anchor = "center",
+  below = false,
+}: {
+  text: string;
+  anchor?: "left" | "center" | "right";
+  below?: boolean;
+}) {
+  const anchorClass =
+    anchor === "left" ? "left-0" : anchor === "right" ? "right-0" : "left-1/2 -translate-x-1/2";
+  const vClass = below ? "top-full mt-2" : "bottom-full mb-2";
+  return (
+    <span className="group/tip relative ml-1 inline-flex translate-y-px cursor-help align-middle">
+      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#444] text-[9px] font-bold leading-none text-[#666]">
+        i
+      </span>
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute ${vClass} ${anchorClass} z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-[#2e2e2e] bg-[#111] px-3 py-2 text-left text-[12px] font-normal normal-case leading-snug tracking-normal text-[#aaa] opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tip:opacity-100`}
+      >
+        {text}
+      </span>
+    </span>
+  );
 }
 
 // ── Icons (Feather, inlined) ─────────────────────────────────────────────────

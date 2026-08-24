@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Every Overview tile opens its own graph
+
+The six numbers at the top of the Analytics tab were all-time totals, which
+answer "how much" and never "when" — 37 rage clicks is a different problem if
+they all landed on Tuesday. Each tile is now a button: clicking one opens a
+bottom drawer with that metric bucketed over time.
+
+- **Hourly or daily**, switchable in the drawer. Both series are computed on
+  the server and travel together, so flipping granularity — or switching
+  metric from inside the drawer — costs no round trip. Daily is the default
+  once there's more than a day of history; before that a daily chart is one
+  bar, and hourly is the only shape worth drawing.
+- Every tile grows a **sparkline**, which is both the hint that there's a
+  chart behind the number and the shape of it at a glance.
+- The window ends at the **newest bucket that has data**, not at now, so an
+  install last browsed three days ago still gets a chart instead of an empty
+  one. It covers the last 48 hours or 30 days of activity; where that differs
+  from the tile's all-time total, the drawer says so rather than leaving the
+  reader to notice.
+- Quiet buckets are drawn as **measured zeros**, not skipped — an empty night
+  is a fact about the site, and dropping those points would silently compress
+  the axis.
+- **Sessions are never summed.** A visitor active across three hours is
+  counted in all three buckets, so the drawer shows peak/average/latest for
+  that metric and explains why there's no total.
+- Reading a bucket works by pointer, by tap, and by keyboard (←/→, Home/End
+  on the focused chart); the readout sits above the plot so it never covers
+  the tallest bar, which is the one you were reaching for.
+- Buckets start at the UTC hour or day, matching the existing per-page chart.
+  A visitor whose clock is set to next year can't anchor the window there and
+  blank the chart — the windowing rule lives in
+  `src/shared/metric-buckets.ts`, pure and tested (`npm test`).
+
+The bottom drawer itself, the info tooltip and the axis-tick maths are now
+shared (`src/dashboard/drawer.tsx`, `src/dashboard/ui.tsx`) instead of copied
+between the Top-pages table and this, which is what stopped the two charts
+drifting apart.
+
 ### The "your proxy isn't running" banner stops crying wolf
 
 A correctly installed, verifiably healthy site could show the red banner
