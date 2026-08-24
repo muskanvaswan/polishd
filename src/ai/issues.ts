@@ -1,7 +1,8 @@
 /**
- * Polishd — loss → verified GitHub issue (server only).
+ * Polishd — model finding → verified GitHub issue (server only).
  *
- * A loss in the summary is a claim made from analytics data. Before it becomes
+ * A loss in the summary is a claim made from analytics data; a design-review
+ * issue is a claim made from the measured design system. Before either becomes
  * a bug in the tracker, this module makes it earn that status:
  *
  *   1. Pull the relevant source from the connected GitHub repo — the file the
@@ -32,13 +33,32 @@ import { loadProjectProfile } from "./profile";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
 import type {
+  PolishdDesignIssue,
   PolishdFiledIssue,
   PolishdLossItem,
   CreateIssueResult,
 } from "./types";
 
-/** The slice of a loss the pipeline needs. */
+/** The slice of a summary loss the pipeline needs. */
 type Loss = Pick<PolishdLossItem, "issue" | "evidence" | "location">;
+
+/** The slice of a design-review issue the pipeline needs. */
+type DesignIssue = Pick<PolishdDesignIssue, "issue" | "evidence" | "suggestion">;
+
+/**
+ * One suspected problem, whichever tab reported it. `kind` steers the
+ * verification prompt and the filed issue's wording: a loss is a claim about
+ * user behavior, a design issue is a claim about the rendered design system.
+ */
+type Report = {
+  kind: "loss" | "design";
+  issue: string;
+  evidence: string;
+  /** Source file the citation was matched to (losses only). */
+  location?: string;
+  /** The review's own suggested fix (design issues only). */
+  suggestion?: string;
+};
 
 // ── Issue log (dedupe) ───────────────────────────────────────────────────────
 
@@ -107,21 +127,16 @@ interface Investigation {
   files: string[];
 }
 
-const INVESTIGATE_PROMPT =
-  "You are a senior engineer verifying a suspected bug before it enters the " +
-  "issue tracker. A product-analytics tool watched real users interact with a " +
-  "website and flagged a suspected problem. You receive that suspicion, the " +
-  "analytics identifier cited as evidence (a page path, CSS selector, or " +
-  "component name), and source files from the site's repository.\n\n" +
+const INVESTIGATE_FORMAT =
   "Decide whether the problem is technically real in this code. Respond with " +
   "ONLY a JSON object (no markdown fences, no preamble):\n" +
   '{ "verdict": "confirmed" | "rejected" | "inconclusive", "title": string, ' +
   '"details": string, "fixes": string[], "reasoning": string }\n\n' +
   "verdict: confirmed ONLY when you can point to specific code that explains " +
   "or exhibits the problem. rejected ONLY when the code demonstrates the " +
-  "report cannot be right (the interaction is handled correctly, the behavior " +
-  "is clearly intentional). inconclusive when the source provided is not " +
-  "enough to decide either way.\n" +
+  "report cannot be right (the code handles it correctly, or the flagged " +
+  "behavior is clearly deliberate). inconclusive when the source provided is " +
+  "not enough to decide either way.\n" +
   "title: a short, specific bug title (under 80 characters) — becomes the " +
   "GitHub issue title when confirmed.\n" +
   "details: the technical root-cause analysis, citing the file paths and the " +
@@ -131,10 +146,10 @@ const INVESTIGATE_PROMPT =
   "the site owner when the report is rejected or unverifiable.";
 
 /**
- * The local record behind one filed issue number — the analytics citation and
- * claim GitHub was never told. The fix pipeline (`fix.ts`) uses it to search
- * the source for the right element, and its absence is how a number that
- * isn't ours gets refused.
+ * The local record behind one filed issue number — the citation and claim
+ * GitHub was never told. The fix pipeline (`fix.ts`) uses it to search the
+ * source for the right element, and its absence is how a number that isn't
+ * ours gets refused.
  */
 export async function findFiledIssue(
   number: number,
@@ -146,6 +161,24 @@ export async function findFiledIssue(
   }
   return null;
 }
+
+const INVESTIGATE_PROMPTS: Record<Report["kind"], string> = {
+  loss:
+    "You are a senior engineer verifying a suspected bug before it enters the " +
+    "issue tracker. A product-analytics tool watched real users interact with a " +
+    "website and flagged a suspected problem. You receive that suspicion, the " +
+    "analytics identifier cited as evidence (a page path, CSS selector, or " +
+    "component name), and source files from the site's repository.\n\n" +
+    INVESTIGATE_FORMAT,
+  design:
+    "You are a senior engineer verifying a suspected design flaw before it " +
+    "enters the issue tracker. A design audit measured a website's rendered " +
+    "pages — the typography, colors, radii and spacing actually shipped — and " +
+    "flagged something breaking the design system. You receive that finding, " +
+    "the design token cited as evidence (a hex color, a px value, or a page " +
+    "path), and source files from the site's repository.\n\n" +
+    INVESTIGATE_FORMAT,
+};
 
 /** Terms specific enough to search code for (same spirit as citationTokens). */
 export function evidenceSearchTerms(evidence: string): string[] {
@@ -163,15 +196,15 @@ export function evidenceSearchTerms(evidence: string): string[] {
 }
 
 /**
- * Gather the source files that should contain the answer: the file the loss
+ * Gather the source files that should contain the answer: the file the report
  * was already matched to, then code-search hits for the evidence.
  */
 async function collectSource(
-  loss: Loss,
+  report: Report,
 ): Promise<{ path: string; content: string }[]> {
   const paths: string[] = [];
-  if (loss.location) paths.push(loss.location);
-  for (const p of await searchGithubCode(evidenceSearchTerms(loss.evidence), MAX_FILES)) {
+  if (report.location) paths.push(report.location);
+  for (const p of await searchGithubCode(evidenceSearchTerms(report.evidence), MAX_FILES)) {
     if (!paths.includes(p)) paths.push(p);
   }
   const out: { path: string; content: string }[] = [];
@@ -225,11 +258,11 @@ function parseInvestigation(text: string, files: string[]): Investigation {
 }
 
 /**
- * Verify one loss against the repository's source. Never throws — anything
+ * Verify one report against the repository's source. Never throws — anything
  * that prevents a real verdict (no source found, model unavailable) comes back
  * as inconclusive so the caller can still file a plain, unverified report.
  */
-async function investigateLoss(loss: Loss): Promise<Investigation> {
+async function investigate(report: Report): Promise<Investigation> {
   const { settings } = await resolveSettings();
   if (!settings.apiKey) {
     return {
@@ -240,7 +273,7 @@ async function investigateLoss(loss: Loss): Promise<Investigation> {
     };
   }
 
-  const files = await collectSource(loss);
+  const files = await collectSource(report);
   if (files.length === 0) {
     return {
       verdict: "inconclusive",
@@ -251,12 +284,23 @@ async function investigateLoss(loss: Loss): Promise<Investigation> {
   }
 
   const profile = await loadProjectProfile();
-  const sections = [
-    "SUSPECTED PROBLEM (from analytics):",
-    loss.issue,
-    "",
-    `EVIDENCE (identifier from the analytics data): ${loss.evidence}`,
-  ];
+  const sections =
+    report.kind === "design"
+      ? [
+          "SUSPECTED PROBLEM (from the design audit):",
+          report.issue,
+          "",
+          `EVIDENCE (design token measured on the rendered pages): ${report.evidence}`,
+        ]
+      : [
+          "SUSPECTED PROBLEM (from analytics):",
+          report.issue,
+          "",
+          `EVIDENCE (identifier from the analytics data): ${report.evidence}`,
+        ];
+  if (report.suggestion) {
+    sections.push("", `SUGGESTED FIX (from the design review): ${report.suggestion}`);
+  }
   if (profile) {
     sections.push("", `PROJECT PROFILE (what this site and its components are):\n${profile.text}`);
   }
@@ -267,7 +311,7 @@ async function investigateLoss(loss: Loss): Promise<Investigation> {
   );
 
   try {
-    const reply = await callModel(settings, INVESTIGATE_PROMPT, sections.join("\n"));
+    const reply = await callModel(settings, INVESTIGATE_PROMPTS[report.kind], sections.join("\n"));
     if (!reply.text) throw new Error("empty response");
     return parseInvestigation(
       reply.text,
@@ -287,11 +331,15 @@ async function investigateLoss(loss: Loss): Promise<Investigation> {
 
 /** Markdown body for a filed issue, sized to the verdict behind it. */
 function issueBody(
-  loss: Loss,
+  report: Report,
   inv: Investigation,
   fileUrl: (path: string) => string,
 ): string {
-  const lines = [loss.issue, "", `**Evidence (from analytics):** \`${loss.evidence}\``];
+  const evidenceLabel = report.kind === "design" ? "from the design audit" : "from analytics";
+  const lines = [report.issue, "", `**Evidence (${evidenceLabel}):** \`${report.evidence}\``];
+  if (report.suggestion) {
+    lines.push("", `**Suggested fix (from the design review):** ${report.suggestion}`);
+  }
   if (inv.verdict === "confirmed") {
     if (inv.details) lines.push("", "## Technical analysis", inv.details);
     if (inv.files.length) {
@@ -309,25 +357,30 @@ function issueBody(
       "",
       `> **Note:** source verification was inconclusive — ${inv.reasoning}`,
     );
-    if (loss.location) lines.push("", `**Possible source:** [\`${loss.location}\`](${fileUrl(loss.location)})`);
+    if (report.location) lines.push("", `**Possible source:** [\`${report.location}\`](${fileUrl(report.location)})`);
   }
+  const source = report.kind === "design" ? "design review" : "analytics dashboard";
+  const observed =
+    report.kind === "design"
+      ? "measured on the site's rendered pages"
+      : "observed in real user-behavior data";
   lines.push(
     "",
     "---",
     inv.verdict === "confirmed"
-      ? "_Filed from the Polishd analytics dashboard — observed in real user-behavior data and confirmed against the source code._"
-      : "_Filed from the Polishd analytics dashboard — observed in real user-behavior data._",
+      ? `_Filed from the Polishd ${source} — ${observed} and confirmed against the source code._`
+      : `_Filed from the Polishd ${source} — ${observed}._`,
   );
   return lines.join("\n");
 }
 
 /**
- * File a bug from one loss — after verifying it against the source (see the
+ * File a bug from one report — after verifying it against the source (see the
  * module doc for the pipeline). Returns the issue on success, the stored issue
  * when this evidence was already filed, or `not-a-bug` with the verdict's
  * reasoning when the code disproves the report.
  */
-export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult> {
+async function fileReport(report: Report): Promise<CreateIssueResult> {
   if (!(await isGithubConnected())) {
     return {
       ok: false,
@@ -336,7 +389,7 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
     };
   }
 
-  const key = issueKey(loss.evidence);
+  const key = issueKey(report.evidence);
   const existing = (await loadIssueLog())[key];
   if (existing) {
     if ("rejected" in existing) {
@@ -345,7 +398,7 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
     return { ok: true, url: existing.url, number: existing.number };
   }
 
-  const inv = await investigateLoss(loss);
+  const inv = await investigate(report);
   if (inv.verdict === "rejected") {
     await recordLog(key, { rejected: true, reason: inv.reasoning });
     return { ok: false, error: "not-a-bug", message: inv.reasoning };
@@ -358,13 +411,13 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
         ? `https://github.com/${status.repo}/blob/${status.defaultBranch}/${path}`
         : path;
     const issue = await createGithubIssue({
-      title: (inv.verdict === "confirmed" && inv.title) || loss.issue,
-      body: issueBody(loss, inv, fileUrl),
+      title: (inv.verdict === "confirmed" && inv.title) || report.issue,
+      body: issueBody(report, inv, fileUrl),
       labels: ["bug"],
     });
     await recordLog(key, {
       ...issue,
-      issue: loss.issue,
+      issue: report.issue,
       verdict: inv.verdict,
       filedAt: Date.now(),
     });
@@ -376,6 +429,42 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
       message: err instanceof Error ? err.message : "Could not create the issue.",
     };
   }
+}
+
+/** File a bug from one summary loss. */
+export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult> {
+  return fileReport({ ...loss, kind: "loss" });
+}
+
+/**
+ * File a bug from one design-review issue — the same verify-then-file pipeline
+ * with the design framing: the evidence is a measured design token rather than
+ * an analytics identifier, so verification searches the source for wherever
+ * that value is produced.
+ */
+export async function createIssueFromDesignIssue(
+  issue: DesignIssue,
+): Promise<CreateIssueResult> {
+  return fileReport({ ...issue, kind: "design" });
+}
+
+/**
+ * Attach already-filed GitHub issues to a design review's issues, keyed by the
+ * evidence citation — read-only decoration for the Design tab, so a problem
+ * that's already in the tracker renders as its issue link instead of a "file
+ * bug" button. Never files anything.
+ */
+export async function attachGithubIssuesToDesignIssues(
+  issues: PolishdDesignIssue[],
+): Promise<PolishdDesignIssue[]> {
+  if (issues.length === 0) return issues;
+  const log = await loadIssueLog();
+  return issues.map((iss) => {
+    const entry = log[issueKey(iss.evidence)];
+    return entry && "url" in entry
+      ? { ...iss, issueUrl: entry.url, issueNumber: entry.number }
+      : iss;
+  });
 }
 
 /**
