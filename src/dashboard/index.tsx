@@ -16,22 +16,36 @@
  */
 import type { Metadata } from "next";
 import { after } from "next/server";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
-import { captureStatus } from "../shared/capture-status";
+import { captureStatus, type CaptureHealth } from "../shared/capture-status";
 
 import {
-  getMonitoredComponents,
   getTelemetryInstalls,
   getTelemetryTopPaths,
-  getTopInteractions,
   hasTelemetryInstalls,
-  loadPolishdDashboardData,
   type PolishdDashboardData,
   type DeviceBucket,
+  type ElementStat,
   type MonitoredComponent,
+  type OverviewStats,
+  type RecentError,
+  type TopInteraction,
 } from "../server/queries";
+import {
+  loadDashboardData,
+  loadDevices,
+  loadElements,
+  loadErrors,
+  loadHealth,
+  loadJourneys,
+  loadMonitored,
+  loadOverview,
+  loadPages,
+  loadTopUsed,
+  loadTrends,
+} from "./data";
 import {
   polishdAuthContext,
   registerPolishdAuth,
@@ -58,7 +72,7 @@ import type {
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
-import DashboardChrome from "./chrome";
+import DashboardChrome, { TabSkeleton, type PolishdDashboardTab } from "./chrome";
 import { DesignPanel } from "./design";
 import InstallsView from "./installs";
 import IssuesView from "./issues";
@@ -225,33 +239,46 @@ export interface PolishdAIBundle {
 // ./chrome; re-exported here because this is the module hosts import.
 export type { PolishdDashboardTab } from "./chrome";
 
-// ── Dashboard (presentational) ───────────────────────────────────────────────
-export function PolishdDashboard({
-  data,
-  ai,
-  showInstalls = false,
-  showIssues = false,
-}: {
-  data: PolishdDashboardData;
-  ai: PolishdAIBundle;
-  /** Forwarded to the chrome: whether this install collects telemetry. */
-  showInstalls?: boolean;
-  /** Forwarded to the chrome: whether a GitHub repo is connected. */
-  showIssues?: boolean;
-}) {
-  const {
-    overview,
-    health,
-    pages,
-    trends,
-    elements,
-    devices,
-    topUsed,
-    journeys,
-    errors,
-    monitored,
-  } = data;
+// ── Analytics: header + status (shared by batch and streamed renders) ────────
+function AnalyticsHeader({ pill }: { pill: ReactNode }) {
+  return (
+    <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
+      <div>
+        <h1 className="text-[22px] font-semibold tracking-tight text-white">
+          Analytics
+        </h1>
+        <p className="mt-1 text-[13px] text-[#666]">
+          Stage 1 — Capture. Hover{" "}
+          <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#444] text-[8px] font-bold text-[#666]">
+            i
+          </span>{" "}
+          for calculation details.
+        </p>
+      </div>
+      {pill}
+    </div>
+  );
+}
 
+function StatusPill({ ready }: { ready: boolean }) {
+  return (
+    <div className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
+      ready
+        ? "bg-emerald-950 text-emerald-400"
+        : "bg-[#1a1a1a] text-[#666]"
+    }`}>
+      {ready ? "● collecting" : "○ no store"}
+    </div>
+  );
+}
+
+function StatusBanners({
+  overview,
+  health,
+}: {
+  overview: OverviewStats;
+  health: CaptureHealth;
+}) {
   // Events arriving without a session cookie mean the proxy didn't run on
   // those requests — or that something posted straight at the public endpoint.
   // Telling those apart is the whole job of `captureStatus`, which lives in
@@ -260,31 +287,7 @@ export function PolishdDashboard({
   const windowLabel = `${Math.round(health.windowMs / 3_600_000)}h`;
 
   return (
-    <DashboardChrome active="analytics" showInstalls={showInstalls} showIssues={showIssues}>
-    <main className="text-white">
-      {/* Header */}
-      <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-white">
-            Analytics
-          </h1>
-          <p className="mt-1 text-[13px] text-[#666]">
-            Stage 1 — Capture. Hover{" "}
-            <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#444] text-[8px] font-bold text-[#666]">
-              i
-            </span>{" "}
-            for calculation details.
-          </p>
-        </div>
-        <div className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-          overview.ready
-            ? "bg-emerald-950 text-emerald-400"
-            : "bg-[#1a1a1a] text-[#666]"
-        }`}>
-          {overview.ready ? "● collecting" : "○ no store"}
-        </div>
-      </div>
-
+    <>
       {!overview.ready && (
         <div className={`mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400`}>
           The analytics store isn't writable in this environment. Run locally or configure a
@@ -334,6 +337,292 @@ export function PolishdDashboard({
           </p>
         </div>
       )}
+    </>
+  );
+}
+
+// ── Analytics: section shells ────────────────────────────────────────────────
+// The titles render before their data arrives, so each shell takes the card
+// as children — the batch render passes it resolved, the streamed render
+// passes a Suspense boundary.
+function OverviewSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Overview
+          <InfoTip
+            anchor="left"
+            text="All-time totals for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function DevicesSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Device sizes
+          <InfoTip
+            anchor="left"
+            text="One viewport sample per session, taken at session start, bucketed by CSS width: mobile (<640px), tablet (640–1023px), desktop (≥1024px). Shows what screen size visitors actually use."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function PagesSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Top pages
+          <InfoTip
+            anchor="left"
+            text="The most-visited routes, ranked by distinct sessions. Click a page to open a chart of its sessions over time."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function DevicesCard({ devices }: { devices: DeviceBucket[] }) {
+  return (
+    <div className={card}>
+      {devices.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+          No viewport data yet — browse the site then refresh.
+        </p>
+      ) : (
+        devices.map((d) => <DeviceRow key={d.category} bucket={d} />)
+      )}
+    </div>
+  );
+}
+
+function MonitoredSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Monitored components
+          <InfoTip
+            anchor="left"
+            text="Components explicitly wrapped in <PolishdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function MonitoredCard({ monitored }: { monitored: MonitoredComponent[] }) {
+  return (
+    <div className={card}>
+      {monitored.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+          No monitored components yet — wrap elements with{" "}
+          <code className="font-mono text-[#777]">{"<PolishdMonitor name=\"…\">"}</code> to track them here.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px]">
+            <thead>
+              <tr>
+                <Th align="left" tip="The name prop passed to <PolishdMonitor>. Sessions and pages shown beneath.">Component</Th>
+                <Th tip="Times this region rendered (mount events). Only content-tracked monitors emit these.">Mounts</Th>
+                <Th tip="Times this component entered the viewport for ≥500ms.">Views</Th>
+                <Th tip="Average time visible per viewport visit — a proxy for reading/engagement time.">Avg time</Th>
+                <Th tip="Average % of the component's height scrolled through per visit. 100% = user reached the bottom. Only measured for components taller than one screen — shorter ones show no value.">Scroll depth</Th>
+                <Th tip="Largest rendered height in px seen for this component — for an article, its full content height.">Height</Th>
+                <Th tip="Normal (non-rage, non-dead) clicks.">Clicks</Th>
+                <Th tip="Deliberate pointer hovers (≥200ms dwell).">Hovers</Th>
+                <Th tip="Rage clicks (3+ rapid clicks) — frustration signal.">Rage</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {monitored.map((m) => (
+                <MonitoredRow key={m.name} m={m} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JourneysSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Sampled user journeys
+          <InfoTip
+            anchor="left"
+            text="Full sessions sampled and ranked by a composite score (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function FeaturesSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Most-used features
+          <InfoTip
+            anchor="left"
+            text="Interactive elements ranked by raw click volume (successful clicks only — rage and dead clicks excluded). The buttons and features visitors actually use most."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function FeaturesCard({ topUsed }: { topUsed: TopInteraction[] }) {
+  return (
+    <div className={card}>
+      {topUsed.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+          No clicks captured yet — browse the site then refresh.
+        </p>
+      ) : (
+        <TopFeaturesTable
+          features={topUsed}
+          header={
+            <tr>
+              <Th align="left" tip="Component name (from data-component) or DOM selector. Sample text and selector shown beneath.">Element</Th>
+              <Th tip="Total successful (interactive) clicks across all pages.">Clicks</Th>
+              <Th tip="Distinct sessions that clicked this element.">Sessions</Th>
+              <Th tip="How many distinct pages this element was clicked on.">Pages</Th>
+            </tr>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function ElementsSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title={
+        <>
+          Interactions by element
+          <InfoTip
+            anchor="left"
+            text="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <PolishdMonitor> are listed separately under Monitored components."
+          />
+        </>
+      }
+    >
+      {children}
+    </Section>
+  );
+}
+
+function ElementsCard({ elements }: { elements: ElementStat[] }) {
+  return (
+    <div className={card}>
+      {elements.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+          No interactions captured yet — browse the site then refresh.
+        </p>
+      ) : (
+        <ElementsTable
+          elements={elements}
+          header={
+            <tr>
+              <Th align="left" tip="DOM selector path for the interacted element. Sample text shown beneath.">Element</Th>
+              <Th tip="rage×3 + dead×2 for this element across all pages.">Score</Th>
+              <Th tip="Normal (non-rage, non-dead) clicks.">Clicks</Th>
+              <Th tip="Rage clicks on this element.">Rage</Th>
+              <Th tip="Dead clicks on this element.">Dead</Th>
+              <Th tip="How many distinct pages this element appeared on.">Pages</Th>
+            </tr>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function RecentErrors({ errors }: { errors: RecentError[] }) {
+  if (errors.length === 0) return null;
+  return (
+    <Section title="Recent errors">
+      <div className={card}>
+        {errors.map((e, i) => (
+          <div key={i} className={i > 0 ? divider : ""}>
+            <div className="px-5 py-3">
+              {/* Errors the page can't claim as its own are dimmed rather
+                  than hidden: the classification is a judgement about
+                  where the code came from, so it's shown, not enforced. */}
+              <div
+                className={`font-mono text-[13px] ${e.origin ? "text-[#8a6a6a]" : "text-red-400"}`}
+              >
+                {e.message}
+              </div>
+              <div className="mt-0.5 text-[11px] text-[#555]">
+                {e.path}
+                {e.component ? ` · ${e.component}` : ""}
+                {e.origin === "foreign" ? " · not your code" : ""}
+                {e.origin === "unknown" ? " · unattributable" : ""}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ── Dashboard (presentational) ───────────────────────────────────────────────
+// Renders from a fully resolved dataset in one pass. `createPolishdPage()` no
+// longer uses this — it streams each section independently — but the component
+// remains for hosts that already load the data themselves.
+export function PolishdDashboard({
+  data,
+  ai,
+  showInstalls = false,
+  showIssues = false,
+}: {
+  data: PolishdDashboardData;
+  ai: PolishdAIBundle;
+  /** Forwarded to the chrome: whether this install collects telemetry. */
+  showInstalls?: boolean;
+  /** Forwarded to the chrome: whether a GitHub repo is connected. */
+  showIssues?: boolean;
+}) {
+  return (
+    <DashboardChrome active="analytics" showInstalls={showInstalls} showIssues={showIssues}>
+    <main className="text-white">
+      <AnalyticsHeader pill={<StatusPill ready={data.overview.ready} />} />
+      <StatusBanners overview={data.overview} health={data.health} />
 
       {/* AI summary — the model's story of how people use the site */}
       <SummaryCard
@@ -345,216 +634,315 @@ export function PolishdDashboard({
         sourceAvailable={ai.sourceAvailable}
       />
 
-      {/* Stats — every tile opens its own metric over time */}
-      <Section
-        title={
-          <>
-            Overview
-            <InfoTip
-              anchor="left"
-              text="All-time totals for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day."
-            />
-          </>
-        }
-      >
-        <OverviewStatTiles overview={overview} trends={trends} />
-      </Section>
-
-      {/* Device sizes */}
-      <Section
-        title={
-          <>
-            Device sizes
-            <InfoTip
-              anchor="left"
-              text="One viewport sample per session, taken at session start, bucketed by CSS width: mobile (<640px), tablet (640–1023px), desktop (≥1024px). Shows what screen size visitors actually use."
-            />
-          </>
-        }
-      >
-        <div className={card}>
-          {devices.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-              No viewport data yet — browse the site then refresh.
-            </p>
-          ) : (
-            devices.map((d) => <DeviceRow key={d.category} bucket={d} />)
-          )}
-        </div>
-      </Section>
-
-      {/* Top pages */}
-      <Section
-        title={
-          <>
-            Top pages
-            <InfoTip
-              anchor="left"
-              text="The most-visited routes, ranked by distinct sessions. Click a page to open a chart of its sessions over time."
-            />
-          </>
-        }
-      >
-        <TopPagesTable pages={pages} />
-      </Section>
-
-      {/* Monitored components */}
-      <Section
-        title={
-          <>
-            Monitored components
-            <InfoTip
-              anchor="left"
-              text="Components explicitly wrapped in <PolishdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
-            />
-          </>
-        }
-      >
-        <div className={card}>
-          {monitored.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-              No monitored components yet — wrap elements with{" "}
-              <code className="font-mono text-[#777]">{"<PolishdMonitor name=\"…\">"}</code> to track them here.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px]">
-                <thead>
-                  <tr>
-                    <Th align="left" tip="The name prop passed to <PolishdMonitor>. Sessions and pages shown beneath.">Component</Th>
-                    <Th tip="Times this region rendered (mount events). Only content-tracked monitors emit these.">Mounts</Th>
-                    <Th tip="Times this component entered the viewport for ≥500ms.">Views</Th>
-                    <Th tip="Average time visible per viewport visit — a proxy for reading/engagement time.">Avg time</Th>
-                    <Th tip="Average % of the component's height scrolled through per visit. 100% = user reached the bottom. Only measured for components taller than one screen — shorter ones show no value.">Scroll depth</Th>
-                    <Th tip="Largest rendered height in px seen for this component — for an article, its full content height.">Height</Th>
-                    <Th tip="Normal (non-rage, non-dead) clicks.">Clicks</Th>
-                    <Th tip="Deliberate pointer hovers (≥200ms dwell).">Hovers</Th>
-                    <Th tip="Rage clicks (3+ rapid clicks) — frustration signal.">Rage</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monitored.map((m) => (
-                    <MonitoredRow key={m.name} m={m} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </Section>
-
-      {/* Session journeys */}
-      <Section
-        title={
-          <>
-            Sampled user journeys
-            <InfoTip
-              anchor="left"
-              text="Full sessions sampled and ranked by a composite score (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
-            />
-          </>
-        }
-      >
-        <JourneyList journeys={journeys} />
-      </Section>
-
-      {/* Most-used features */}
-      <Section
-        title={
-          <>
-            Most-used features
-            <InfoTip
-              anchor="left"
-              text="Interactive elements ranked by raw click volume (successful clicks only — rage and dead clicks excluded). The buttons and features visitors actually use most."
-            />
-          </>
-        }
-      >
-        <div className={card}>
-          {topUsed.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-              No clicks captured yet — browse the site then refresh.
-            </p>
-          ) : (
-            <TopFeaturesTable
-              features={topUsed}
-              header={
-                <tr>
-                  <Th align="left" tip="Component name (from data-component) or DOM selector. Sample text and selector shown beneath.">Element</Th>
-                  <Th tip="Total successful (interactive) clicks across all pages.">Clicks</Th>
-                  <Th tip="Distinct sessions that clicked this element.">Sessions</Th>
-                  <Th tip="How many distinct pages this element was clicked on.">Pages</Th>
-                </tr>
-              }
-            />
-          )}
-        </div>
-      </Section>
-
-      {/* Element breakdown */}
-      <Section
-        title={
-          <>
-            Interactions by element
-            <InfoTip
-              anchor="left"
-              text="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <PolishdMonitor> are listed separately under Monitored components."
-            />
-          </>
-        }
-      >
-        <div className={card}>
-          {elements.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-              No interactions captured yet — browse the site then refresh.
-            </p>
-          ) : (
-            <ElementsTable
-              elements={elements}
-              header={
-                <tr>
-                  <Th align="left" tip="DOM selector path for the interacted element. Sample text shown beneath.">Element</Th>
-                  <Th tip="rage×3 + dead×2 for this element across all pages.">Score</Th>
-                  <Th tip="Normal (non-rage, non-dead) clicks.">Clicks</Th>
-                  <Th tip="Rage clicks on this element.">Rage</Th>
-                  <Th tip="Dead clicks on this element.">Dead</Th>
-                  <Th tip="How many distinct pages this element appeared on.">Pages</Th>
-                </tr>
-              }
-            />
-          )}
-        </div>
-      </Section>
-
-      {/* Recent errors */}
-      {errors.length > 0 && (
-        <Section title="Recent errors">
-          <div className={card}>
-            {errors.map((e, i) => (
-              <div key={i} className={i > 0 ? divider : ""}>
-                <div className="px-5 py-3">
-                  {/* Errors the page can't claim as its own are dimmed rather
-                      than hidden: the classification is a judgement about
-                      where the code came from, so it's shown, not enforced. */}
-                  <div
-                    className={`font-mono text-[13px] ${e.origin ? "text-[#8a6a6a]" : "text-red-400"}`}
-                  >
-                    {e.message}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-[#555]">
-                    {e.path}
-                    {e.component ? ` · ${e.component}` : ""}
-                    {e.origin === "foreign" ? " · not your code" : ""}
-                    {e.origin === "unknown" ? " · unattributable" : ""}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
+      <OverviewSection>
+        <OverviewStatTiles overview={data.overview} trends={data.trends} />
+      </OverviewSection>
+      <DevicesSection>
+        <DevicesCard devices={data.devices} />
+      </DevicesSection>
+      <PagesSection>
+        <TopPagesTable pages={data.pages} />
+      </PagesSection>
+      <MonitoredSection>
+        <MonitoredCard monitored={data.monitored} />
+      </MonitoredSection>
+      <JourneysSection>
+        <JourneyList journeys={data.journeys} />
+      </JourneysSection>
+      <FeaturesSection>
+        <FeaturesCard topUsed={data.topUsed} />
+      </FeaturesSection>
+      <ElementsSection>
+        <ElementsCard elements={data.elements} />
+      </ElementsSection>
+      <RecentErrors errors={data.errors} />
     </main>
     </DashboardChrome>
+  );
+}
+
+// ── Streaming render ─────────────────────────────────────────────────────────
+// The page used to await every query before sending a byte, so the whole tab
+// arrived at the speed of its slowest aggregate. Instead, each section below
+// is its own async server component behind its own Suspense boundary: the
+// chrome, header, and section titles stream out immediately, and each card
+// replaces its skeleton the moment its own data resolves. The per-request
+// cache in ./data keeps sections that share inputs from re-running queries.
+
+function CardSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className={`${card} animate-pulse overflow-hidden`} aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-4 border-t border-[#2e2e2e] px-5 py-3.5 first:border-t-0"
+        >
+          <div
+            className="h-3 flex-1 rounded bg-[#141414]"
+            style={{ maxWidth: `${70 - i * 12}%` }}
+          />
+          <div className="h-3 w-12 shrink-0 rounded bg-[#141414]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TileGridSkeleton() {
+  return (
+    <div
+      className="grid animate-pulse grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+      aria-hidden="true"
+    >
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className={`${card} px-4 py-4`}>
+          <div className="h-6 w-14 rounded bg-[#1a1a1a]" />
+          <div className="mt-3 h-2.5 w-16 rounded bg-[#141414]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SummarySkeleton() {
+  return (
+    <section
+      className={`mb-8 ${card} animate-pulse overflow-hidden px-4 py-5 sm:px-5`}
+      aria-hidden="true"
+    >
+      <div className="h-3 w-32 rounded bg-[#1a1a1a]" />
+      <div className="mt-4 space-y-2">
+        <div className="h-3 w-full rounded bg-[#141414]" />
+        <div className="h-3 w-[92%] rounded bg-[#141414]" />
+        <div className="h-3 w-[68%] rounded bg-[#141414]" />
+      </div>
+    </section>
+  );
+}
+
+function PillSkeleton() {
+  return (
+    <div
+      className="h-6 w-24 shrink-0 animate-pulse rounded-full bg-[#141414]"
+      aria-hidden="true"
+    />
+  );
+}
+
+async function StatusPillData() {
+  const overview = await loadOverview();
+  return <StatusPill ready={overview.ready} />;
+}
+
+async function StatusBannersData() {
+  const [overview, health] = await Promise.all([loadOverview(), loadHealth()]);
+  return <StatusBanners overview={overview} health={health} />;
+}
+
+async function SummaryData() {
+  // The summary genuinely needs the whole dataset (its staleness fingerprint
+  // hashes it), so this is the one section that waits for everything — behind
+  // its own boundary, where it can't hold up the sections around it.
+  const data = await loadDashboardData();
+  const [summaryState, settings, profileState] = await Promise.all([
+    loadSummaryState(data),
+    getAISettingsPublic(),
+    loadProfileState(data),
+  ]);
+
+  // Cadence-based auto-refresh: when the owner opted into daily/weekly and
+  // the summary is both past its cadence AND built from different data,
+  // regenerate in the background after this response is sent. Unchanged data
+  // never triggers a model call, so the cadence only spends tokens when
+  // there's genuinely new behavior to narrate.
+  const cadence = settings.refreshCadence ?? "manual";
+  if (
+    cadence !== "manual" &&
+    settings.hasApiKey &&
+    data.overview.ready &&
+    data.overview.totalEvents > 0
+  ) {
+    const cadenceMs = cadence === "daily" ? 86_400_000 : 604_800_000;
+    const due =
+      summaryState.summary === null ||
+      (summaryState.stale &&
+        Date.now() - summaryState.summary.generatedAt > cadenceMs);
+    if (due) {
+      after(async () => {
+        try {
+          await generateSummary();
+        } catch (err) {
+          console.warn("[polishd] scheduled summary refresh failed:", err);
+        }
+      });
+    }
+  }
+
+  return (
+    <SummaryCard
+      initialSummary={summaryState.summary}
+      initialSettings={settings}
+      initialStale={summaryState.stale}
+      initialProfile={profileState.profile}
+      initialGaps={profileState.gaps}
+      sourceAvailable={profileState.sourceAvailable}
+    />
+  );
+}
+
+async function OverviewData() {
+  const [overview, trends] = await Promise.all([loadOverview(), loadTrends()]);
+  return <OverviewStatTiles overview={overview} trends={trends} />;
+}
+
+async function DevicesData() {
+  return <DevicesCard devices={await loadDevices()} />;
+}
+
+async function PagesData() {
+  return <TopPagesTable pages={await loadPages()} />;
+}
+
+async function MonitoredData() {
+  return <MonitoredCard monitored={await loadMonitored()} />;
+}
+
+async function JourneysData() {
+  return <JourneyList journeys={await loadJourneys()} />;
+}
+
+async function FeaturesData() {
+  return <FeaturesCard topUsed={await loadTopUsed()} />;
+}
+
+async function ElementsData() {
+  return <ElementsCard elements={await loadElements()} />;
+}
+
+async function ErrorsData() {
+  return <RecentErrors errors={await loadErrors()} />;
+}
+
+/** The analytics tab, streamed section by section. */
+function AnalyticsStream() {
+  return (
+    <main className="text-white">
+      <AnalyticsHeader
+        pill={
+          <Suspense fallback={<PillSkeleton />}>
+            <StatusPillData />
+          </Suspense>
+        }
+      />
+      {/* Banners have no skeleton: most renders show none, and a placeholder
+          would promise a warning that usually isn't coming. */}
+      <Suspense fallback={null}>
+        <StatusBannersData />
+      </Suspense>
+
+      <Suspense fallback={<SummarySkeleton />}>
+        <SummaryData />
+      </Suspense>
+
+      <OverviewSection>
+        <Suspense fallback={<TileGridSkeleton />}>
+          <OverviewData />
+        </Suspense>
+      </OverviewSection>
+      <DevicesSection>
+        <Suspense fallback={<CardSkeleton rows={3} />}>
+          <DevicesData />
+        </Suspense>
+      </DevicesSection>
+      <PagesSection>
+        <Suspense fallback={<CardSkeleton />}>
+          <PagesData />
+        </Suspense>
+      </PagesSection>
+      <MonitoredSection>
+        <Suspense fallback={<CardSkeleton rows={3} />}>
+          <MonitoredData />
+        </Suspense>
+      </MonitoredSection>
+      <JourneysSection>
+        <Suspense fallback={<CardSkeleton />}>
+          <JourneysData />
+        </Suspense>
+      </JourneysSection>
+      <FeaturesSection>
+        <Suspense fallback={<CardSkeleton />}>
+          <FeaturesData />
+        </Suspense>
+      </FeaturesSection>
+      <ElementsSection>
+        <Suspense fallback={<CardSkeleton />}>
+          <ElementsData />
+        </Suspense>
+      </ElementsSection>
+      <Suspense fallback={null}>
+        <ErrorsData />
+      </Suspense>
+    </main>
+  );
+}
+
+// ── The other tabs, each loading behind the chrome ───────────────────────────
+
+async function DesignTabData() {
+  const [design, settings, snapshots, captureIssue] = await Promise.all([
+    getDesignData(),
+    getAISettingsPublic(),
+    listSnapshots(),
+    snapshotCaptureIssue(),
+  ]);
+  const reviewState = await loadDesignReviewState(design);
+  return (
+    <DesignPanel
+      data={design}
+      review={reviewState.review}
+      reviewStale={reviewState.stale}
+      settings={settings}
+      snapshots={snapshots}
+      captureIssue={captureIssue}
+    />
+  );
+}
+
+async function IssuesTabData({ connected }: { connected: boolean }) {
+  // Reachable by URL with nothing connected, in which case the listing is
+  // empty and the view says how to fix that.
+  const [issues, settings] = await Promise.all([
+    listFiledIssues(),
+    getAISettingsPublic(),
+  ]);
+  return <IssuesView issues={issues} repo={settings.githubRepo} connected={connected} />;
+}
+
+async function InstallsTabData() {
+  const [installs, topPaths] = await Promise.all([
+    getTelemetryInstalls(),
+    getTelemetryTopPaths(),
+  ]);
+  return <InstallsView installs={installs} topPaths={topPaths} />;
+}
+
+async function SettingsTabData() {
+  // `loadProfileState` only reads component identifiers out of the dashboard
+  // data, so this tab loads those two queries rather than the whole analytics
+  // set it would otherwise never look at.
+  const [settings, monitored, topUsed] = await Promise.all([
+    getAISettingsPublic(),
+    loadMonitored(),
+    loadTopUsed(),
+  ]);
+  const profileState = await loadProfileState({ monitored, topUsed });
+  return (
+    <SettingsView
+      initialSettings={settings}
+      initialProfile={profileState.profile}
+      initialGaps={profileState.gaps}
+      sourceAvailable={profileState.sourceAvailable}
+    />
   );
 }
 
@@ -877,139 +1265,44 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
     // Which tab to render, from the `?tab=` query the sidebar links carry.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
+    const tab: PolishdDashboardTab =
+      rawTab === "design" || rawTab === "issues" || rawTab === "installs" || rawTab === "settings"
+        ? rawTab
+        : "analytics";
 
-    if (rawTab === "design") {
-      const [design, settings, snapshots, captureIssue] = await Promise.all([
-        getDesignData(),
-        getAISettingsPublic(),
-        listSnapshots(),
-        snapshotCaptureIssue(),
-      ]);
-      const reviewState = await loadDesignReviewState(design);
-      return wrap(
-        <>
-          <DashboardChrome active="design" showInstalls={showInstalls} showIssues={showIssues}>
-            <DesignPanel
-              data={design}
-              review={reviewState.review}
-              reviewStale={reviewState.stale}
-              settings={settings}
-              snapshots={snapshots}
-              captureIssue={captureIssue}
-            />
-          </DashboardChrome>
-          {telemetryUi}
-        </>,
+    // Every tab streams: the chrome and rail go out immediately, and the
+    // tab's data loads behind a Suspense boundary showing the same skeleton
+    // the client paints while navigating — so a slow query never blanks the
+    // frame, it just holds the skeleton a beat longer.
+    const body =
+      tab === "design" ? (
+        <Suspense fallback={<TabSkeleton name="Design" />}>
+          <DesignTabData />
+        </Suspense>
+      ) : tab === "issues" ? (
+        <Suspense fallback={<TabSkeleton name="Issues" />}>
+          <IssuesTabData connected={showIssues} />
+        </Suspense>
+      ) : tab === "installs" ? (
+        <Suspense fallback={<TabSkeleton name="Installs" />}>
+          <InstallsTabData />
+        </Suspense>
+      ) : tab === "settings" ? (
+        <Suspense fallback={<TabSkeleton name="Settings" />}>
+          <SettingsTabData />
+        </Suspense>
+      ) : (
+        // Analytics carries per-section boundaries instead of one big one, so
+        // its header and section titles paint before any query has finished
+        // and each card fills in on its own schedule.
+        <AnalyticsStream />
       );
-    }
-
-    if (rawTab === "issues") {
-      // Reachable by URL with nothing connected, in which case the listing is
-      // empty and the view says how to fix that.
-      const [issues, settings] = await Promise.all([
-        listFiledIssues(),
-        getAISettingsPublic(),
-      ]);
-      return wrap(
-        <>
-          <DashboardChrome active="issues" showInstalls={showInstalls} showIssues={showIssues}>
-            <IssuesView issues={issues} repo={settings.githubRepo} connected={showIssues} />
-          </DashboardChrome>
-          {telemetryUi}
-        </>,
-      );
-    }
-
-    if (rawTab === "installs") {
-      const [installs, topPaths] = await Promise.all([
-        getTelemetryInstalls(),
-        getTelemetryTopPaths(),
-      ]);
-      return wrap(
-        <>
-          <DashboardChrome active="installs" showInstalls={showInstalls} showIssues={showIssues}>
-            <InstallsView installs={installs} topPaths={topPaths} />
-          </DashboardChrome>
-          {telemetryUi}
-        </>,
-      );
-    }
-
-    if (rawTab === "settings") {
-      // `loadProfileState` only reads component identifiers out of the
-      // dashboard data, so this tab loads those two queries rather than the
-      // whole analytics set it would otherwise never look at.
-      const [settings, monitored, topUsed] = await Promise.all([
-        getAISettingsPublic(),
-        getMonitoredComponents(),
-        getTopInteractions(),
-      ]);
-      const profileState = await loadProfileState({ monitored, topUsed });
-      return wrap(
-        <>
-          <DashboardChrome active="settings" showInstalls={showInstalls} showIssues={showIssues}>
-            <SettingsView
-              initialSettings={settings}
-              initialProfile={profileState.profile}
-              initialGaps={profileState.gaps}
-              sourceAvailable={profileState.sourceAvailable}
-            />
-          </DashboardChrome>
-          {telemetryUi}
-        </>,
-      );
-    }
-
-    const data = await loadPolishdDashboardData();
-    const [summaryState, settings, profileState] = await Promise.all([
-      loadSummaryState(data),
-      getAISettingsPublic(),
-      loadProfileState(data),
-    ]);
-
-    // Cadence-based auto-refresh: when the owner opted into daily/weekly and
-    // the summary is both past its cadence AND built from different data,
-    // regenerate in the background after this response is sent. Unchanged data
-    // never triggers a model call, so the cadence only spends tokens when
-    // there's genuinely new behavior to narrate.
-    const cadence = settings.refreshCadence ?? "manual";
-    if (
-      cadence !== "manual" &&
-      settings.hasApiKey &&
-      data.overview.ready &&
-      data.overview.totalEvents > 0
-    ) {
-      const cadenceMs = cadence === "daily" ? 86_400_000 : 604_800_000;
-      const due =
-        summaryState.summary === null ||
-        (summaryState.stale &&
-          Date.now() - summaryState.summary.generatedAt > cadenceMs);
-      if (due) {
-        after(async () => {
-          try {
-            await generateSummary();
-          } catch (err) {
-            console.warn("[polishd] scheduled summary refresh failed:", err);
-          }
-        });
-      }
-    }
 
     return wrap(
       <>
-        <PolishdDashboard
-          data={data}
-          showInstalls={showInstalls}
-          showIssues={showIssues}
-          ai={{
-            summary: summaryState.summary,
-            settings,
-            stale: summaryState.stale,
-            profile: profileState.profile,
-            gaps: profileState.gaps,
-            sourceAvailable: profileState.sourceAvailable,
-          }}
-        />
+        <DashboardChrome active={tab} showInstalls={showInstalls} showIssues={showIssues}>
+          {body}
+        </DashboardChrome>
         {telemetryUi}
       </>,
     );

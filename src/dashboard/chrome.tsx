@@ -234,8 +234,12 @@ export default function DashboardChrome({
  * grid, a list — rather than a per-tab replica. A skeleton that mirrors the
  * real layout too closely reads as a broken render when the real thing lands
  * slightly different; this one reads as "loading" and gets out of the way.
+ *
+ * Exported so the server page can reuse it as the Suspense fallback while a
+ * tab's data streams in — the same skeleton the client shows on click, so the
+ * handoff from "navigating" to "loading data" is invisible.
  */
-function TabSkeleton({ name }: { name: string }) {
+export function TabSkeleton({ name }: { name: string }) {
   return (
     <div className="animate-pulse text-white">
       <span className="sr-only" role="status">
