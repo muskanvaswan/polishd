@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### Issues open in a drawer, rendered as the markdown they are
+
+An issue body on the Issues tab used to be a raw `<pre>` dump behind a
+"Show issue body" toggle — real GitHub-flavored markdown, displayed as if it
+weren't. Clicking a row now opens a **right-side drawer** (the same pattern as
+the sampled user journeys) with the full issue: title, state, the metadata
+GitHub reports, the analytics evidence polishd kept, and the body **rendered
+as markdown** — headings, code, linked file lists, tables, task lists,
+screenshots.
+
+- The renderer is written in-house (`src/dashboard/markdown-parse.ts` +
+  `markdown.tsx`): the package's zero-runtime-dependency rule rules out
+  `react-markdown`, and the GFM subset that actually appears in issues is
+  small enough to own. Single newlines are hard breaks, the way GitHub
+  renders issue comments, and anything unrecognized degrades to plain
+  paragraph text rather than ever crashing. The grammar is pinned down by
+  its own test file.
+- Rows are still links to the tracker — the title goes to GitHub, the row
+  goes to the drawer.
+
+### The drawer can suggest the fix, not just show the bug
+
+With the GitHub codebase connected, every filed issue carries a **"Suggest a
+fix"** button. One click asks the configured model to first **classify the
+bug — an interaction issue (something users do fails) or a design issue
+(something users see is wrong)** — and then design a fix on the published
+practice for that class: Nielsen Norman's usability heuristics and the
+WAI-ARIA Authoring Practices for interaction bugs; WCAG 2.2 contrast rules,
+spacing rhythm, and layout-stability guidance for design bugs.
+
+- The suggestion is grounded in the repository's real source: the pipeline
+  re-reads the files the issue body cites, code-searches the analytics
+  evidence, and answers with an **implementation path** — ordered,
+  file-by-file edits, each path linking to the file on GitHub — plus
+  "grounded in" chips naming the guidelines it leaned on, so the advice can
+  be judged by its sources.
+- Suggestions are cached per issue in the store and load with the tab;
+  regenerating is one click. Nothing is offered without a model key, and an
+  issue polishd didn't file is refused — there's no evidence to ground.
+
 ### Design-review issues can be filed as bugs
 
 The aesthetic review's "Breaking the system" list used to be read-only; the

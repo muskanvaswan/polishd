@@ -145,6 +145,23 @@ const INVESTIGATE_FORMAT =
   "reasoning: one or two sentences on how you reached the verdict — shown to " +
   "the site owner when the report is rejected or unverifiable.";
 
+/**
+ * The local record behind one filed issue number — the citation and claim
+ * GitHub was never told. The fix pipeline (`fix.ts`) uses it to search the
+ * source for the right element, and its absence is how a number that isn't
+ * ours gets refused.
+ */
+export async function findFiledIssue(
+  number: number,
+): Promise<{ evidence: string; claim?: string } | null> {
+  for (const [evidence, entry] of Object.entries(await loadIssueLog())) {
+    if (!("rejected" in entry) && entry.number === number) {
+      return { evidence, claim: entry.issue };
+    }
+  }
+  return null;
+}
+
 const INVESTIGATE_PROMPTS: Record<Report["kind"], string> = {
   loss:
     "You are a senior engineer verifying a suspected bug before it enters the " +
@@ -164,7 +181,7 @@ const INVESTIGATE_PROMPTS: Record<Report["kind"], string> = {
 };
 
 /** Terms specific enough to search code for (same spirit as citationTokens). */
-function searchTerms(evidence: string): string[] {
+export function evidenceSearchTerms(evidence: string): string[] {
   return [
     ...new Set(
       evidence
@@ -187,7 +204,7 @@ async function collectSource(
 ): Promise<{ path: string; content: string }[]> {
   const paths: string[] = [];
   if (report.location) paths.push(report.location);
-  for (const p of await searchGithubCode(searchTerms(report.evidence), MAX_FILES)) {
+  for (const p of await searchGithubCode(evidenceSearchTerms(report.evidence), MAX_FILES)) {
     if (!paths.includes(p)) paths.push(p);
   }
   const out: { path: string; content: string }[] = [];

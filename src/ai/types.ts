@@ -306,6 +306,60 @@ export interface PolishdFiledIssue {
   detail: PolishdGithubIssue | null;
 }
 
+// ── Fix suggestions ──────────────────────────────────────────────────────────
+
+/**
+ * The two failure classes a filed issue falls into, which decide the practice
+ * the fix leans on: an interaction issue (something users do fails — dead
+ * handlers, broken flows, errors) draws on usability and ARIA authoring
+ * practice; a design issue (something users see is wrong — contrast,
+ * hierarchy, spacing, layout shift) draws on WCAG and visual-rhythm practice.
+ */
+export type PolishdFixBugType = "interaction" | "design";
+
+/** One ordered step of the implementation path: a file, and the edit to it. */
+export interface PolishdFixStep {
+  /** Repository path of the file to change. */
+  path: string;
+  /** The edit, in one to three sentences. */
+  change: string;
+}
+
+/**
+ * A model-proposed fix for one filed issue, grounded in the repository's
+ * actual source and in published practice. Cached per issue number — the
+ * source and the issue rarely change under it, and a regenerate is always one
+ * click away.
+ */
+export interface PolishdFixSuggestion {
+  issueNumber: number;
+  bugType: PolishdFixBugType;
+  /** Why the bug was classed the way it was, one sentence. */
+  classification: string;
+  /** The fix itself, written for the implementing developer. Markdown. */
+  approach: string;
+  /** The implementation path, in order. */
+  steps: PolishdFixStep[];
+  /** Named guidelines the fix leans on, e.g. "WCAG 2.2 §1.4.3 contrast". */
+  practices: string[];
+  /** Repo paths the model was shown. */
+  files: string[];
+  provider: PolishdAIProvider;
+  model: string;
+  generatedAt: number;
+}
+
+/** Result of asking for (or regenerating) a fix suggestion. */
+export type SuggestFixResult =
+  | { ok: true; suggestion: PolishdFixSuggestion; regenerated: boolean }
+  | { ok: false; error: SuggestFixError; message: string };
+
+export type SuggestFixError =
+  | "not-connected" // no GitHub repository configured
+  | "no-key" // no model API key configured
+  | "not-found" // the issue number isn't one polishd filed
+  | "provider-error"; // the model call failed or returned nothing usable
+
 // ── Model listing ────────────────────────────────────────────────────────────
 
 /** Result of asking a provider which models are available to the configured key. */
