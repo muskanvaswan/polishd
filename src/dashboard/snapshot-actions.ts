@@ -51,6 +51,29 @@ async function resolveSiteOrigin(): Promise<string | null> {
 }
 
 /**
+ * A denial, phrased for the error box. The capture actions return this rather
+ * than letting `PolishdUnauthorizedError` propagate: a thrown error reaches
+ * the dashboard as an opaque digest, while the capture UI renders a returned
+ * message. The denial itself is unchanged — no work happens.
+ */
+const DENIED = {
+  ok: false as const,
+  message:
+    "This dashboard session isn't authorized to capture. Reload the dashboard " +
+    "— if it asks you to unlock again, do so — then retry.",
+};
+
+/** True when the caller may proceed; false is a denial. */
+async function authorized(): Promise<boolean> {
+  try {
+    await requirePolishdAuth();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Capture is chunked into one action call per route — begin, then one
  * `captureSnapshotRouteAction` per returned route, then finish — so no single
  * request has to outlive a serverless host's function time limit. The client
@@ -62,7 +85,7 @@ async function resolveSiteOrigin(): Promise<string | null> {
  * an opaque digest, while a returned message renders in the card.
  */
 export async function beginSnapshotCaptureAction(): Promise<BeginSnapshotResult> {
-  await requirePolishdAuth();
+  if (!(await authorized())) return DENIED;
 
   try {
     const origin = await resolveSiteOrigin();
@@ -75,27 +98,37 @@ export async function beginSnapshotCaptureAction(): Promise<BeginSnapshotResult>
       };
     }
 
-    const data = await getDesignData();
-    const dashboardRoute = resolveDashboardRoute();
-    // Shoot what visitors have actually rendered, never the dashboard itself
-    // (nor the telemetry pseudo-paths the collector namespaces under /~polishd).
-    const scanned = data.pages
-      .map((p) => p.path)
-      .filter(
-        (p) => p.startsWith("/") && !p.startsWith("/~") && !isDashboardPath(p, dashboardRoute),
-      );
-    const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
-
-    // Stamp the snapshot with the same metrics fingerprint the AI review caches
-    // under, so "taken before/after this round of changes" is a hash comparison.
+    // The scanned-page list and the fingerprint are both nice-to-haves from
+    // the design data; a database hiccup here must not sink the capture, so
+    // they degrade to shooting the root with no fingerprint.
+    let routes = ["/"];
     let fingerprint: string | null = null;
-    if (data.ready && data.pages.length > 0) {
-      const { settings } = await resolveSettings();
-      fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
+    try {
+      const data = await getDesignData();
+      const dashboardRoute = resolveDashboardRoute();
+      // Shoot what visitors have actually rendered, never the dashboard itself
+      // (nor the telemetry pseudo-paths the collector namespaces under /~polishd).
+      const scanned = data.pages
+        .map((p) => p.path)
+        .filter(
+          (p) => p.startsWith("/") && !p.startsWith("/~") && !isDashboardPath(p, dashboardRoute),
+        );
+      routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
+
+      // Stamp the snapshot with the same metrics fingerprint the AI review
+      // caches under, so "taken before/after this round of changes" is a hash
+      // comparison.
+      if (data.ready && data.pages.length > 0) {
+        const { settings } = await resolveSettings();
+        fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
+      }
+    } catch (err) {
+      console.error("[polishd] snapshot route planning failed, shooting / only:", err);
     }
 
     return await beginSnapshot({ origin, routes, fingerprint });
   } catch (err) {
+    console.error("[polishd] beginSnapshotCaptureAction failed:", err);
     return {
       ok: false,
       message: `Snapshot capture failed unexpectedly: ${
@@ -110,10 +143,11 @@ export async function captureSnapshotRouteAction(
   id: string,
   route: string,
 ): Promise<CaptureRouteResult> {
-  await requirePolishdAuth();
+  if (!(await authorized())) return DENIED;
   try {
     return await captureSnapshotRoute(id, route);
   } catch (err) {
+    console.error("[polishd] captureSnapshotRouteAction failed:", err);
     return {
       ok: false,
       message: `Screenshot capture failed unexpectedly: ${
@@ -127,10 +161,11 @@ export async function captureSnapshotRouteAction(
 export async function finishSnapshotCaptureAction(
   id: string,
 ): Promise<CaptureSnapshotResult> {
-  await requirePolishdAuth();
+  if (!(await authorized())) return DENIED;
   try {
     return await finishSnapshot(id);
   } catch (err) {
+    console.error("[polishd] finishSnapshotCaptureAction failed:", err);
     return {
       ok: false,
       message: `The snapshot couldn't be recorded: ${

@@ -75,6 +75,35 @@ export function registerPolishdAuth(next: PolishdAuthPolicy): void {
 }
 
 /**
+ * The policy the environment alone determines, for runtimes where no page
+ * module has registered one. On a serverless host that is a normal state, not
+ * a broken flow: an action POST can be served by a fresh instance that loads
+ * the action's module without ever evaluating the host's `page.tsx`, so
+ * waiting for `createPolishdPage()` to register would deny the dashboard's
+ * own legitimate calls. Everything the built-in modes need is in the
+ * environment — the token gate reads `POLISHD_DASHBOARD_TOKEN` and a cookie,
+ * and the public opt-out is an env var — so this derives exactly what
+ * `resolvePolicy()` would have registered for them. A host's custom
+ * `authenticate` callback is code and cannot be derived; without a token
+ * alongside it, a production instance in this state still fails closed.
+ */
+async function envPolicy(): Promise<PolishdAuthPolicy> {
+  const { polishdDashboardToken, polishdTokenAuth } = await import(
+    "../dashboard/token-auth"
+  );
+  if (polishdDashboardToken()) {
+    return { mode: "guarded", authenticate: polishdTokenAuth() };
+  }
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.POLISHD_DASHBOARD_PUBLIC !== "true"
+  ) {
+    return { mode: "setup-required" };
+  }
+  return { mode: "open" };
+}
+
+/**
  * Thrown when an action is invoked without authorization. Next replaces the
  * message with an opaque digest in production, so nothing leaks to the caller.
  */
@@ -91,16 +120,17 @@ export class PolishdUnauthorizedError extends Error {
  * open the gate.
  */
 export async function requirePolishdAuth(): Promise<void> {
-  // No dashboard page registered a policy in this runtime: deny rather than
-  // guess. Reaching an action without the page module loaded is not a flow the
-  // dashboard produces.
-  if (!policy) throw new PolishdUnauthorizedError();
-  if (policy.mode === "setup-required") throw new PolishdUnauthorizedError();
-  if (policy.mode === "open") return;
+  // A registered policy wins — it may carry the host's own `authenticate`.
+  // Without one (a fresh serverless instance serving an action POST before
+  // anything evaluated the host's page module), fall back to what the
+  // environment alone determines. See `envPolicy`.
+  const effective = policy ?? (await envPolicy());
+  if (effective.mode === "setup-required") throw new PolishdUnauthorizedError();
+  if (effective.mode === "open") return;
 
   let ok = false;
   try {
-    ok = await policy.authenticate(await polishdAuthContext());
+    ok = await effective.authenticate(await polishdAuthContext());
   } catch (err) {
     console.warn(
       "[polishd] authenticate() threw during an action call, denying:",

@@ -142,6 +142,21 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
   // time — hide the toggle rather than offering an empty view.
   const effectiveTheme = selected?.noDarkMode ? "light" : theme;
 
+  // What a rejected action call can tell us, phrased for the error box. In
+  // production Next masks a thrown server error to a generic message plus a
+  // digest — the digest is the correlation id to grep the host's function
+  // logs for, so it is worth surfacing. A transport-level death (the function
+  // killed at its time limit, a network drop) has no digest and keeps its
+  // fetch-layer message.
+  const describeRejection = (err: unknown): string => {
+    console.error("[polishd] capture action rejected:", err);
+    if (err instanceof Error) {
+      const digest = (err as { digest?: string }).digest;
+      return `${err.message}${digest ? ` [digest ${digest}]` : ""}`;
+    }
+    return String(err);
+  };
+
   const capture = () => {
     setError(null);
     startCapture(async () => {
@@ -165,11 +180,9 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
               failed.push(route);
               failure = res.message;
             }
-          } catch {
+          } catch (err) {
             failed.push(route);
-            failure =
-              "the request failed mid-shoot — usually a serverless function " +
-              "time limit; the host's function logs will name the exact failure";
+            failure = `the request died mid-shoot: ${describeRejection(err)}`;
           }
           setProgress({ done: i + 1, total: begun.routes.length });
         }
@@ -190,10 +203,11 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
         } else {
           setError(failure ? `Capture failed: ${failure}.` : fin.message);
         }
-      } catch {
+      } catch (err) {
         setError(
-          "The capture failed before a result came back — your host's function " +
-            "logs will name the exact failure.",
+          `The capture request itself failed: ${describeRejection(err)}. ` +
+            "The same error is in the browser console, and your host's function " +
+            "logs have the server side of it.",
         );
       } finally {
         setProgress(null);

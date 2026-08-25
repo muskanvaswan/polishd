@@ -25,6 +25,20 @@ request itself was the problem.
 - `polishd init` now writes `export const maxDuration = 300` into the
   dashboard page it generates, and the docs recommend it — headroom for heavy
   pages on hosts with strict limits, no longer a requirement.
+- **A failed capture call now names its error.** The error box carries the
+  rejection's message and Next's error digest (the id to grep the host's
+  function logs for) instead of a generic "check your logs", the browser
+  console gets the full error, and the server logs every capture-action
+  failure under a `[polishd]` prefix.
+- **The action guard no longer depends on the page module having loaded.**
+  When no policy is registered in the runtime — possible on serverless hosts
+  serving an action POST cold — it now derives the same policy from the
+  environment (token mode, public opt-out, or locked), instead of denying a
+  legitimate dashboard session. A genuine denial reads as a message in the
+  capture UI rather than an opaque digest.
+- Planning a capture no longer depends on the design data being readable:
+  if those queries fail, the capture shoots `/` with no fingerprint instead
+  of failing outright.
 
 ### The dashboard streams instead of loading all at once
 
