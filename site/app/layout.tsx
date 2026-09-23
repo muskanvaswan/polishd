@@ -1,17 +1,26 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { JetBrains_Mono, Overpass } from "next/font/google";
+
+// Open Sauce One — everything that isn't the wordmark or code.
+import "@fontsource/open-sauce-one/400.css";
+import "@fontsource/open-sauce-one/500.css";
+import "@fontsource/open-sauce-one/600.css";
+import "@fontsource/open-sauce-one/700.css";
 
 import "./globals.css";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
 
 const mono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono-face",
+  display: "swap",
+});
+
+// The wordmark face. Overpass is the open-source digitisation of Highway
+// Gothic — the US road-signage alphabet — which "Highway" fonts derive from.
+const highway = Overpass({
+  subsets: ["latin"],
+  weight: ["700", "800"],
+  variable: "--font-highway-face",
   display: "swap",
 });
 
@@ -39,7 +48,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${mono.variable}`}>
+    <html lang="en" className={`${highway.variable} ${mono.variable}`}>
       <body className="font-sans">
         {/* Scroll reveal starts hidden — without JS it would never un-hide. */}
         <noscript>
