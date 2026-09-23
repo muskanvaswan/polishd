@@ -23,6 +23,8 @@ export const ghostBtn =
   "rounded-md border border-[#2e2e2e] px-2.5 py-1.5 text-[12px] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
 export const iconBtn =
   "flex h-7 w-7 items-center justify-center rounded-md border border-[#2e2e2e] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+export const microBtn =
+  "rounded border border-[#2e2e2e] px-1.5 py-0.5 text-[10px] text-[#888] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
 
 /** "3m ago" — coarse on purpose; these timestamps are context, not data. */
 export function relTime(ms: number): string {

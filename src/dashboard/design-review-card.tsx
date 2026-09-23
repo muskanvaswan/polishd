@@ -11,15 +11,17 @@
  *  • `DesignReviewCard` — the AI's aesthetic read of those metrics. Rendered
  *    from the cached review handed down by the server; a model is only called
  *    on the explicit refresh action. Uses the same provider/model/key the
- *    owner configured for the analytics summary.
+ *    owner configured for the analytics summary. When GitHub is connected,
+ *    each issue carries the same "file bug" button as the summary's losses.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { generateDesignReviewAction } from "../ai/actions";
+import { createIssueFromDesignIssueAction, generateDesignReviewAction } from "../ai/actions";
 import type { PolishdDesignIssue, PolishdDesignReview } from "../ai/types";
 import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
+import { FileBugButton } from "./file-bug-button";
 import { RefreshIcon, border, card, iconBtn, labelCls, primaryBtn, relTime } from "./ui";
 
 /** Re-run the deterministic metrics: refresh the server render in place. */
@@ -49,6 +51,8 @@ export interface DesignReviewCardProps {
   model: string;
   /** Pages with a design scan — 0 disables generation with a hint. */
   scannedPages: number;
+  /** True when a GitHub repo + token are configured — enables "File bug". */
+  githubConnected: boolean;
 }
 
 /** The model's aesthetic read of the measured design system. */
@@ -59,6 +63,7 @@ export default function DesignReviewCard({
   provider,
   model,
   scannedPages,
+  githubConnected,
 }: DesignReviewCardProps) {
   const [review, setReview] = useState<PolishdDesignReview | null>(initialReview);
   const [stale, setStale] = useState(initialStale);
@@ -122,7 +127,11 @@ export default function DesignReviewCard({
             <p className="text-[14px] leading-relaxed text-[#e4e4e4]">
               <Annotated text={review.text} />
             </p>
-            <StrengthsIssues strengths={review.strengths} issues={review.issues} />
+            <StrengthsIssues
+              strengths={review.strengths}
+              issues={review.issues}
+              githubConnected={githubConnected}
+            />
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
               <span>
                 Generated {relTime(review.generatedAt)} · {review.provider}/{review.model}
@@ -168,9 +177,11 @@ export default function DesignReviewCard({
 function StrengthsIssues({
   strengths,
   issues,
+  githubConnected,
 }: {
   strengths: PolishdDesignReview["strengths"];
   issues: PolishdDesignReview["issues"];
+  githubConnected: boolean;
 }) {
   const hasStrengths = !!strengths?.length;
   const hasIssues = !!issues?.length;
@@ -208,6 +219,25 @@ function StrengthsIssues({
                     {iss.suggestion && (
                       <span className="rounded bg-[#101c14] px-2 py-1 text-[12px] leading-relaxed text-emerald-400">
                         → <Annotated text={iss.suggestion} />
+                      </span>
+                    )}
+                    {(githubConnected || !!iss.issueUrl) && (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <FileBugButton
+                          dataComponent="design-file-bug"
+                          filed={
+                            iss.issueUrl
+                              ? { url: iss.issueUrl, number: iss.issueNumber ?? 0 }
+                              : null
+                          }
+                          file={() =>
+                            createIssueFromDesignIssueAction({
+                              issue: iss.issue,
+                              evidence: iss.evidence,
+                              suggestion: iss.suggestion,
+                            })
+                          }
+                        />
                       </span>
                     )}
                   </span>

@@ -23,8 +23,12 @@ import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
 import {
   MAX_SNAPSHOT_ROUTES,
-  captureSnapshot,
+  beginSnapshot,
+  captureSnapshotRoute,
+  finishSnapshot,
   readSnapshotImage,
+  type BeginSnapshotResult,
+  type CaptureRouteResult,
   type CaptureSnapshotResult,
 } from "../server/snapshots";
 
@@ -47,41 +51,93 @@ async function resolveSiteOrigin(): Promise<string | null> {
 }
 
 /**
- * Shoot the site as it stands: every scanned route (the pages real visitors
- * actually rendered), phone and desktop, light and dark. Long-running — a
- * dozen routes takes on the order of a minute.
+ * Capture is chunked into one action call per route — begin, then one
+ * `captureSnapshotRouteAction` per returned route, then finish — so no single
+ * request has to outlive a serverless host's function time limit. The client
+ * drives the loop; every per-route call is validated against the plan the
+ * begin call parked server-side, so the client contributes nothing but ids.
+ *
+ * Everything after auth reduces to a message rather than a thrown error: a
+ * rejected action crashes the dashboard tab into Next's error boundary with
+ * an opaque digest, while a returned message renders in the card.
  */
-export async function captureSnapshotAction(): Promise<CaptureSnapshotResult> {
+export async function beginSnapshotCaptureAction(): Promise<BeginSnapshotResult> {
   await requirePolishdAuth();
 
-  const origin = await resolveSiteOrigin();
-  if (!origin) {
+  try {
+    const origin = await resolveSiteOrigin();
+    if (!origin) {
+      return {
+        ok: false,
+        message:
+          "Couldn't work out the site's URL from the request — set POLISHD_SITE_ORIGIN " +
+          "to the origin the site is reachable at.",
+      };
+    }
+
+    const data = await getDesignData();
+    const dashboardRoute = resolveDashboardRoute();
+    // Shoot what visitors have actually rendered, never the dashboard itself
+    // (nor the telemetry pseudo-paths the collector namespaces under /~polishd).
+    const scanned = data.pages
+      .map((p) => p.path)
+      .filter(
+        (p) => p.startsWith("/") && !p.startsWith("/~") && !isDashboardPath(p, dashboardRoute),
+      );
+    const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
+
+    // Stamp the snapshot with the same metrics fingerprint the AI review caches
+    // under, so "taken before/after this round of changes" is a hash comparison.
+    let fingerprint: string | null = null;
+    if (data.ready && data.pages.length > 0) {
+      const { settings } = await resolveSettings();
+      fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
+    }
+
+    return await beginSnapshot({ origin, routes, fingerprint });
+  } catch (err) {
     return {
       ok: false,
-      message:
-        "Couldn't work out the site's URL from the request — set POLISHD_SITE_ORIGIN " +
-        "to the origin the site is reachable at.",
+      message: `Snapshot capture failed unexpectedly: ${
+        err instanceof Error ? err.message : "unknown error"
+      }`,
     };
   }
+}
 
-  const data = await getDesignData();
-  const dashboardRoute = resolveDashboardRoute();
-  // Shoot what visitors have actually rendered, never the dashboard itself
-  // (nor the telemetry pseudo-paths the collector namespaces under /~polishd).
-  const scanned = data.pages
-    .map((p) => p.path)
-    .filter((p) => p.startsWith("/") && !p.startsWith("/~") && !isDashboardPath(p, dashboardRoute));
-  const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
-
-  // Stamp the snapshot with the same metrics fingerprint the AI review caches
-  // under, so "taken before/after this round of changes" is a hash comparison.
-  let fingerprint: string | null = null;
-  if (data.ready && data.pages.length > 0) {
-    const { settings } = await resolveSettings();
-    fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
+/** Shoot one route of the capture in progress — both devices, both themes. */
+export async function captureSnapshotRouteAction(
+  id: string,
+  route: string,
+): Promise<CaptureRouteResult> {
+  await requirePolishdAuth();
+  try {
+    return await captureSnapshotRoute(id, route);
+  } catch (err) {
+    return {
+      ok: false,
+      message: `Screenshot capture failed unexpectedly: ${
+        err instanceof Error ? err.message : "unknown error"
+      }`,
+    };
   }
+}
 
-  return captureSnapshot({ origin, routes, fingerprint });
+/** Record the accumulated shots as a snapshot and prune old ones. */
+export async function finishSnapshotCaptureAction(
+  id: string,
+): Promise<CaptureSnapshotResult> {
+  await requirePolishdAuth();
+  try {
+    return await finishSnapshot(id);
+  } catch (err) {
+    return {
+      ok: false,
+      message: `The snapshot couldn't be recorded: ${
+        err instanceof Error ? err.message : "unknown error"
+      }`,
+    };
+  }
 }
 
 export type SnapshotImageResult = { ok: true; dataUrl: string } | { ok: false };

@@ -12,7 +12,12 @@
 import { useEffect, useState, useTransition } from "react";
 
 import type { PolishdSnapshot, PolishdSnapshotShot } from "../server/snapshots";
-import { captureSnapshotAction, getSnapshotImageAction } from "./snapshot-actions";
+import {
+  beginSnapshotCaptureAction,
+  captureSnapshotRouteAction,
+  finishSnapshotCaptureAction,
+  getSnapshotImageAction,
+} from "./snapshot-actions";
 import { border, card, labelCls, primaryBtn, relTime, RefreshIcon } from "./ui";
 
 const DEVICES = ["desktop", "phone"] as const;
@@ -129,6 +134,7 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
   const [pending, startCapture] = useTransition();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const selected =
     snapshots.find((s) => s.id === selectedId) ?? snapshots[0] ?? null;
@@ -139,12 +145,58 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
   const capture = () => {
     setError(null);
     startCapture(async () => {
-      const res = await captureSnapshotAction();
-      if (res.ok) {
-        setSnapshots((prev) => [res.snapshot, ...prev]);
-        setSelectedId(res.snapshot.id);
-      } else {
-        setError(res.message);
+      // The capture is one action call per route, so no single request has to
+      // outlive a serverless host's function time limit — and every await is
+      // caught: a rejected action must land in the error box, never in the
+      // error boundary (which would take the whole tab down).
+      try {
+        const begun = await beginSnapshotCaptureAction();
+        if (!begun.ok) {
+          setError(begun.message);
+          return;
+        }
+        setProgress({ done: 0, total: begun.routes.length });
+        const failed: string[] = [];
+        let failure: string | null = null;
+        for (const [i, route] of begun.routes.entries()) {
+          try {
+            const res = await captureSnapshotRouteAction(begun.id, route);
+            if (!res.ok) {
+              failed.push(route);
+              failure = res.message;
+            }
+          } catch {
+            failed.push(route);
+            failure =
+              "the request failed mid-shoot — usually a serverless function " +
+              "time limit; the host's function logs will name the exact failure";
+          }
+          setProgress({ done: i + 1, total: begun.routes.length });
+        }
+        // Finish even when every route failed: it sweeps the capture's state
+        // and reports "every page failed" — the per-route failure is more
+        // specific, so it wins the error box when there is one.
+        const fin = await finishSnapshotCaptureAction(begun.id);
+        if (fin.ok) {
+          setSnapshots((prev) => [fin.snapshot, ...prev]);
+          setSelectedId(fin.snapshot.id);
+          if (failed.length > 0) {
+            setError(
+              `${failed.length} of ${begun.routes.length} page${
+                begun.routes.length === 1 ? "" : "s"
+              } failed to capture (${failure}). The rest are in the snapshot.`,
+            );
+          }
+        } else {
+          setError(failure ? `Capture failed: ${failure}.` : fin.message);
+        }
+      } catch {
+        setError(
+          "The capture failed before a result came back — your host's function " +
+            "logs will name the exact failure.",
+        );
+      } finally {
+        setProgress(null);
       }
     });
   };
@@ -222,7 +274,13 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
           >
             <span className="flex items-center gap-1.5">
               <RefreshIcon spinning={pending} />
-              {pending ? "Shooting pages…" : selected ? "Capture again" : "Capture snapshot"}
+              {pending
+                ? progress
+                  ? `Shooting page ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+                  : "Shooting pages…"
+                : selected
+                  ? "Capture again"
+                  : "Capture snapshot"}
             </span>
           </button>
         </div>
@@ -241,8 +299,8 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
         )}
         {pending && (
           <p className="mb-3 text-[12px] text-[#888]">
-            Shooting every scanned page at two sizes in two themes — this can take a
-            minute. Keep this tab open.
+            Shooting every scanned page at two sizes in two themes, one page at a
+            time — this can take a minute. Keep this tab open.
           </p>
         )}
 

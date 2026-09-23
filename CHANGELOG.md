@@ -2,6 +2,82 @@
 
 ## Unreleased
 
+### Issues open in a drawer, rendered as the markdown they are
+
+An issue body on the Issues tab used to be a raw `<pre>` dump behind a
+"Show issue body" toggle — real GitHub-flavored markdown, displayed as if it
+weren't. Clicking a row now opens a **right-side drawer** (the same pattern as
+the sampled user journeys) with the full issue: title, state, the metadata
+GitHub reports, the analytics evidence polishd kept, and the body **rendered
+as markdown** — headings, code, linked file lists, tables, task lists,
+screenshots.
+
+- The renderer is written in-house (`src/dashboard/markdown-parse.ts` +
+  `markdown.tsx`): the package's zero-runtime-dependency rule rules out
+  `react-markdown`, and the GFM subset that actually appears in issues is
+  small enough to own. Single newlines are hard breaks, the way GitHub
+  renders issue comments, and anything unrecognized degrades to plain
+  paragraph text rather than ever crashing. The grammar is pinned down by
+  its own test file.
+- Rows are still links to the tracker — the title goes to GitHub, the row
+  goes to the drawer.
+
+### The drawer can suggest the fix, not just show the bug
+
+With the GitHub codebase connected, every filed issue carries a **"Suggest a
+fix"** button. One click asks the configured model to first **classify the
+bug — an interaction issue (something users do fails) or a design issue
+(something users see is wrong)** — and then design a fix on the published
+practice for that class: Nielsen Norman's usability heuristics and the
+WAI-ARIA Authoring Practices for interaction bugs; WCAG 2.2 contrast rules,
+spacing rhythm, and layout-stability guidance for design bugs.
+
+- The suggestion is grounded in the repository's real source: the pipeline
+  re-reads the files the issue body cites, code-searches the analytics
+  evidence, and answers with an **implementation path** — ordered,
+  file-by-file edits, each path linking to the file on GitHub — plus
+  "grounded in" chips naming the guidelines it leaned on, so the advice can
+  be judged by its sources.
+- Suggestions are cached per issue in the store and load with the tab;
+  regenerating is one click. Nothing is offered without a model key, and an
+  issue polishd didn't file is refused — there's no evidence to ground.
+
+### Design-review issues can be filed as bugs
+
+The aesthetic review's "Breaking the system" list used to be read-only; the
+same one-click **File bug** button the summary's losses have now sits on each
+design issue when GitHub is connected. It runs the same verify-then-file
+pipeline — the model checks the flagged design token (a hex color, a px value,
+a page path) against the repository's source, files a GitHub issue with the
+technical analysis and the review's own suggested fix when it holds up, and
+answers "not a bug" with the reasoning when the code shows the value is
+deliberate. Filed issues show up in the Issues tab like any other, dedupe on
+their evidence citation, and render as their issue link when the tab reloads.
+
+### Snapshot capture survives serverless time limits
+
+Capturing a site snapshot on Vercel could fail with no error box at all — the
+whole Design tab crashed into Next's error boundary. The cause: the capture ran
+as **one long server action**, and a serverless host that hits its function
+time limit kills the function mid-shoot, so the action rejects with no result
+and the client had no catch for it. A connected Blob store couldn't help; the
+request itself was the problem.
+
+- **Capture is now chunked into one short server call per page**: begin → one
+  call per route (both devices, both themes) → finish. No single request has
+  to outlive a function time limit, so upgrading the package is the whole fix
+  — no host configuration required. In-flight state is parked in the store
+  between calls; the client contributes nothing but ids, and a new capture
+  sweeps an unfinished predecessor, images included.
+- **Failures degrade to messages everywhere.** Every action call is caught on
+  the client (a page whose call fails is reported and skipped, not fatal),
+  and every server path returns a diagnosis instead of throwing — including
+  the previously uncaught `playwright-core` load.
+- The capture button shows **per-page progress** ("Shooting page 3 of 7…").
+- `polishd init` now writes `export const maxDuration = 300` into the
+  dashboard page it generates, and the docs recommend it — headroom for heavy
+  pages on hosts with strict limits, no longer a requirement.
+
 ### The dashboard streams instead of loading all at once
 
 Every tab used to wait for its slowest query before sending a single byte —

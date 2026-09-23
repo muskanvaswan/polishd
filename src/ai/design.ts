@@ -16,6 +16,7 @@
 import { getMeta, setMeta } from "../server/store";
 import { getDesignData, type PolishdDesignData } from "../server/design";
 import { fingerprintDigest } from "./digest";
+import { attachGithubIssuesToDesignIssues } from "./issues";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
 import type {
@@ -26,15 +27,24 @@ import type {
 
 const DESIGN_REVIEW_KEY = "ai_design_review";
 
-/** The last generated review, or null. Read-only — never calls a model. */
+/**
+ * The last generated review, or null. Read-only — never calls a model. Issues
+ * whose evidence already has a GitHub issue in the log come back with the link
+ * attached, so the tab renders it instead of a "file bug" button.
+ */
 export async function loadDesignReview(): Promise<PolishdDesignReview | null> {
   const raw = await getMeta(DESIGN_REVIEW_KEY);
   if (!raw) return null;
+  let review: PolishdDesignReview;
   try {
-    return JSON.parse(raw) as PolishdDesignReview;
+    review = JSON.parse(raw) as PolishdDesignReview;
   } catch {
     return null;
   }
+  if (review.issues?.length) {
+    review.issues = await attachGithubIssuesToDesignIssues(review.issues);
+  }
+  return review;
 }
 
 const SYSTEM_PROMPT =
@@ -253,18 +263,25 @@ export async function generateDesignReview(
   }
 
   const parsed = parseStructured(reply.text);
+  const issues = verifyIssues(parsed.issues, digest);
   const review: PolishdDesignReview = {
     text: parsed.assessment,
     strengths: parsed.strengths,
-    issues: verifyIssues(parsed.issues, digest),
+    issues,
     provider: settings.provider,
     model: settings.model,
     generatedAt: Date.now(),
     fingerprint,
     usage: reply.usage,
   };
+  // Persisted without issue links — those live in the issue log and are
+  // attached on every read, so the cached review can't hold a stale link.
   await setMeta(DESIGN_REVIEW_KEY, JSON.stringify(review));
-  return { ok: true, review, regenerated: true };
+  return {
+    ok: true,
+    review: { ...review, issues: await attachGithubIssuesToDesignIssues(issues) },
+    regenerated: true,
+  };
 }
 
 /**

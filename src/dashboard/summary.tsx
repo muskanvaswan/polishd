@@ -29,7 +29,18 @@ import type {
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
-import { GearIcon, RefreshIcon, border, card, iconBtn, labelCls, primaryBtn, relTime } from "./ui";
+import { FileBugButton } from "./file-bug-button";
+import {
+  GearIcon,
+  RefreshIcon,
+  border,
+  card,
+  iconBtn,
+  labelCls,
+  microBtn,
+  primaryBtn,
+  relTime,
+} from "./ui";
 
 export interface SummaryCardProps {
   initialSummary: PolishdSummary | null;
@@ -214,79 +225,9 @@ function ProfileNudge({
 
 // ── Wins & losses ────────────────────────────────────────────────────────────
 
-/** The two verdicts on a loss sit side by side, and share their button style. */
-const microBtn =
-  "rounded border border-[#2e2e2e] px-1.5 py-0.5 text-[10px] text-[#888] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+/** The verdict buttons on a loss share their style with the shared microBtn. */
 const microLink =
   "text-[10px] text-[#666] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
-
-/**
- * One-click "loss → GitHub issue". The server action verifies the report
- * against the repository's source first: confirmed reports become issues with
- * the technical analysis and fix suggestions, disproved ones come back as
- * `not-a-bug` with the reasoning — shown here instead of a link. Losses whose
- * issue already exists (auto-filed, or filed on an earlier summary) render as
- * the link straight away.
- */
-function FileBugButton({ loss }: { loss: PolishdLossItem }) {
-  const [created, setCreated] = useState<{ url: string; number: number } | null>(
-    loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null,
-  );
-  const [failed, setFailed] = useState<{ notABug: boolean; message: string } | null>(null);
-  const [pending, startFile] = useTransition();
-
-  if (created) {
-    return (
-      <a
-        href={created.url}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="rounded bg-[#101c14] px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 hover:text-emerald-400"
-      >
-        Issue #{created.number} ↗
-      </a>
-    );
-  }
-
-  if (failed?.notABug) {
-    return (
-      <span
-        className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] text-amber-400"
-        title={failed.message}
-      >
-        Checked the source — not an actual bug: {failed.message}
-      </span>
-    );
-  }
-
-  const file = () =>
-    startFile(async () => {
-      setFailed(null);
-      const res = await createIssueFromLossAction({
-        issue: loss.issue,
-        evidence: loss.evidence,
-        location: loss.location,
-      });
-      if (res.ok) setCreated({ url: res.url, number: res.number });
-      else setFailed({ notABug: res.error === "not-a-bug", message: res.message });
-    });
-
-  return (
-    <>
-      <button
-        type="button"
-        data-component="loss-file-bug"
-        onClick={file}
-        disabled={pending}
-        title="Verify this problem against the source code, then create a GitHub issue with the technical details"
-        className={microBtn}
-      >
-        {pending ? "Verifying…" : "File bug"}
-      </button>
-      {failed && <span className="text-[10px] text-red-400">{failed.message}</span>}
-    </>
-  );
-}
 
 /**
  * One loss, and the two things you can do with it: file it as a bug, or ignore
@@ -404,7 +345,21 @@ function LossRow({ loss, githubConnected }: { loss: PolishdLossItem; githubConne
               not matched to source
             </span>
           )}
-          {(githubConnected || !!loss.issueUrl) && <FileBugButton loss={loss} />}
+          {(githubConnected || !!loss.issueUrl) && (
+            <FileBugButton
+              dataComponent="loss-file-bug"
+              filed={
+                loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null
+              }
+              file={() =>
+                createIssueFromLossAction({
+                  issue: loss.issue,
+                  evidence: loss.evidence,
+                  location: loss.location,
+                })
+              }
+            />
+          )}
           <button
             type="button"
             data-component="loss-ignore"

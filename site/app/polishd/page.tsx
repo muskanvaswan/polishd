@@ -7,6 +7,9 @@ import { createPolishdPage } from "@polishd/next/dashboard";
 // Next requires these to be declared inline in the page module.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Server actions inherit this page's time limit; 300s gives site-snapshot
+// capture headroom on hosts with strict function limits.
+export const maxDuration = 300;
 
 // In production the dashboard refuses to render until you either set
 // POLISHD_DASHBOARD_TOKEN, pass your own `authenticate`, or opt out
