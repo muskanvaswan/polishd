@@ -4,13 +4,22 @@
    #000 page · #0a0a0a cards · #2e2e2e hairlines · 11px/0.08em uppercase
    labels · tabular numerals · red / amber / emerald / blue / violet accents. */
 @theme {
-  --font-sans: "Open Sauce One", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  /* Nohemi is the voice of the site: everything that isn't code or a
+     dashboard-replica infographic. */
+  --font-sans: var(--font-nohemi-face), "Open Sauce One", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* The infographic cards mirror the real dashboard, so they keep its UI
+     face instead of the site's display face. */
+  --font-chart: "Open Sauce One", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, Menlo,
     Consolas, monospace;
   /* The wordmark face — Overpass, the open-source Highway Gothic. */
   --font-highway: var(--font-highway-face), "Overpass", "Helvetica Neue", Arial,
     sans-serif;
+  /* Headings — Nohemi, self-hosted via next/font/local. */
+  --font-heading: var(--font-nohemi-face), "Open Sauce One", "Helvetica Neue",
+    Arial, sans-serif;
 
   --color-line: #2e2e2e;
   --color-line-soft: #1a1a1a;
@@ -26,9 +35,23 @@
   body {
     background: #000;
     color: #fff;
+    /* Nohemi sets tight; breathe it open a touch. Inherited everywhere the
+       display face speaks. */
+    letter-spacing: 0.025em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+  }
+
+  /* The exemptions: code and the ASCII art must keep the mono grid's exact
+     advances (the wireframe's columns depend on it), and the dashboard-replica
+     cards keep the dashboard's own spacing. */
+  pre,
+  code,
+  kbd,
+  .font-mono,
+  .font-chart {
+    letter-spacing: normal;
   }
 
   ::selection {
@@ -123,6 +146,13 @@
 .fade-x {
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* Bottom fade — the hero wireframe is cut at the fold and dissolves into the
+   next section instead of ending on a hard edge. */
+.fade-b {
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 99%);
+  mask-image: linear-gradient(180deg, #000 70%, transparent 99%);
 }
 
 /* ── Loop ring ───────────────────────────────────────────────────────────── */

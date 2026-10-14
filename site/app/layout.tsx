@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Overpass } from "next/font/google";
+import localFont from "next/font/local";
 
 // Open Sauce One — everything that isn't the wordmark or code.
 import "@fontsource/open-sauce-one/400.css";
@@ -12,6 +13,17 @@ import "./globals.css";
 const mono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono-face",
+  display: "swap",
+});
+
+// Headings. Nohemi — vendored in app/fonts, see the LICENSE there.
+const nohemi = localFont({
+  src: [
+    { path: "./fonts/Nohemi-Medium.ttf", weight: "500" },
+    { path: "./fonts/Nohemi-SemiBold.ttf", weight: "600" },
+    { path: "./fonts/Nohemi-Bold.ttf", weight: "700" },
+  ],
+  variable: "--font-nohemi-face",
   display: "swap",
 });
 
@@ -48,7 +60,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${highway.variable} ${mono.variable}`}>
+    <html lang="en" className={`${highway.variable} ${nohemi.variable} ${mono.variable}`}>
       <body className="font-sans">
         {/* Scroll reveal starts hidden — without JS it would never un-hide. */}
         <noscript>

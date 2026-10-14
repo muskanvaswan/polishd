@@ -108,7 +108,7 @@ export function Heading({
 }) {
   return (
     <h2
-      className="r mt-[18px] max-w-[19ch] text-[clamp(28px,4.6vw,50px)] font-semibold leading-[1.04] tracking-[-0.035em]"
+      className="r font-heading mt-[18px] max-w-[19ch] text-[clamp(28px,4.6vw,50px)] font-semibold leading-[1.04] tracking-[0.005em]"
       style={{ "--d": `${delay}ms` } as React.CSSProperties}
     >
       {children}

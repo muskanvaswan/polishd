@@ -11,7 +11,7 @@ import { Eyebrow, GhostLink, Wrap } from "@/components/ui";
  */
 export default function Hero() {
   return (
-    <section className="relative z-10 flex flex-col pt-16 pb-12 md:h-screen md:pt-20 md:pb-0">
+    <section className="relative z-10 flex flex-col pt-16 pb-12 md:min-h-screen md:max-h-none md:pt-20 md:pb-0">
       <Wrap>
         <div className="flex flex-col items-center text-center">
           <Eyebrow>The taste loop for Next.js</Eyebrow>
@@ -28,7 +28,7 @@ export default function Hero() {
           </h1>
 
           <p
-            className="r mt-3 text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[-0.02em] text-[#e5e5e5]"
+            className="r font-heading mt-3 text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[0.015em] text-[#e5e5e5]"
             style={{ "--d": "140ms" } as React.CSSProperties}
           >
             Build fast, refine relentlessly.
@@ -55,17 +55,16 @@ export default function Hero() {
 
       </Wrap>
 
-      {/* The brush at work. On desktop the hero owns exactly one screen: the
-          wireframe takes whatever height the copy leaves over, oversized by
-          11% so about a tenth of it runs past the fold into the next section.
-          The aspect ratio mirrors the grid (76 cols x 0.6em wide, 34 rows x
-          1.3em tall, with the 1.5% font slack), so setting its height is what
-          decides its width. */}
+      {/* The brush at work, at 80% of the screen's width. The window is far
+          taller than the space the copy leaves in the viewport, so the hero
+          shows its upper reach and cuts the rest: the container clips at the
+          fold and a mask dissolves the last stretch, so the page fades out
+          into the next section instead of ending on an edge. */}
       <div
-        className="r mx-auto mt-14 w-[92vw] md:relative md:mt-12 md:min-h-0 md:w-full md:flex-1"
+        className="r fade-b relative mx-auto mt-14 max-h-[56vh] w-full overflow-hidden md:mt-12 md:max-h-none md:min-h-[390px] md:flex-1 md:basis-0"
         style={{ "--d": "320ms" } as React.CSSProperties}
       >
-        <div className="md:absolute md:left-1/2 md:top-0 md:aspect-[1.047/1] md:h-[111%] md:w-auto md:max-w-[92vw] md:-translate-x-1/2">
+        <div className="mx-auto w-[88vw] md:w-[80vw]">
           <ScrubHero />
         </div>
       </div>
