@@ -8,7 +8,7 @@ export default function Closing() {
       <section className="pt-[88px] pb-[72px] text-center md:pt-[132px] md:pb-[108px]">
         <Wrap>
           <h2 className="r mx-auto max-w-[15ch] text-[clamp(34px,7vw,74px)] font-semibold leading-[1.02] tracking-[-0.04em]">
-            <span className="display">Make your website look polishd.</span>
+            Make your website look polishd.
           </h2>
 
           <div

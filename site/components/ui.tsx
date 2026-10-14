@@ -119,7 +119,7 @@ export function Heading({
 export function Sub({ children, delay = 120 }: { children: ReactNode; delay?: number }) {
   return (
     <p
-      className="r mt-[18px] max-w-[52ch] text-[15.5px] leading-[1.25] text-[#888]"
+      className="r mt-[18px] max-w-[56ch] font-mono text-[13px] leading-[1.7] text-[#888]"
       style={{ "--d": `${delay}ms` } as React.CSSProperties}
     >
       {children}
