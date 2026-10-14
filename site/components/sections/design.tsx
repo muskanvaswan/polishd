@@ -54,7 +54,7 @@ export default function Design() {
 
         <div className="mt-[34px] grid grid-cols-1 gap-3 lg:grid-cols-[1.25fr_1fr]">
           {/* The specimen sheet — what the site actually ships. */}
-          <div className="card r lift overflow-hidden">
+          <div className="card font-chart r lift overflow-hidden">
             <div className="flex items-center gap-2.5 border-b border-[#2e2e2e] px-4 py-[13px]">
               <span className="label">Typography</span>
               <span className="rounded-full bg-[#1a1a1a] px-2.5 py-[3px] font-mono text-[10px] text-[#888]">
@@ -129,7 +129,7 @@ export default function Design() {
           {/* The checks a person would have to run by hand, and never does. */}
           <div className="grid grid-cols-1 gap-3">
             <div
-              className="card r lift overflow-hidden"
+              className="card font-chart r lift overflow-hidden"
               style={{ "--d": "90ms" } as React.CSSProperties}
             >
               <div className="flex items-center gap-2.5 border-b border-[#2e2e2e] px-4 py-[13px]">
@@ -159,7 +159,7 @@ export default function Design() {
             </div>
 
             <div
-              className="card r lift overflow-hidden"
+              className="card font-chart r lift overflow-hidden"
               style={{ "--d": "150ms" } as React.CSSProperties}
             >
               <div className="flex items-center gap-2.5 border-b border-[#2e2e2e] px-4 py-[13px]">
@@ -186,7 +186,7 @@ export default function Design() {
             </div>
 
             <div
-              className="card r lift overflow-hidden"
+              className="card font-chart r lift overflow-hidden"
               style={{ "--d": "210ms" } as React.CSSProperties}
             >
               <div className="flex items-center gap-2.5 border-b border-[#2e2e2e] px-4 py-[13px]">

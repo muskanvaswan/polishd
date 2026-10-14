@@ -41,7 +41,7 @@ export default function Proof() {
           {STATS.map((s, i) => (
             <div
               key={s.k}
-              className="card r p-4"
+              className="card font-chart r p-4"
               style={{ "--d": `${i * 60}ms` } as React.CSSProperties}
             >
               <div
@@ -59,7 +59,7 @@ export default function Proof() {
 
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.35fr]">
           {/* Stage 02 — measured. */}
-          <div className="card r lift overflow-hidden">
+          <div className="card font-chart r lift overflow-hidden">
             <div className="flex items-center gap-2.5 border-b border-[#2e2e2e] px-4 py-[13px]">
               <span className="label">Device sizes</span>
               <span className="rounded-full bg-[#1a1a1a] px-2.5 py-[3px] font-mono text-[10px] text-[#888]">
@@ -94,7 +94,7 @@ export default function Proof() {
 
           {/* Stages 03 + 04 — the story, then the bug. */}
           <div
-            className="card r lift overflow-hidden"
+            className="card font-chart r lift overflow-hidden"
             style={{ "--d": "120ms" } as React.CSSProperties}
           >
             <div className="flex items-center gap-2.5 border-b border-[#2e2e2e] px-4 py-[13px]">
