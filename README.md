@@ -462,7 +462,7 @@ fixes can be held against one taken after.
 
 **In production on Vercel**, capture works too — connect a
 [Blob store](https://vercel.com/docs/vercel-blob) to the project and that's
-the whole setup: the `BLOB_READ_WRITE_TOKEN` it injects switches image storage
+the whole setup: the credentials it injects switch image storage
 from disk to Blob, and the browser comes from `@sparticuz/chromium` (a
 Chromium built for serverless sandboxes, installed automatically as an
 optional dependency). The snapshot index rides in the same database the rest

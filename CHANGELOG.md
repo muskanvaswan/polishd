@@ -76,8 +76,8 @@ no browser to launch and no writable filesystem to keep the images on. Both
 are now handled, and neither needs configuration beyond connecting a Vercel
 Blob store to the project:
 
-- When `BLOB_READ_WRITE_TOKEN` is present (Vercel injects it once a Blob store
-  is connected), shots are staged in the system temp directory and uploaded to
+- When Blob credentials are present (Vercel injects them once a Blob store is
+  connected), shots are staged in the system temp directory and uploaded to
   Vercel Blob instead of `.polishd/snapshots/`. Pruning deletes the blobs;
   a failed upload cleans up after itself so a half-stored snapshot never
   survives. Blob pathnames get a random suffix and the dashboard still serves
@@ -89,18 +89,26 @@ Blob store to the project:
   `--omit=optional` keeps them out.
 - An install run with `--omit=optional` loses the feature but not the plot:
   when the environment shows a missing optional dependency will be needed
-  (a Blob token with no `@vercel/blob`, a Vercel host with no
+  (Blob credentials with no `@vercel/blob`, a Vercel host with no
   `@sparticuz/chromium`), the gallery says so up front and disables the
   capture button, instead of failing a minute into a doomed run. Failures
   that can only surface at capture time name the missing piece precisely.
 - A deployment with **no Blob store connected at all** gets the same
-  treatment. Without the token, storage falls back to disk — which on a
+  treatment. Without credentials, storage falls back to disk — which on a
   serverless host is read-only and gone by the next invocation, so every
   capture was doomed before it started and said only "is the filesystem
   writable?" a minute later. The gallery now names the actual gap and the
   one-time fix (connect a Blob store, redeploy) before the button is pressed,
   and the capture action refuses the same way for callers that never rendered
   the dashboard.
+- **Both credential shapes count as connected.** `@vercel/blob` authenticates
+  with either a read-write token or a Vercel OIDC token that names the store
+  separately, and it checks the OIDC pair first — so a deployment can be set
+  up correctly and carry no `BLOB_READ_WRITE_TOKEN` at all. Detection now
+  mirrors the SDK's own resolution (`BLOB_READ_WRITE_TOKEN`, or
+  `VERCEL_OIDC_TOKEN` with `BLOB_STORE_ID`) rather than looking for the token
+  alone, which would have called a working OIDC deploy unconfigured and sent
+  its snapshots to a read-only disk.
 - Local development is unchanged: your own Chrome first, images on disk,
   same index, same gallery.
 

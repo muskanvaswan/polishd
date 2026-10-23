@@ -12,7 +12,7 @@
  * `next dev` they sit on disk under `.polishd/snapshots/<id>/`. On Vercel —
  * where the filesystem is read-only and gone by the next invocation — they
  * upload to Vercel Blob instead, switched on by nothing more than the
- * `BLOB_READ_WRITE_TOKEN` a connected Blob store injects. The browser follows
+ * credentials a connected Blob store injects. The browser follows
  * the same split: the user's own Chrome or Playwright's Chromium locally,
  * the `@sparticuz/chromium` build (a Chromium compiled to run inside
  * Lambda-shaped Linux containers) as the serverless fallback. Both arrive as
@@ -88,12 +88,21 @@ const SNAPSHOT_THEMES = ["light", "dark"] as const;
 
 /**
  * True when shots should upload to Vercel Blob rather than land on disk.
- * `BLOB_READ_WRITE_TOKEN` is injected automatically once a Blob store is
- * connected to the project, so presence of the variable is the whole signal —
- * no Polishd-specific configuration on top.
+ * Connecting a Blob store to the project injects the credentials, so their
+ * presence is the whole signal — no Polishd-specific configuration on top.
+ *
+ * This mirrors how `@vercel/blob` itself resolves credentials, and has to:
+ * a mismatch either way is a wrong diagnosis. There are two valid shapes —
+ * a read-write token, or a Vercel OIDC token naming the store separately
+ * (the SDK checks that pair *first*, so a correctly configured deployment
+ * can carry no `BLOB_READ_WRITE_TOKEN` at all). Variables that merely come
+ * from the same product are not signals: `BLOB_WEBHOOK_PUBLIC_KEY`, for one,
+ * verifies inbound webhook signatures in the browser-direct upload flow and
+ * says nothing about whether this process can `put()`.
  */
 function blobConfigured(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  if (process.env.BLOB_READ_WRITE_TOKEN) return true;
+  return Boolean(process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID);
 }
 
 /** Where disk-stored snapshot directories live. Sits next to the dev SQLite file. */
@@ -171,7 +180,7 @@ async function uploadShots(
     blob = await import("@vercel/blob");
   } catch {
     return (
-      "Blob storage is configured (BLOB_READ_WRITE_TOKEN is set) but @vercel/blob " +
+      "Blob storage is configured (its credentials are set) but @vercel/blob " +
       "isn't installed. It ships as an optional dependency of @polishd/next — " +
       "reinstall without `--omit=optional`."
     );
@@ -313,9 +322,8 @@ export async function snapshotCaptureIssue(): Promise<string | null> {
     return (
       "Snapshot images have nowhere to live on this deployment: the filesystem " +
       "is read-only and no Blob store is connected. Connect a Vercel Blob store " +
-      "to the project (Storage → Blob in the Vercel dashboard) — the " +
-      "BLOB_READ_WRITE_TOKEN it injects switches snapshot storage over " +
-      "automatically — then redeploy."
+      "to the project (Storage → Blob in the Vercel dashboard) — the credentials " +
+      "it injects switch snapshot storage over automatically — then redeploy."
     );
   }
   if (blobConfigured()) {
@@ -323,7 +331,7 @@ export async function snapshotCaptureIssue(): Promise<string | null> {
       await import("@vercel/blob");
     } catch {
       return (
-        "Snapshot images would upload to Vercel Blob (BLOB_READ_WRITE_TOKEN is set), " +
+        "Snapshot images would upload to Vercel Blob (its credentials are set), " +
         "but @vercel/blob isn't installed. It ships as an optional dependency of " +
         "@polishd/next, so this install was likely run with `--omit=optional` — " +
         "reinstall with optional dependencies included, then redeploy."
