@@ -12,7 +12,9 @@
  * `next dev` they sit on disk under `.polishd/snapshots/<id>/`. On Vercel —
  * where the filesystem is read-only and gone by the next invocation — they
  * upload to Vercel Blob instead, switched on by nothing more than the
- * `BLOB_READ_WRITE_TOKEN` a connected Blob store injects. The browser follows
+ * variable a connected Blob store injects: `BLOB_STORE_ID` for a store
+ * connected over OIDC, `BLOB_READ_WRITE_TOKEN` for the classic connection.
+ * Public and private stores both work. The browser follows
  * the same split: the user's own Chrome or Playwright's Chromium locally,
  * the `@sparticuz/chromium` build (a Chromium compiled to run inside
  * Lambda-shaped Linux containers) as the serverless fallback. Both arrive as
@@ -42,6 +44,7 @@ import type { Shot as AllpagesShot } from "allpages";
 import type { Browser } from "playwright-core";
 
 import type { DesignPreviewTarget } from "../shared/design-values";
+import { blobConfigured, createBlobUploader, isPrivateBlobUrl } from "./snapshot-blob";
 import { getMeta, setMeta, storeReady } from "./store";
 import { captureValuePreviews, type PreviewRendering } from "./value-previews";
 
@@ -144,14 +147,11 @@ const MAX_PREVIEWS_PER_ROUTE = 16;
 const PREVIEW_BUDGET_MS = 15_000;
 
 /**
- * True when shots should upload to Vercel Blob rather than land on disk.
- * `BLOB_READ_WRITE_TOKEN` is injected automatically once a Blob store is
- * connected to the project, so presence of the variable is the whole signal —
- * no Polishd-specific configuration on top.
+ * Every Blob upload — shots and value previews alike — goes through this, so
+ * the store's access mode is worked out once per process rather than once per
+ * image. See `createBlobUploader`.
  */
-function blobConfigured(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
-}
+const uploadToBlob = createBlobUploader();
 
 /** Where disk-stored snapshot directories live. Sits next to the dev SQLite file. */
 function snapshotsRoot(): string {
@@ -199,31 +199,46 @@ export async function readSnapshotImage(
   const image = shot ?? preview;
   if (!image) return null;
   try {
-    if (image.url) {
-      const res = await fetch(image.url);
-      if (!res.ok) return null;
-      const bytes = Buffer.from(await res.arrayBuffer());
-      return `data:image/png;base64,${bytes.toString("base64")}`;
-    }
     const dir = shot ? "shots" : "previews";
-    const bytes = await readFile(join(snapshotsRoot(), snapshot.id, dir, image.file));
-    return `data:image/png;base64,${bytes.toString("base64")}`;
+    const bytes = image.url
+      ? await readBlobImage(image.url)
+      : await readFile(join(snapshotsRoot(), snapshot.id, dir, image.file));
+    return bytes ? `data:image/png;base64,${bytes.toString("base64")}` : null;
   } catch {
     return null; // Directory pruned or deleted by hand — the tile shows a blank.
   }
 }
 
+/**
+ * A Blob-stored image's bytes, or null when it's gone. A public store's URL is
+ * a plain fetch. A private store's refuses anonymous reads, so it goes through
+ * the SDK's `get`, which attaches the deployment's credential (OIDC or token,
+ * whichever it has) and only ever sends it to a Vercel Blob host.
+ */
+async function readBlobImage(url: string): Promise<Buffer | null> {
+  if (isPrivateBlobUrl(url)) {
+    const { get } = await import("@vercel/blob");
+    const result = await get(url, { access: "private" });
+    if (result?.statusCode !== 200) return null;
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
+  }
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  return Buffer.from(await res.arrayBuffer());
+}
+
 // ── Storage ──────────────────────────────────────────────────────────────────
 
 /**
- * Move one route's staged PNGs to their real home — Vercel Blob when a token
- * is present, the snapshots directory otherwise — under a per-route filename
+ * Move one route's staged PNGs to their real home — Vercel Blob when a store
+ * is connected, the snapshots directory otherwise — under a per-route filename
  * prefix: allpages slugs are only unique within a single run, and each route
- * is its own run now. Blob pathnames get a random suffix on top —
- * public-but-unguessable is the only access model Blob offers, and the
- * dashboard still serves images through the auth-gated action rather than
- * handing these URLs to the browser. On a failed upload the pieces already
- * uploaded are deleted, so a half-stored route never survives.
+ * is its own run now. Blob pathnames get a random suffix on top, so a public
+ * store's URLs are unguessable; a private store's refuse anonymous reads
+ * outright. Either way the dashboard serves images through the auth-gated
+ * action rather than handing these URLs to the browser. On a failed upload
+ * the pieces already uploaded are deleted, so a half-stored route never
+ * survives.
  */
 async function storeRouteShots(
   id: string,
@@ -266,11 +281,15 @@ async function storeRouteShots(
         continue;
       }
       const bytes = await readFile(join(stageDir, "shots", s.file));
-      const { url } = await blob.put(`polishd/snapshots/${id}/${prefix}${s.file}`, bytes, {
-        access: "public",
-        contentType: "image/png",
-        addRandomSuffix: true,
-      });
+      // No `token` option: the SDK picks the credential itself — the OIDC
+      // token with BLOB_STORE_ID first, BLOB_READ_WRITE_TOKEN otherwise.
+      const { url } = await uploadToBlob((access) =>
+        blob.put(`polishd/snapshots/${id}/${prefix}${s.file}`, bytes, {
+          access,
+          contentType: "image/png",
+          addRandomSuffix: true,
+        }),
+      );
       uploaded.push(url);
       shots.push(toShot(s, prefix + s.file, url));
     }
@@ -292,9 +311,9 @@ async function loadBlobSdk(): Promise<typeof import("@vercel/blob") | { message:
   } catch {
     return {
       message:
-        "Blob storage is configured (BLOB_READ_WRITE_TOKEN is set) but @vercel/blob " +
-        "isn't installed. It ships as an optional dependency of @polishd/next — " +
-        "reinstall without `--omit=optional`.",
+        "Blob storage is configured (BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN is set) " +
+        "but @vercel/blob isn't installed. It ships as an optional dependency of " +
+        "@polishd/next — reinstall without `--omit=optional`.",
     };
   }
 }
@@ -338,11 +357,13 @@ async function storeRoutePreviews(
   try {
     const previews: PolishdSnapshotPreview[] = [];
     for (const c of named) {
-      const { url } = await blob.put(`polishd/snapshots/${id}/previews/${c.file}`, c.bytes, {
-        access: "public",
-        contentType: "image/png",
-        addRandomSuffix: true,
-      });
+      const { url } = await uploadToBlob((access) =>
+        blob.put(`polishd/snapshots/${id}/previews/${c.file}`, c.bytes, {
+          access,
+          contentType: "image/png",
+          addRandomSuffix: true,
+        }),
+      );
       uploaded.push(url);
       previews.push(toPreview(c, url));
     }
@@ -798,15 +819,15 @@ async function launchBrowser(): Promise<{ browser: Browser } | { message: string
  */
 export async function snapshotCaptureIssue(): Promise<string | null> {
   // On Vercel the filesystem is read-only and reset between invocations, so
-  // disk storage — the fallback when no Blob token is present — cannot work.
+  // disk storage — the fallback when no Blob store is connected — cannot work.
   // Without a connected store every capture is doomed before it starts.
   if (process.env.VERCEL && !blobConfigured()) {
     return (
       "Snapshot images have nowhere to live on this deployment: the filesystem " +
       "is read-only and no Blob store is connected. Connect a Vercel Blob store " +
       "to the project (Storage → Blob in the Vercel dashboard) — the " +
-      "BLOB_READ_WRITE_TOKEN it injects switches snapshot storage over " +
-      "automatically — then redeploy."
+      "BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN it injects switches snapshot " +
+      "storage over automatically — then redeploy."
     );
   }
   if (blobConfigured()) {
@@ -814,10 +835,11 @@ export async function snapshotCaptureIssue(): Promise<string | null> {
       await import("@vercel/blob");
     } catch {
       return (
-        "Snapshot images would upload to Vercel Blob (BLOB_READ_WRITE_TOKEN is set), " +
-        "but @vercel/blob isn't installed. It ships as an optional dependency of " +
-        "@polishd/next, so this install was likely run with `--omit=optional` — " +
-        "reinstall with optional dependencies included, then redeploy."
+        "Snapshot images would upload to Vercel Blob (BLOB_STORE_ID or " +
+        "BLOB_READ_WRITE_TOKEN is set), but @vercel/blob isn't installed. It " +
+        "ships as an optional dependency of @polishd/next, so this install was " +
+        "likely run with `--omit=optional` — reinstall with optional " +
+        "dependencies included, then redeploy."
       );
     }
   }

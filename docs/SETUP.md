@@ -441,8 +441,10 @@ SQLite file cannot persist there. Production capture needs Postgres.
 4. Deploy. Tables are created automatically on first use.
 
 For **site snapshots** in production on Vercel, connect a
-[Blob store](https://vercel.com/docs/vercel-blob) — its `BLOB_READ_WRITE_TOKEN`
-switches image storage over automatically. Capture runs as one short server
+[Blob store](https://vercel.com/docs/vercel-blob) — whichever variable the
+connection injects, `BLOB_STORE_ID` (OIDC) or `BLOB_READ_WRITE_TOKEN`, switches
+image storage over automatically. `BLOB_WEBHOOK_PUBLIC_KEY` isn't needed, and
+public and private stores both work. Capture runs as one short server
 call per page so it fits inside function time limits; keeping
 `export const maxDuration = 300` on the dashboard's `page.tsx` adds headroom
 for heavy pages.
