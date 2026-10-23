@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export const c = {
   ok: (s) => `\x1b[32m${s}\x1b[0m`,
@@ -84,6 +84,42 @@ export function detectNextMajor(cwd) {
     if (Number.isFinite(major)) return { major, version: range, source: "package.json" };
   }
   return { major: null, version: null, source: null };
+}
+
+/**
+ * Which @polishd/next the app has installed, and the range its package.json
+ * asks for. Read from the app, never from this CLI's own package.json:
+ * `npx @polishd/next@latest doctor` runs a newer CLI against an older install,
+ * and the install is what the user is asking about.
+ */
+export function detectPolishdInstall(cwd) {
+  const pkg = readJSON(join(cwd, "package.json"));
+  const range =
+    pkg?.dependencies?.["@polishd/next"] ?? pkg?.devDependencies?.["@polishd/next"] ?? null;
+  let version = readJSON(join(cwd, "node_modules", "@polishd", "next", "package.json"))?.version;
+  if (!version) {
+    // Hoisted / pnpm / workspace installs, as for `next` above.
+    try {
+      const require = createRequire(join(cwd, "package.json"));
+      version = readJSON(require.resolve("@polishd/next/package.json"))?.version;
+    } catch {
+      // Not installed.
+    }
+  }
+  return { version: version ?? null, range: typeof range === "string" ? range : null };
+}
+
+/**
+ * The package manager that owns this app: the nearest lockfile, walking up so
+ * a workspace root's lockfile counts for an app inside it. `lockfiles` comes
+ * from the shared update-check module, so the CLI and the dashboard agree.
+ */
+export function detectPackageManager(cwd, lockfiles) {
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    const hit = lockfiles.find(([file]) => existsSync(join(dir, file)));
+    if (hit) return hit[1];
+    if (dirname(dir) === dir) return "npm";
+  }
 }
 
 /**

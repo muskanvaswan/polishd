@@ -622,6 +622,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 | `POLISHD_TELEMETRY` | optional | `off` (or `0`/`false`/`no`) — disable [dashboard telemetry](#dashboard-telemetry) entirely, consent prompt included |
 | `POLISHD_TELEMETRY_ENDPOINT` | optional | Where dashboard telemetry is sent, if not the polishd project's own endpoint |
+| `POLISHD_UPDATE_CHECK` | optional | `off` (or `0`/`false`/`no`) — stop the dashboard and `doctor` asking npm for a newer `@polishd/next`. `NO_UPDATE_NOTIFIER` works too |
 | `POLISHD_ANALYTICS_SOURCE` | collector only | `telemetry` — point the whole dashboard (every tab, the AI summary included) at collected cross-install telemetry instead of the site's own traffic |
 
 AI settings are optional — the dashboard's **Settings** tab configures the same
@@ -664,7 +665,7 @@ Run `npx @polishd/next doctor` first — it catches most of these by name, and
 | Command | Purpose |
 |---|---|
 | `npx @polishd/next init` | Scaffold the glue files. `--dry-run`, `--force`, `--js`, `--config` |
-| `npx @polishd/next doctor` | Check an install. `--url <origin>` adds live checks |
+| `npx @polishd/next doctor` | Check an install, including whether a newer `@polishd/next` is out. `--url <origin>` adds live checks |
 
 ## Development
 

@@ -332,6 +332,7 @@ survive there.
 | `POLISHD_DB_PATH` | no | Custom SQLite path in dev |
 | `POLISHD_AI_*` | no | Preset AI provider/model/key instead of using the dashboard |
 | `POLISHD_GITHUB_*` | no | Repo + token for filing issues from findings |
+| `POLISHD_UPDATE_CHECK` | no | `off` stops the dashboard and `doctor` checking npm for a newer `@polishd/next` |
 
 Set the host's Node version to 22.x or later. See [DATABASE.md](./DATABASE.md)
 for provisioning and schema.
@@ -375,4 +376,4 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Command | Purpose |
 |---|---|
 | `npx @polishd/next init` | Scaffold. `--dry-run`, `--force`, `--js`, `--config` |
-| `npx @polishd/next doctor` | Check the install. `--url <origin>` adds live checks |
+| `npx @polishd/next doctor` | Check the install, and whether a newer `@polishd/next` is out. `--url <origin>` adds live checks |

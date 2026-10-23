@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Polishd tells you when there's a newer version
+
+Nothing else will. `npm install` reinstalls whatever the lockfile pins, and
+below 1.0 the `^0.x.y` range npm saves stops at the next minor, so even
+`npm update` can't reach most releases — an app stays on the version it was
+first installed with until someone installs `@latest` on purpose. Now both
+places you look at polishd say when that's due:
+
+- **The dashboard** shows a small card under the tab list — installed version,
+  newer version, and the install command spelled for your package manager
+  (`npm install`, `pnpm add`, `yarn add`, `bun add`), copied with a click.
+  Dismissing it lasts until the *next* release. It sits in the rail rather
+  than above a tab, so tab switches don't blink it, and it streams in behind
+  its own boundary, so the registry lookup never holds the dashboard back.
+- **`npx @polishd/next doctor`** reports the installed version as its own
+  check, and when it's behind, says why the update never arrived: whether
+  your package.json range allows it (so `npm update` would do), pins a version
+  exactly, or — the usual case below 1.0 — stops short of it.
+- Someone on a stable release is only ever offered stable releases. An install
+  already on a `dev` build is offered newer dev builds too, and moves back to
+  `latest` once a release overtakes it.
+
+The check is one ~40-byte GET of the package's dist-tags from
+registry.npmjs.org, at most every six hours per server process. It sends
+nothing about your app. Switch it off with `POLISHD_UPDATE_CHECK=off`, or the
+usual `NO_UPDATE_NOTIFIER`. It reaches installs from this release on: older
+versions have no check to run.
+
 ### Hover a one-off to see where it renders
 
 The Design tab flags one-off type styles, colors and corner radii, and

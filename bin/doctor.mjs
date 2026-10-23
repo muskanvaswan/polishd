@@ -11,6 +11,9 @@
  * Static checks run anywhere. `--url <origin>` adds live checks against a
  * running server, which is the only way to confirm the cookie is really minted
  * and the ingest route really stores.
+ *
+ * It also asks npm whether a newer @polishd/next is out, because nothing else
+ * will: `npm install` never moves an installed version (see checkVersion).
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +23,8 @@ import {
   c,
   detectLayout,
   detectNextMajor,
+  detectPackageManager,
+  detectPolishdInstall,
   nodeVersionOk,
   proxyShape,
   readJSON,
@@ -68,6 +73,8 @@ export async function runDoctor(argv, cwd) {
   } else {
     add(PASS, `Next.js ${next.version}`, `detected from ${next.source}`);
   }
+
+  await checkVersion(cwd, add);
 
   const shape = proxyShape(next, base, codeExt);
 
@@ -271,6 +278,89 @@ export async function runDoctor(argv, cwd) {
   if (origin) await liveChecks(origin, add, cwd);
 
   return report(results, origin);
+}
+
+/**
+ * Is the installed @polishd/next the newest one?
+ *
+ * Nothing in the normal workflow answers that. `npm install` reinstalls what
+ * the lockfile pins, and below 1.0 the `^0.x.y` range npm saves keeps even
+ * `npm update` from crossing a minor — so an app stays on its first version
+ * until someone installs `@latest` on purpose. Say what's out, the command for
+ * this app's package manager, and, when the saved range is why the update
+ * never arrived, say that too.
+ */
+async function checkVersion(cwd, add) {
+  const installed = detectPolishdInstall(cwd);
+  if (!installed.version) {
+    add(
+      WARN,
+      "@polishd/next is not installed",
+      "Could not find it in node_modules. Install dependencies and run this again — the app " +
+        "won't build until it's there.",
+    );
+    return;
+  }
+  const title = `@polishd/next ${installed.version}`;
+
+  // The decision logic is shared with the dashboard and ships compiled in
+  // dist/, which every published copy of this CLI has. An unbuilt checkout of
+  // the polishd repo doesn't, and the check steps aside rather than failing.
+  let check;
+  try {
+    check = await import("../dist/shared/update-check.js");
+  } catch {
+    add(PASS, title, "installed (update check unavailable: dist/ isn't built)");
+    return;
+  }
+  if (check.updateCheckDisabled(process.env)) {
+    add(PASS, title, "installed (update check is off)");
+    return;
+  }
+  const tags = await check.fetchDistTags();
+  if (!tags) {
+    add(PASS, title, "installed (couldn't reach the npm registry to check for a newer one)");
+    return;
+  }
+  const update = check.pickUpdate(installed.version, tags);
+  if (!update) {
+    add(PASS, title, "up to date");
+    return;
+  }
+
+  const pm = detectPackageManager(cwd, check.LOCKFILES);
+  const sentences = [`Run \`${check.installCommand(pm, update.tag)}\`.`];
+  const range = installed.range;
+  const admits = range ? check.rangeAdmits(range, update.version) : null;
+  if (admits === true) {
+    sentences.push(
+      `\`${check.updateCommand(pm)} @polishd/next\` would get it too — the \`${range}\` in ` +
+        "package.json allows it.",
+    );
+  } else if (admits === false && check.parseVersion(range.replace(/^=/, ""))) {
+    sentences.push(
+      `package.json pins \`${range}\` exactly, so installs and updates both stay on it until ` +
+        "the command above rewrites it.",
+    );
+  } else if (admits === false) {
+    const caretBelowOne =
+      range.startsWith("^") &&
+      check.parseVersion(range.slice(1))?.core[0] === 0 &&
+      check.parseVersion(update.version)?.pre.length === 0;
+    sentences.push(
+      `\`${check.updateCommand(pm)}\` won't reach it: the \`${range}\` in package.json stops ` +
+        `short of ${update.version}` +
+        (caretBelowOne ? " — below 1.0, a caret range only takes patch releases." : ".") +
+        " The command above rewrites the range.",
+    );
+  }
+  sentences.push(`What's new: ${check.CHANGELOG_URL}`);
+
+  add(
+    WARN,
+    `@polishd/next ${update.version} is available — you have ${installed.version}`,
+    sentences.join(" "),
+  );
 }
 
 /**

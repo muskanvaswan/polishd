@@ -23,7 +23,7 @@ import { useEffect, useState, type ReactNode } from "react";
  * `navigator.clipboard` is simply absent — `execCommand` is what still works
  * there, deprecated or not.
  */
-async function copyText(text: string): Promise<boolean> {
+export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
