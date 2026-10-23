@@ -21,6 +21,7 @@ import { requirePolishdAuth } from "../ai/guard";
 import { resolveSettings } from "../ai/settings";
 import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
+import { designPreviewTargets } from "../shared/design-values";
 import {
   MAX_SNAPSHOT_ROUTES,
   beginSnapshot,
@@ -94,7 +95,12 @@ export async function beginSnapshotCaptureAction(): Promise<BeginSnapshotResult>
       fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
     }
 
-    return await beginSnapshot({ origin, routes, fingerprint });
+    // The one-off and off-grid values flagged right now get pictured in place,
+    // so hovering one on the Design tab shows the element that carries it.
+    const shot = new Set(routes);
+    const targets = designPreviewTargets(data).filter((t) => t.pages.some((p) => shot.has(p)));
+
+    return await beginSnapshot({ origin, routes, fingerprint, targets });
   } catch (err) {
     return {
       ok: false,

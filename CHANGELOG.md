@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Hover a one-off to see where it renders
+
+The Design tab flags one-off type styles, colors and corner radii, and
+off-grid paddings — but a flag only says *what* drifted, never *where*, and
+"a 17px / 500 somewhere on /pricing" left the hunt to you. Hovering (or
+focusing, or tapping) a flagged value now opens a card with a **picture of
+the element that carries it**: ringed in the badge's amber, the rest of the
+page dimmed, cropped wide enough to show the component it sits in — plus the
+page, device and theme it was shot on.
+
+- The pictures are taken by **Capture snapshot**. After each route's full
+  shots, the same browser reloads the route, finds every flagged value's
+  element with the client scanner's own rules, scrolls it into view and
+  screenshots a crop around it. Matching is by value, not by a recorded
+  selector, so the picture always shows the value really rendering at that
+  size and theme. Usually that's one extra page load per route with flagged
+  values, capped at 15 seconds per route.
+- A value the capture looked for and never saw on screen — one that only
+  renders after a click, or at a width snapshots don't shoot — says so on its
+  card instead of showing a wrong crop. Values with no picture yet still list
+  the pages they were measured on.
+- Pictures are stored with the snapshot's shots (on disk, or in Vercel Blob
+  when it's connected) and pruned with them. Polishd's own beacons from the
+  extra page load are answered locally, so it never lands in the analytics as
+  a visit. Snapshots captured before this release have no pictures; capture
+  again to get them.
+
 ### Issues open in a drawer, rendered as the markdown they are
 
 An issue body on the Issues tab used to be a raw `<pre>` dump behind a
