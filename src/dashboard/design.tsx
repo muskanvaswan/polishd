@@ -8,6 +8,8 @@
  * findings (outliers, WCAG contrast failures, off-grid spacing) as one
  * combined note, long lists collapse behind a client-side "Show more",
  * and the AI review card at the top adds the model's aesthetic read.
+ * Every flagged value opens a hover card picturing the element that carries
+ * it, cropped from the newest snapshot that found it.
  */
 import type { ReactNode } from "react";
 
@@ -18,15 +20,92 @@ import type {
 } from "../server/design";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import type { PolishdSnapshot } from "../server/snapshots";
+import { designValueKey, type DesignValueRef } from "../shared/design-values";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
 import SnapshotsCard from "./snapshots";
 import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
 import OverflowRow from "./overflow-row";
 import ShowMore from "./show-more";
 import { border, card, divider, labelCls as label } from "./ui";
+import ValuePreview, { type ValuePreviewRef, type ValuePreviewState } from "./value-preview";
 
 /** Rows shown before a list collapses behind "Show more". */
 const VISIBLE_ROWS = 5;
+
+/** What the hover card can show for a value, looked up by `designValueKey`. */
+type PreviewFor = (ref: DesignValueRef) => ValuePreviewState;
+
+/**
+ * Index the snapshots' value pictures. A value's newest picture wins, from
+ * whichever snapshot took it — an older picture of a value that's still
+ * flagged still shows where it lived. Without one, the newest snapshot's
+ * "looked and didn't find it" is the next most useful thing to say.
+ */
+function previewIndex(snapshots: PolishdSnapshot[]): PreviewFor {
+  const pictured = new Map<string, ValuePreviewRef>();
+  for (const s of snapshots) {
+    for (const p of s.previews ?? []) {
+      if (pictured.has(p.key)) continue;
+      pictured.set(p.key, {
+        snapshotId: s.id,
+        file: p.file,
+        route: p.route,
+        device: p.device,
+        theme: p.theme,
+        capturedAt: s.capturedAt,
+      });
+    }
+  }
+  const latest = snapshots[0];
+  const missed = new Set(latest?.previewMisses ?? []);
+  return (ref) => {
+    const key = designValueKey(ref);
+    const preview = pictured.get(key);
+    if (preview) return { kind: "pictured", preview };
+    if (latest && missed.has(key)) return { kind: "missed", capturedAt: latest.capturedAt };
+    return { kind: "none", hasSnapshots: snapshots.length > 0 };
+  };
+}
+
+/**
+ * A value's markup, wrapped in its hover card when it's flagged — one-off or
+ * off-grid — and rendered as a plain box otherwise.
+ */
+function Flaggable({
+  flagged,
+  value,
+  label: valueLabel,
+  pages,
+  previews,
+  className,
+  flaggedClassName,
+  children,
+}: {
+  flagged: boolean;
+  value: DesignValueRef;
+  label: string;
+  pages: string[];
+  previews: PreviewFor;
+  className: string;
+  /** Hover/focus treatment added only when the value opens a card. */
+  flaggedClassName: string;
+  children: ReactNode;
+}) {
+  if (!flagged) return <div className={className}>{children}</div>;
+  return (
+    <ValuePreview
+      label={valueLabel}
+      pages={pages}
+      state={previews(value)}
+      className={`${className} ${flaggedClassName}`}
+    >
+      {children}
+    </ValuePreview>
+  );
+}
+
+/** Rows highlight on hover and keyboard focus alike. */
+const FLAGGED_ROW = "transition-colors hover:bg-[#111] focus-visible:bg-[#111]";
 
 function OutlierBadge({ text = "one-off" }: { text?: string }) {
   return (
@@ -93,10 +172,24 @@ function Section({ title, tip, children }: { title: string; tip?: string; childr
 
 // ── Typography ───────────────────────────────────────────────────────────────
 
-function FontRow({ f, first }: { f: PolishdDesignData["fonts"][number]; first: boolean }) {
+function FontRow({
+  f,
+  first,
+  previews,
+}: {
+  f: PolishdDesignData["fonts"][number];
+  first: boolean;
+  previews: PreviewFor;
+}) {
   return (
-    <div
+    <Flaggable
+      flagged={f.outlier}
+      value={{ kind: "font", family: f.family, sizePx: f.sizePx, weight: f.weight }}
+      label={`${f.sizePx}px / ${f.weight}`}
+      pages={f.pages}
+      previews={previews}
       className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-3 sm:px-5 ${first ? "" : divider}`}
+      flaggedClassName={FLAGGED_ROW}
     >
       <span
         className="min-w-0 flex-1 truncate text-white"
@@ -118,17 +211,17 @@ function FontRow({ f, first }: { f: PolishdDesignData["fonts"][number]; first: b
         {f.tags.length > 0 && <span className="text-[#444]">· {f.tags.join(", ")}</span>}
         {f.outlier && <OutlierBadge />}
       </span>
-    </div>
+    </Flaggable>
   );
 }
 
-function TypographySection({ data }: { data: PolishdDesignData }) {
+function TypographySection({ data, previews }: { data: PolishdDesignData; previews: PreviewFor }) {
   const visible = data.fonts.slice(0, VISIBLE_ROWS);
   const overflow = data.fonts.slice(VISIBLE_ROWS, 40);
   return (
     <Section
       title="Typography"
-      tip="— every family / size / weight combination rendered on the site, most used first."
+      tip="— every family / size / weight combination rendered on the site, most used first. Hover a one-off to see where it renders."
     >
       <div className={`${card} overflow-hidden`}>
         <SectionFlags flags={data.flags} section="typography" />
@@ -146,11 +239,21 @@ function TypographySection({ data }: { data: PolishdDesignData }) {
         )}
         <div className="mt-2">
           {visible.map((f, i) => (
-            <FontRow key={`${f.family}|${f.sizePx}|${f.weight}`} f={f} first={i === 0} />
+            <FontRow
+              key={`${f.family}|${f.sizePx}|${f.weight}`}
+              f={f}
+              first={i === 0}
+              previews={previews}
+            />
           ))}
           <ShowMore count={overflow.length} label="type styles">
             {overflow.map((f) => (
-              <FontRow key={`${f.family}|${f.sizePx}|${f.weight}`} f={f} first={false} />
+              <FontRow
+                key={`${f.family}|${f.sizePx}|${f.weight}`}
+                f={f}
+                first={false}
+                previews={previews}
+              />
             ))}
           </ShowMore>
         </div>
@@ -169,36 +272,69 @@ function roleLabel(roles: PolishdDesignData["colors"][number]["roles"]): string 
   return parts.join(" · ");
 }
 
-function ColorChip({ c }: { c: PolishdDesignData["colors"][number] }) {
-  return (
-    <span
-      className="flex items-center gap-1.5 rounded-full border border-[#2e2e2e] py-1 pl-1.5 pr-2.5"
-      title={`${c.hex} · ${c.pct}% · ${roleLabel(c.roles)} · ${c.pages.length} page(s)`}
-    >
+function colorRef(c: PolishdDesignData["colors"][number]): DesignValueRef {
+  const roles = (["text", "background", "border"] as const).filter((r) => c.roles[r] > 0);
+  return { kind: "color", hex: c.hex, roles: [...roles] };
+}
+
+function ColorChip({ c, previews }: { c: PolishdDesignData["colors"][number]; previews: PreviewFor }) {
+  const chip = "flex items-center gap-1.5 rounded-full border border-[#2e2e2e] py-1 pl-1.5 pr-2.5";
+  const body = (
+    <>
       <span
         className="h-4 w-4 rounded-full border border-[#2e2e2e]"
         style={{ backgroundColor: c.hex }}
       />
       <span className="font-mono text-[10px] text-[#999]">{c.hex}</span>
       {c.outlier && <OutlierBadge />}
+    </>
+  );
+  // A flagged chip's hover card carries everything the tooltip would.
+  if (c.outlier) {
+    return (
+      <ValuePreview
+        label={c.hex}
+        pages={c.pages}
+        state={previews(colorRef(c))}
+        className={`${chip} transition-colors hover:border-[#555] focus-visible:border-[#777]`}
+      >
+        {body}
+      </ValuePreview>
+    );
+  }
+  return (
+    <span
+      className={chip}
+      title={`${c.hex} · ${c.pct}% · ${roleLabel(c.roles)} · ${c.pages.length} page(s)`}
+    >
+      {body}
     </span>
   );
 }
 
-function PaletteSection({ data }: { data: PolishdDesignData }) {
+function PaletteSection({ data, previews }: { data: PolishdDesignData; previews: PreviewFor }) {
   const primary = data.colors.slice(0, 6);
   const chips = data.colors.slice(6, 48);
   return (
     <Section
       title="Color palette"
-      tip="— the colors your pages actually paint, weighted by how much of the UI they cover."
+      tip="— the colors your pages actually paint, weighted by how much of the UI they cover. Hover a one-off to see where it renders."
     >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="color" />
         {primary.length > 0 && (
           <div className="grid grid-cols-3 gap-3 px-4 pt-4 sm:grid-cols-6 sm:px-5">
             {primary.map((c) => (
-              <div key={c.hex} className="min-w-0">
+              <Flaggable
+                key={c.hex}
+                flagged={c.outlier}
+                value={colorRef(c)}
+                label={c.hex}
+                pages={c.pages}
+                previews={previews}
+                className="min-w-0"
+                flaggedClassName="rounded-md focus-visible:ring-1 focus-visible:ring-amber-500/60"
+              >
                 <div
                   className="h-16 w-full rounded-md border border-[#2e2e2e]"
                   style={{ backgroundColor: c.hex }}
@@ -209,7 +345,7 @@ function PaletteSection({ data }: { data: PolishdDesignData }) {
                   <span>· {roleLabel(c.roles)}</span>
                   {c.outlier && <OutlierBadge />}
                 </div>
-              </div>
+              </Flaggable>
             ))}
           </div>
         )}
@@ -220,7 +356,7 @@ function PaletteSection({ data }: { data: PolishdDesignData }) {
             rowClassName="flex flex-wrap gap-2"
           >
             {chips.map((c) => (
-              <ColorChip key={c.hex} c={c} />
+              <ColorChip key={c.hex} c={c} previews={previews} />
             ))}
           </OverflowRow>
         )}
@@ -297,9 +433,17 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
 
 // ── Radii & spacing ──────────────────────────────────────────────────────────
 
-function RadiusChip({ r }: { r: PolishdDesignData["radii"][number] }) {
+function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; previews: PreviewFor }) {
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <Flaggable
+      flagged={r.outlier}
+      value={{ kind: "radius", value: r.value }}
+      label={`${r.value} radius`}
+      pages={r.pages}
+      previews={previews}
+      className="flex flex-col items-center gap-1.5"
+      flaggedClassName={`-m-1.5 rounded-md p-1.5 ${FLAGGED_ROW}`}
+    >
       <div
         className="h-12 w-12 border border-[#555] bg-[#161616]"
         style={{
@@ -311,15 +455,18 @@ function RadiusChip({ r }: { r: PolishdDesignData["radii"][number] }) {
         {r.outlier && <OutlierBadge />}
       </div>
       <span className="text-[10px] tabular-nums text-[#555]">×{r.count.toLocaleString()}</span>
-    </div>
+    </Flaggable>
   );
 }
 
-function RadiusSection({ data }: { data: PolishdDesignData }) {
+function RadiusSection({ data, previews }: { data: PolishdDesignData; previews: PreviewFor }) {
   if (data.radii.length === 0) return null;
   const radii = data.radii.slice(0, 20);
   return (
-    <Section title="Corner radii" tip="— rounding in use on visible boxes and controls.">
+    <Section
+      title="Corner radii"
+      tip="— rounding in use on visible boxes and controls. Hover a one-off to see where it renders."
+    >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="radius" />
         <OverflowRow
@@ -328,7 +475,7 @@ function RadiusSection({ data }: { data: PolishdDesignData }) {
           rowClassName="flex flex-wrap items-end gap-4"
         >
           {radii.map((r) => (
-            <RadiusChip key={r.value} r={r} />
+            <RadiusChip key={r.value} r={r} previews={previews} />
           ))}
         </OverflowRow>
       </div>
@@ -336,9 +483,25 @@ function RadiusSection({ data }: { data: PolishdDesignData }) {
   );
 }
 
-function SpacingRow({ s, max }: { s: PolishdDesignData["spacing"][number]; max: number }) {
+function SpacingRow({
+  s,
+  max,
+  previews,
+}: {
+  s: PolishdDesignData["spacing"][number];
+  max: number;
+  previews: PreviewFor;
+}) {
   return (
-    <div className="flex items-center gap-3">
+    <Flaggable
+      flagged={s.offGrid}
+      value={{ kind: "spacing", px: s.px }}
+      label={`${s.px}px padding`}
+      pages={s.pages}
+      previews={previews}
+      className="flex items-center gap-3"
+      flaggedClassName={`-mx-1.5 rounded px-1.5 ${FLAGGED_ROW}`}
+    >
       <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-[#999]">
         {s.px}px
       </span>
@@ -354,29 +517,32 @@ function SpacingRow({ s, max }: { s: PolishdDesignData["spacing"][number]; max: 
       <span className="w-14 shrink-0 text-[10px] text-amber-400">
         {s.offGrid ? "off-grid" : ""}
       </span>
-    </div>
+    </Flaggable>
   );
 }
 
-function SpacingSection({ data }: { data: PolishdDesignData }) {
+function SpacingSection({ data, previews }: { data: PolishdDesignData; previews: PreviewFor }) {
   if (data.spacing.length === 0) return null;
   const scale = [...data.spacing].sort((a, b) => a.px - b.px).slice(0, 24);
   const max = Math.max(...scale.map((s) => s.px), 1);
   const visible = scale.slice(0, VISIBLE_ROWS);
   const overflow = scale.slice(VISIBLE_ROWS);
   return (
-    <Section title="Spacing" tip="— padding values in use, as a scale. Bars are to scale.">
+    <Section
+      title="Spacing"
+      tip="— padding values in use, as a scale. Bars are to scale. Hover an off-grid value to see where it renders."
+    >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="spacing" />
         <div className="space-y-1.5 px-4 pt-4 sm:px-5">
           {visible.map((s) => (
-            <SpacingRow key={s.px} s={s} max={max} />
+            <SpacingRow key={s.px} s={s} max={max} previews={previews} />
           ))}
         </div>
         <ShowMore count={overflow.length} label="padding values">
           <div className="mt-1.5 space-y-1.5 px-4 pb-1 sm:px-5">
             {overflow.map((s) => (
-              <SpacingRow key={s.px} s={s} max={max} />
+              <SpacingRow key={s.px} s={s} max={max} previews={previews} />
             ))}
           </div>
         </ShowMore>
@@ -442,6 +608,7 @@ export function DesignPanel({
   captureIssue,
 }: DesignPanelProps) {
   const hasScans = data.pages.length > 0;
+  const previews = previewIndex(snapshots);
   return (
     <main className="text-white">
       {/* Header */}
@@ -502,11 +669,11 @@ export function DesignPanel({
 
       {hasScans && (
         <>
-          <TypographySection data={data} />
-          <PaletteSection data={data} />
+          <TypographySection data={data} previews={previews} />
+          <PaletteSection data={data} previews={previews} />
           <ContrastSection data={data} />
-          <RadiusSection data={data} />
-          <SpacingSection data={data} />
+          <RadiusSection data={data} previews={previews} />
+          <SpacingSection data={data} previews={previews} />
           <ScannedPages data={data} />
         </>
       )}

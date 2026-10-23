@@ -460,6 +460,11 @@ snapshots are kept), and each snapshot is stamped with the design-metrics
 fingerprint at capture time — so a snapshot taken before a round of design
 fixes can be held against one taken after.
 
+Each capture also pictures the flagged values in place: for every one-off type
+style, color and radius, and the most-used off-grid paddings, it finds the
+element carrying the value on its page and saves a ringed crop of it. Hover a
+flagged value on the Design tab to see that picture and the page it's on.
+
 **In production on Vercel**, capture works too — connect a
 [Blob store](https://vercel.com/docs/vercel-blob) to the project and that's
 the whole setup: the `BLOB_READ_WRITE_TOKEN` it injects switches image storage

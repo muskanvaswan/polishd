@@ -20,6 +20,13 @@
  * failure degrades to a message, never a crash — the same contract as the
  * rest of the server layer.
  *
+ * Alongside the full shots, each route call also pictures the Design tab's
+ * flagged values in place — a ringed crop of the element carrying a one-off
+ * type style, color, radius or off-grid padding (server/value-previews.ts) —
+ * stored beside the shots under the same disk-or-Blob rule, and listed in the
+ * snapshot as `previews` so hovering the value on the dashboard shows where
+ * it renders.
+ *
  * Capture is chunked into one server call per route: begin → one
  * `captureSnapshotRoute` per route → finish, with the in-flight state parked
  * in the store between calls. A whole-site capture in a single request would
@@ -29,12 +36,14 @@
  * result at all. One route per request keeps every call short enough to fit.
  */
 import { isAbsolute, join } from "node:path";
-import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import type { Shot as AllpagesShot } from "allpages";
 import type { Browser } from "playwright-core";
 
+import type { DesignPreviewTarget } from "../shared/design-values";
 import { getMeta, setMeta, storeReady } from "./store";
+import { captureValuePreviews, type PreviewRendering } from "./value-previews";
 
 /** One captured (or deliberately skipped) screenshot within a snapshot. */
 export interface PolishdSnapshotShot {
@@ -59,6 +68,24 @@ export interface PolishdSnapshotShot {
   skipped?: string;
 }
 
+/**
+ * A cropped picture of one flagged design value in place — the element that
+ * carries a one-off type style, color, radius or off-grid padding, ringed,
+ * with the component around it. Shot during the capture, from the same
+ * rendering as the route's full shots.
+ */
+export interface PolishdSnapshotPreview {
+  /** The value pictured — `designValueKey` of its target. */
+  key: string;
+  route: string;
+  device: string;
+  theme: string;
+  /** Image filename inside the snapshot's `previews/` subdirectory. */
+  file: string;
+  /** Where the image uploaded, for Blob-stored previews. */
+  url?: string;
+}
+
 /** One capture run: every page of the site at one moment in time. */
 export interface PolishdSnapshot {
   id: string;
@@ -76,6 +103,13 @@ export interface PolishdSnapshot {
   authWalled: string[];
   /** True when the site rendered identically in light and dark. */
   noDarkMode: boolean;
+  /** Pictures of the flagged values, where each one renders. Absent on older snapshots. */
+  previews?: PolishdSnapshotPreview[];
+  /**
+   * Values this capture looked for on their pages and never found on screen
+   * — rendered only after an interaction, or only at a width it didn't shoot.
+   */
+  previewMisses?: string[];
 }
 
 interface SnapshotIndex {
@@ -94,6 +128,20 @@ export const MAX_SNAPSHOT_ROUTES = 12;
 /** The device/theme matrix every snapshot shoots. */
 const SNAPSHOT_DEVICES = ["phone", "desktop"] as const;
 const SNAPSHOT_THEMES = ["light", "dark"] as const;
+
+/**
+ * Where a flagged value is looked for, in order: the gallery's default view
+ * first, so most pictures match the shot the user is already looking at.
+ */
+const PREVIEW_RENDERINGS: PreviewRendering[] = [
+  { device: "desktop", theme: "light" },
+  { device: "desktop", theme: "dark" },
+  { device: "phone", theme: "light" },
+  { device: "phone", theme: "dark" },
+];
+/** Values pictured per route, and the time the pass may add to its call. */
+const MAX_PREVIEWS_PER_ROUTE = 16;
+const PREVIEW_BUDGET_MS = 15_000;
 
 /**
  * True when shots should upload to Vercel Blob rather than land on disk.
@@ -133,10 +181,11 @@ export async function listSnapshots(): Promise<PolishdSnapshot[]> {
 }
 
 /**
- * Read one shot's image as a data URL, or null when it doesn't exist. The
- * filename is only accepted when the index lists it for that snapshot, so a
- * caller can never read outside a snapshot directory — and Blob-stored shots
- * are only ever fetched from the URL the index recorded at capture time.
+ * Read one shot's — or one value preview's — image as a data URL, or null
+ * when it doesn't exist. The filename is only accepted when the index lists it
+ * for that snapshot, so a caller can never read outside a snapshot directory —
+ * and Blob-stored images are only ever fetched from the URL the index recorded
+ * at capture time.
  */
 export async function readSnapshotImage(
   snapshotId: string,
@@ -144,16 +193,20 @@ export async function readSnapshotImage(
 ): Promise<string | null> {
   const index = await loadIndex();
   const snapshot = index.snapshots.find((s) => s.id === snapshotId);
-  const shot = snapshot?.shots.find((s) => s.file === file && s.file.length > 0);
-  if (!snapshot || !shot) return null;
+  if (!snapshot || file.length === 0) return null;
+  const shot = snapshot.shots.find((s) => s.file === file);
+  const preview = shot ? undefined : snapshot.previews?.find((p) => p.file === file);
+  const image = shot ?? preview;
+  if (!image) return null;
   try {
-    if (shot.url) {
-      const res = await fetch(shot.url);
+    if (image.url) {
+      const res = await fetch(image.url);
       if (!res.ok) return null;
       const bytes = Buffer.from(await res.arrayBuffer());
       return `data:image/png;base64,${bytes.toString("base64")}`;
     }
-    const bytes = await readFile(join(snapshotsRoot(), snapshot.id, "shots", shot.file));
+    const dir = shot ? "shots" : "previews";
+    const bytes = await readFile(join(snapshotsRoot(), snapshot.id, dir, image.file));
     return `data:image/png;base64,${bytes.toString("base64")}`;
   } catch {
     return null; // Directory pruned or deleted by hand — the tile shows a blank.
@@ -203,17 +256,8 @@ async function storeRouteShots(
     return { shots };
   }
 
-  let blob: typeof import("@vercel/blob");
-  try {
-    blob = await import("@vercel/blob");
-  } catch {
-    return {
-      message:
-        "Blob storage is configured (BLOB_READ_WRITE_TOKEN is set) but @vercel/blob " +
-        "isn't installed. It ships as an optional dependency of @polishd/next — " +
-        "reinstall without `--omit=optional`.",
-    };
-  }
+  const blob = await loadBlobSdk();
+  if ("message" in blob) return blob;
   const uploaded: string[] = [];
   try {
     for (const s of captured) {
@@ -241,6 +285,74 @@ async function storeRouteShots(
   }
 }
 
+/** The Blob SDK, or why it couldn't load. */
+async function loadBlobSdk(): Promise<typeof import("@vercel/blob") | { message: string }> {
+  try {
+    return await import("@vercel/blob");
+  } catch {
+    return {
+      message:
+        "Blob storage is configured (BLOB_READ_WRITE_TOKEN is set) but @vercel/blob " +
+        "isn't installed. It ships as an optional dependency of @polishd/next — " +
+        "reinstall without `--omit=optional`.",
+    };
+  }
+}
+
+/**
+ * Store one route's value previews next to its shots — the snapshot's
+ * `previews/` directory, or Blob under the same rules as the shots. Names are
+ * `v-r<route>-<n>-<device>-<theme>.png`, unique within the snapshot and never
+ * mistakable for a shot's. All or nothing, like the shots: a failed upload
+ * deletes the pieces already sent.
+ */
+async function storeRoutePreviews(
+  id: string,
+  routeIndex: number,
+  route: string,
+  crops: { key: string; device: string; theme: string; bytes: Buffer }[],
+): Promise<PolishdSnapshotPreview[]> {
+  const named = crops.map((c, n) => ({
+    ...c,
+    file: `v-r${routeIndex}-${n}-${c.device}-${c.theme}.png`,
+  }));
+  const toPreview = (c: (typeof named)[number], url?: string): PolishdSnapshotPreview => ({
+    key: c.key,
+    route,
+    device: c.device,
+    theme: c.theme,
+    file: c.file,
+    ...(url ? { url } : {}),
+  });
+
+  if (!blobConfigured()) {
+    const dir = join(snapshotsRoot(), id, "previews");
+    await mkdir(dir, { recursive: true });
+    for (const c of named) await writeFile(join(dir, c.file), c.bytes);
+    return named.map((c) => toPreview(c));
+  }
+
+  const blob = await loadBlobSdk();
+  if ("message" in blob) return [];
+  const uploaded: string[] = [];
+  try {
+    const previews: PolishdSnapshotPreview[] = [];
+    for (const c of named) {
+      const { url } = await blob.put(`polishd/snapshots/${id}/previews/${c.file}`, c.bytes, {
+        access: "public",
+        contentType: "image/png",
+        addRandomSuffix: true,
+      });
+      uploaded.push(url);
+      previews.push(toPreview(c, url));
+    }
+    return previews;
+  } catch {
+    if (uploaded.length > 0) await blob.del(uploaded).catch(() => {});
+    return [];
+  }
+}
+
 /**
  * Best-effort removal of a snapshot's images, wherever they were stored.
  * Blob-stored shots carry their URLs in the index; disk-stored ones sit in a
@@ -248,9 +360,11 @@ async function storeRouteShots(
  * blob costs cents, a prune that crashed the capture would cost the feature.
  */
 async function deleteSnapshotImages(
-  snapshot: Pick<PolishdSnapshot, "id" | "shots">,
+  snapshot: Pick<PolishdSnapshot, "id" | "shots" | "previews">,
 ): Promise<void> {
-  const urls = snapshot.shots.flatMap((s) => (s.url ? [s.url] : []));
+  const urls = [...snapshot.shots, ...(snapshot.previews ?? [])].flatMap((s) =>
+    s.url ? [s.url] : [],
+  );
   if (urls.length > 0) {
     try {
       const { del } = await import("@vercel/blob");
@@ -273,6 +387,8 @@ export interface BeginSnapshotInput {
   routes: string[];
   /** Design-metrics fingerprint at capture time, for later pairing. */
   fingerprint: string | null;
+  /** Flagged values to picture in place, each on the pages it was measured on. */
+  targets?: DesignPreviewTarget[];
 }
 
 export type BeginSnapshotResult =
@@ -308,6 +424,11 @@ interface PendingSnapshot {
   authWalled: string[];
   /** Stays true only while every route with images rendered identically dark. */
   noDarkMode: boolean;
+  /** Values to picture; each is dropped from later routes once pictured. */
+  targets: DesignPreviewTarget[];
+  previews: PolishdSnapshotPreview[];
+  /** Keys looked for on a route and not found there. */
+  previewMisses: string[];
 }
 
 const PENDING_KEY = "design_snapshot_pending";
@@ -317,7 +438,13 @@ async function loadPending(): Promise<PendingSnapshot | null> {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as PendingSnapshot;
-    if (parsed?.v === 1 && typeof parsed.id === "string") return parsed;
+    if (parsed?.v === 1 && typeof parsed.id === "string") {
+      // Records parked by a version without value previews.
+      parsed.targets ??= [];
+      parsed.previews ??= [];
+      parsed.previewMisses ??= [];
+      return parsed;
+    }
   } catch {
     // A corrupt pending record is simply abandoned.
   }
@@ -371,6 +498,9 @@ export async function beginSnapshot(input: BeginSnapshotInput): Promise<BeginSna
     shots: [],
     authWalled: [],
     noDarkMode: true,
+    targets: input.targets ?? [],
+    previews: [],
+    previewMisses: [],
   };
   if (!(await savePending(pending))) {
     return { ok: false, message: "The store refused to record the capture in progress." };
@@ -455,8 +585,12 @@ export async function captureSnapshotRoute(
     );
     if ("message" in stored) return { ok: false, message: stored.message };
 
+    const pictured = await pictureRouteValues(launched.browser, pending, route, stored.shots);
+
     pending.done.push(route);
     pending.shots.push(...stored.shots);
+    pending.previews.push(...pictured.previews);
+    pending.previewMisses.push(...pictured.missed);
     for (const walled of result.authWalled) {
       if (!pending.authWalled.includes(walled)) pending.authWalled.push(walled);
     }
@@ -465,7 +599,7 @@ export async function captureSnapshotRoute(
       pending.noDarkMode = pending.noDarkMode && result.noDarkMode;
     }
     if (!(await savePending(pending))) {
-      await deleteSnapshotImages({ id, shots: stored.shots });
+      await deleteSnapshotImages({ id, shots: stored.shots, previews: pictured.previews });
       return { ok: false, message: "The route was shot but the store refused to record it." };
     }
     return { ok: true, shots: stored.shots };
@@ -479,6 +613,46 @@ export async function captureSnapshotRoute(
   } finally {
     await launched.browser.close().catch(() => {});
     await rm(stageDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Picture the capture's flagged values that were measured on `route` and
+ * aren't pictured yet, in the renderings this route actually produced shots
+ * for (an auth-walled or failed route has none, so it's skipped). Never fails
+ * the route: any error leaves the route with its full shots and no previews.
+ */
+async function pictureRouteValues(
+  browser: Browser,
+  pending: PendingSnapshot,
+  route: string,
+  shots: PolishdSnapshotShot[],
+): Promise<{ previews: PolishdSnapshotPreview[]; missed: string[] }> {
+  const none = { previews: [], missed: [] };
+  const pictured = new Set(pending.previews.map((p) => p.key));
+  const targets = pending.targets
+    .filter((t) => t.pages.includes(route) && !pictured.has(t.key))
+    .slice(0, MAX_PREVIEWS_PER_ROUTE);
+  const renderings = PREVIEW_RENDERINGS.filter((r) =>
+    shots.some((s) => s.file && s.device === r.device && s.theme === r.theme),
+  );
+  if (targets.length === 0 || renderings.length === 0) return none;
+  try {
+    const result = await captureValuePreviews(
+      browser,
+      pending.origin,
+      route,
+      targets,
+      renderings,
+      PREVIEW_BUDGET_MS,
+    );
+    const previews =
+      result.crops.length > 0
+        ? await storeRoutePreviews(pending.id, pending.routes.indexOf(route), route, result.crops)
+        : [];
+    return { previews, missed: result.missed };
+  } catch {
+    return none;
   }
 }
 
@@ -505,6 +679,11 @@ export async function finishSnapshot(id: string): Promise<CaptureSnapshotResult>
     shots: pending.shots,
     authWalled: pending.authWalled,
     noDarkMode: pending.noDarkMode,
+    previews: pending.previews,
+    // A value missed on one of its pages may have been pictured on another.
+    previewMisses: [...new Set(pending.previewMisses)].filter(
+      (key) => !pending.previews.some((p) => p.key === key),
+    ),
   };
 
   if (snapshot.shots.every((s) => !s.file)) {
