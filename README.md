@@ -467,8 +467,13 @@ flagged value on the Design tab to see that picture and the page it's on.
 
 **In production on Vercel**, capture works too — connect a
 [Blob store](https://vercel.com/docs/vercel-blob) to the project and that's
-the whole setup: the `BLOB_READ_WRITE_TOKEN` it injects switches image storage
-from disk to Blob, and the browser comes from `@sparticuz/chromium` (a
+the whole setup: whichever variable the connection injects switches image
+storage from disk to Blob — `BLOB_STORE_ID` for a store connected over OIDC
+(authenticated by the short-lived token Vercel issues at runtime) or the
+classic `BLOB_READ_WRITE_TOKEN`. The `BLOB_WEBHOOK_PUBLIC_KEY` an OIDC
+connection also adds isn't needed. Public and private stores both work;
+either way the dashboard serves the images itself, behind its own access
+check. The browser comes from `@sparticuz/chromium` (a
 Chromium built for serverless sandboxes, installed automatically as an
 optional dependency). The snapshot index rides in the same database the rest
 of Polishd already requires in production, so no other wiring changes. Capture
@@ -476,7 +481,7 @@ runs as one short server call per page, so it fits inside serverless function
 time limits; if a single heavy page still brushes against a strict limit,
 `export const maxDuration = 300` in the dashboard's `page.tsx` adds headroom
 (`polishd init` writes it for you). On hosts with neither a writable
-filesystem nor a Blob token, the button explains what's missing rather than
+filesystem nor a Blob store, the button explains what's missing rather than
 failing silently.
 
 ## Component-level tracking
