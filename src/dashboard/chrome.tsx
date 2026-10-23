@@ -139,6 +139,7 @@ export default function DashboardChrome({
   active,
   showInstalls = false,
   showIssues = false,
+  notice,
   children,
 }: {
   active: PolishdDashboardTab;
@@ -146,6 +147,11 @@ export default function DashboardChrome({
   showInstalls?: boolean;
   /** Render the Issues tab (only installs with GitHub connected pass true). */
   showIssues?: boolean;
+  /**
+   * Rendered under the tab list, outside the content column, so it stays put
+   * while tabs swap to their skeletons. The update notice lives here.
+   */
+  notice?: ReactNode;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -216,6 +222,7 @@ export default function DashboardChrome({
                   );
                 })}
               </nav>
+              {notice}
             </div>
           </aside>
           <div className="min-w-0 flex-1">

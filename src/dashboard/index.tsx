@@ -59,7 +59,10 @@ import {
 } from "./token-auth";
 import { unlockPolishdDashboard } from "./unlock";
 import { loadPolishdTelemetryState } from "../server/telemetry";
+import { loadPolishdUpdate } from "../server/update-check";
+import { CHANGELOG_URL } from "../shared/update-check";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
+import UpdateNotice from "./update-notice";
 import { loadDesignReviewState } from "../ai/design";
 import { listFixSuggestions } from "../ai/fix";
 import { isGithubConnected } from "../ai/github";
@@ -956,6 +959,21 @@ async function SettingsTabData() {
   );
 }
 
+// ── Update notice ────────────────────────────────────────────────────────────
+
+async function UpdateNoticeData() {
+  const update = await loadPolishdUpdate();
+  if (!update) return null;
+  return (
+    <UpdateNotice
+      current={update.current}
+      version={update.version}
+      command={update.command}
+      changelog={CHANGELOG_URL}
+    />
+  );
+}
+
 // ── Built-in fallback for a failed auth check ────────────────────────────────
 function Unauthorized() {
   return (
@@ -1310,7 +1328,18 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
     return wrap(
       <>
-        <DashboardChrome active={tab} showInstalls={showInstalls} showIssues={showIssues}>
+        <DashboardChrome
+          active={tab}
+          showInstalls={showInstalls}
+          showIssues={showIssues}
+          notice={
+            // Its own boundary, with no fallback: the registry lookup must never
+            // hold the frame back, and most renders have nothing to say.
+            <Suspense fallback={null}>
+              <UpdateNoticeData />
+            </Suspense>
+          }
+        >
           {body}
         </DashboardChrome>
         {telemetryUi}

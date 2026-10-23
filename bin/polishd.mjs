@@ -33,6 +33,8 @@ ${c.bold("init options")}
 ${c.bold("doctor options")}
   --url <origin> also run live checks against a running server
   --js           inspect .js/.jsx files instead of TypeScript
+  Doctor also asks npm whether a newer @polishd/next is out.
+  Set POLISHD_UPDATE_CHECK=off to skip that.
 
 ${c.bold("Installing with a coding agent")}
   Polishd ships a machine-readable install procedure. Paste this to Claude Code,
