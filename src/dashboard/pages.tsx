@@ -234,7 +234,7 @@ function PageRow({ page, onOpen }: { page: TopPage; onOpen: () => void }) {
       <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${page.jsErrors > 0 ? "text-bad" : "text-fg-3"}`}>
         {page.jsErrors}
       </td>
-      <td className="py-3 pl-4 pr-5 text-right text-fg-4">
+      <td className="py-3 pl-4 pr-5 text-right text-fg-3">
         <span className="inline-flex transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-fg-2">
           <ChevronRightIcon size={15} />
         </span>

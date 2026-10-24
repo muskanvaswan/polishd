@@ -40,7 +40,6 @@ import {
   GearIcon,
   RefreshIcon,
   SparkIcon,
-  XIcon,
   card,
   cardHeader,
   cardTitleCls,

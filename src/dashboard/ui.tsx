@@ -341,7 +341,7 @@ export function InfoTip({
     <span
       tabIndex={focusable ? 0 : undefined}
       aria-label={focusable ? text : undefined}
-      className="group/tip relative inline-flex shrink-0 cursor-help items-center rounded-full align-middle text-fg-4 transition-colors hover:text-fg-2 focus-visible:text-fg-2"
+      className="group/tip relative inline-flex shrink-0 cursor-help items-center rounded-full align-middle text-fg-3 transition-colors hover:text-fg-2 focus-visible:text-fg-2"
     >
       <InfoIcon size={13} />
       <span

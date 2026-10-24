@@ -150,7 +150,7 @@ export default function InstallsView({
                         ) : i.hasModel === false ? (
                           <span className="text-fg-3">none</span>
                         ) : (
-                          <span className="text-fg-4">—</span>
+                          <span className="text-fg-3">—</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right text-[13px] tabular-nums text-fg-2">
@@ -166,14 +166,14 @@ export default function InstallsView({
                         {i.rageClicks > 0 ? (
                           <span className="text-bad">{i.rageClicks}</span>
                         ) : (
-                          <span className="text-fg-4">—</span>
+                          <span className="text-fg-3">—</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right text-[13px] tabular-nums">
                         {i.deadClicks > 0 ? (
                           <span className="text-warn">{i.deadClicks}</span>
                         ) : (
-                          <span className="text-fg-4">—</span>
+                          <span className="text-fg-3">—</span>
                         )}
                       </td>
                       <td className="py-3 pl-4 pr-5 text-right text-[12px] tabular-nums text-fg-3">

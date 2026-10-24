@@ -19,11 +19,11 @@ import { useEffect, useState, useTransition } from "react";
 
 import type { IgnoreLossResult, PolishdIgnoredLoss, UnignoreLossResult } from "../ai/types";
 import { railCard } from "./card-rail";
-import { microBtn } from "./ui";
+import { Badge, XIcon, microBtn } from "./ui";
 
 /** The verdict buttons on a finding share their style with the shared microBtn. */
 export const microLink =
-  "text-[10px] text-[#888] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
+  "text-[11px] font-medium text-fg-3 underline decoration-fg-4 underline-offset-2 transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-40";
 
 /** A server action that threw: the token cookie expired, or the network dropped. */
 export const UNREACHABLE = "Couldn't reach the server — reload the page and try again.";
@@ -115,7 +115,7 @@ export function IgnoreButton({
       >
         {state.pending ? "Ignoring…" : "Ignore"}
       </button>
-      {state.error && <span className="text-[10px] text-red-400">{state.error}</span>}
+      {state.error && <span className="text-[11px] text-bad">{state.error}</span>}
     </>
   );
 }
@@ -149,14 +149,17 @@ export function DismissedCard({
   useEffect(() => setEditing(false), [ignored]);
 
   return (
-    <li className={`${railCard} text-[#888]`}>
+    <li className={`${railCard} text-fg-3`}>
       <div className="flex gap-2">
-        <span className="mt-px shrink-0 text-[#888]">✕</span>
-        <span className="line-through decoration-[#3a3a3a]">{issue}</span>
+        {/* A struck-out marker, not something to read: the badge says it. */}
+        <span className="mt-0.5 shrink-0 text-fg-4">
+          <XIcon size={13} />
+        </span>
+        <span className="line-through decoration-fg-4">{issue}</span>
       </div>
-      <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]">
+      <Badge className="mt-2.5 self-start">
         Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
-      </span>
+      </Badge>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
         {editing ? (
           <ReasonForm
@@ -194,7 +197,7 @@ export function DismissedCard({
             </button>
           </>
         )}
-        {state.error && <span className="text-[10px] text-red-400">{state.error}</span>}
+        {state.error && <span className="text-[11px] text-bad">{state.error}</span>}
       </div>
     </li>
   );
@@ -234,7 +237,7 @@ function ReasonForm({
         maxLength={240}
         placeholder="Why isn't this a problem?"
         aria-label={label}
-        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#888] focus:border-[#555] focus:outline-none"
+        className="h-7 w-full rounded-md border border-line-strong bg-canvas px-2 text-[12px] text-fg placeholder:text-fg-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
       <button type="submit" disabled={pending} className={microBtn}>
         {pending ? "Saving…" : "Save"}

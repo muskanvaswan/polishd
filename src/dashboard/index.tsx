@@ -184,7 +184,7 @@ function fmtMs(ms: number): string {
 }
 
 /** An empty measurement: drawn quiet so the numbers around it stand out. */
-const none = <span className="text-fg-4">—</span>;
+const none = <span className="text-fg-3">—</span>;
 
 function MonitoredRow({ m }: { m: MonitoredComponent }) {
   const num = "py-3 px-4 text-right text-[13px] tabular-nums text-fg-2";
@@ -253,7 +253,7 @@ function AnalyticsHeader({ pill }: { pill: ReactNode }) {
       description={
         <>
           Stage 1 — Capture. Hover{" "}
-          <span className="inline-flex translate-y-[2px] text-fg-4">
+          <span className="inline-flex translate-y-[2px] text-fg-3">
             <InfoIcon size={13} />
           </span>{" "}
           for calculation details.

@@ -299,7 +299,10 @@ of design tokens instead of hex values repeated across thirty files.
 - **Readable at a glance.** Section headings are sentence case, not tracked
   capitals. Stat tiles lead with their label, and numbers use tabular
   figures. Secondary text clears WCAG AA (≥5:1) on every surface in both
-  modes, where the old `#555`/`#444` greys sat near 2.5:1.
+  modes, where the old `#555`/`#444` greys sat near 2.5:1. The faintest grey
+  is kept for rules, dots and struck-out marks, never for text, even an
+  em-dash. In light mode the green, amber and red are a step darker, so a
+  status badge's text still clears 4.5:1 on its own tint.
 - **Keyboard-visible.** Every control shows one focus ring, and the "how is
   this calculated" tips open on focus as well as hover. Text glyphs used as
   icons (`✕`, `›`, `⏱`, `●`) are now SVG, and motion collapses under

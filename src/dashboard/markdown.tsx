@@ -86,14 +86,14 @@ function List({ list }: { list: MdList }) {
     <Tag
       className={`space-y-1 pl-5 ${
         list.ordered ? "list-decimal" : "list-disc"
-      } marker:text-fg-4`}
+      } marker:text-fg-3`}
     >
       {list.items.map((item, i) => (
         <li key={i}>
           {item.checked !== undefined && (
             <span
               aria-hidden
-              className={`mr-1.5 font-mono ${item.checked ? "text-ok" : "text-fg-4"}`}
+              className={`mr-1.5 font-mono ${item.checked ? "text-ok" : "text-fg-3"}`}
             >
               {item.checked ? "☑" : "☐"}
             </span>

@@ -456,7 +456,7 @@ function MetricChart({
           {hovered && (
             <>
               <span className="text-fg-3">{hovered.title}</span>
-              <span className="mx-1.5 text-fg-4">·</span>
+              <span className="mx-1.5 text-fg-3">·</span>
               <span className="font-semibold tabular-nums text-fg">
                 {plural(hovered[meta.key], meta.unit)}
               </span>

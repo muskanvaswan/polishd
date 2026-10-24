@@ -179,9 +179,11 @@
        amber dead clicks, red rage and errors — and nothing decorative ever
        competes with it. Three surface steps a few points apart let a card sit
        on the page and a control on the card without heavy borders. Text steps
-       are chosen against the lightest surface they appear on: fg-3 still
-       clears WCAG AA (≥5:1) on `raised`; fg-4 (≈3:1) is for rules, em-dashes
-       and disabled things only, never for text someone needs to read.
+       are chosen against the surfaces they appear on: fg-3 still clears
+       WCAG AA (≥5:1) on every one of them, in both schemes; fg-4
+       (≈2.5–3:1) never carries text, not even an em-dash or a separator dot:
+       it's for rules, underlines, status dots, an icon beside its own label,
+       and struck-out glyphs.
        Dark is the default; the light set below follows the OS setting. */
     --pd-canvas: #0a0a0a;
     --pd-sunken: #0d0d0d;
@@ -221,7 +223,10 @@
 
   /* Ink, light. Follows the viewer's OS setting — the dashboard is a page in
      someone's app, and their system preference is the one signal it has.
-     Status hues drop to their 700 steps so they still clear 4.5:1 on white. */
+     Status hues are dark enough to clear 4.5:1 on their own 10–15% tint
+     (badges, the filed-issue chip) over every light surface, not just on
+     white: the 700 steps managed ≈4.0:1 there, so ok and warn take their
+     800 steps and bad Tailwind's red-700. */
   @media (prefers-color-scheme: light) {
     .polishd-root {
       --pd-canvas: #fafafa;
@@ -238,9 +243,9 @@
       --pd-accent: #0a0a0a;
       --pd-accent-hover: #2a2a2a;
       --pd-accent-fg: #ffffff;
-      --pd-ok: #15803d;
-      --pd-warn: #b45309;
-      --pd-bad: #c42020;
+      --pd-ok: #166534;
+      --pd-warn: #92400e;
+      --pd-bad: #b91c1c;
       --pd-info: #404040;
       --pd-violet: #7d5f3e;
       --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);

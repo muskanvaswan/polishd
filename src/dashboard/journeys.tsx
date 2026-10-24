@@ -231,7 +231,7 @@ function JourneyListCard({
         </span>
       </div>
       {/* affordance */}
-      <span className="shrink-0 text-fg-4 transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-fg-2">
+      <span className="shrink-0 text-fg-3 transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-fg-2">
         <ChevronRightIcon size={15} />
       </span>
     </button>
