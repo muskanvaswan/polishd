@@ -53,11 +53,14 @@ design evidence on every regenerate, so a dismissed issue is recognised by
 what it's about and the values it cites, never its wording or the pages it
 mentions: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A"
 are the same issue. Two colors joined by "on" are a contrast pair, colors
-alone a palette issue, and px values belong to whichever part of the
-measured design holds them (type sizes, radii or padding), with wording only
-breaking a tie, so an 11px caption and an 11px radius stay apart. A size or a
-color's role only separates two issues when both state one: dismissing a
-pair's failure at 11px doesn't hide it failing at 16px. Ignoring, undoing or
+alone a palette issue, and px values are whatever the wording names outright
+(radius, padding, font size), or else whichever part of the measured design
+holds them, so an 11px caption and an 11px radius stay apart. Where it's
+unclear, a dismissed issue is allowed back rather than a real one hidden: a
+color's role must agree, a contrast failure's sizes must be the same when
+both state them (dismissing it at 11px doesn't hide it at 16px), and of two
+issues citing identical evidence, a dismissal hides only the one worded
+closest to it. Each dismissed issue keeps its own entry and reason. Ignoring, undoing or
 recording verdicts after the dashboard session expires shows an error in
 place instead of crashing the page.
 

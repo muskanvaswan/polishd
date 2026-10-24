@@ -13,7 +13,7 @@ import { test } from "node:test";
 import {
   checkSuggestion,
   designIssueSignature,
-  isDismissedDesignIssue,
+  dismissedIndexes,
   sameDesignIssue,
   kindOf,
   valueMentions,
@@ -88,6 +88,23 @@ test("naming a praised value as the one to replace is withheld", () => {
   assert.match(become.withheld!, /replace 22px with 24px/);
   const arrow = checkSuggestion("Heading sizes drift.", "Headings: 28px → 24px.", strengths, known);
   assert.match(arrow.withheld!, /replace 28px with 24px/);
+
+  // Its own property named alongside another is still a change to it.
+  const sizeAndWeight = checkSuggestion(
+    "Heading sizes drift.",
+    "Reduce the 28px heading's size and weight to 24px.",
+    strengths,
+    known,
+  );
+  assert.match(sizeAndWeight.withheld!, /replace 28px with 24px/);
+  // A property in a modifier belongs to something else, not the praised value.
+  const modifier = checkSuggestion(
+    "Heading sizes drift.",
+    "Change the 22px headings with a border to 20px.",
+    strengths,
+    known,
+  );
+  assert.match(modifier.withheld!, /replace 22px with 20px/);
 
   // A praised value's own property still counts.
   const radius = checkSuggestion(
@@ -175,6 +192,13 @@ test("a praised value of a different kind doesn't block an unrelated scale", () 
   assert.ok(out.suggestion);
 });
 
+test("known residual: with no kind named anywhere, a replacement measured as another kind is kept", () => {
+  // 24px is only a padding here and nothing says the 22px or the 24px is a
+  // type size, so by policy the suggestion stands (see design-suggestions.ts).
+  const out = checkSuggestion("Values drift.", "Swap 22px for 24px.", ["Steady 22px and 28px headings."], known);
+  assert.equal(out.withheld, undefined);
+});
+
 test("a legitimate outlier fix is kept, even next to praised values of its kind", () => {
   const strengths = [
     "Consistent 10px captions and 12px labels across every page.",
@@ -238,8 +262,11 @@ test("a kept suggestion reports any value the site doesn't render yet", () => {
 const sig = (issue: string, evidence: string, values = known) => designIssueSignature(issue, evidence, values);
 const same = (a: [string, string], b: [string, string], values = known) =>
   sameDesignIssue(sig(...a, values), sig(...b, values));
+/** Whether dismissing `a` hides `b`, as the review filter applies it. */
+const hides = (a: [string, string], b: [string, string], values = known) =>
+  dismissedIndexes([{ issue: b[0], evidence: b[1] }], [{ issue: a[0], signature: sig(...a, values) }], values).has(0);
 
-test("a design issue's signature is its kind and its values, never its pages or wording", () => {
+test("a design issue's signature is its kind and its values, never its pages", () => {
   assert.deepEqual(sig("Body text uses two near-identical sizes.", "15px and 17px"), {
     category: "type",
     values: "15px 17px",
@@ -262,71 +289,87 @@ test("a design issue's signature is its kind and its values, never its pages or 
   assert.equal(sig("Inconsistent icons.", "  Inconsistent   Icons ").values, "inconsistent icons");
 });
 
-test("a px issue's kind comes from the design data, with wording only as a tiebreak", () => {
-  // 15px and 16px are only font sizes here, so it's a type issue however it's worded.
+test("a px issue's kind comes from explicit words, then the design data, then other wording", () => {
+  // 15px and 16px are only font sizes here, so with no category named it's type.
   assert.equal(sig("Body text uses two near-identical sizes.", "15px and 16px").category, "type");
   assert.equal(sig("Two near-identical sizes.", "15px and 16px").category, "type");
-  assert.equal(sig("Corners feel inconsistent.", "15px and 16px").category, "type");
   // 8px is a radius and a padding: the words decide, and without any it's just a size.
-  assert.equal(sig("Corners drift.", "8px corner radius").category, "radius");
+  assert.equal(sig("Cards drift.", "8px on cards").category, "size");
+  assert.equal(sig("Card corners drift.", "8px").category, "radius");
   assert.equal(sig("Cards are cramped.", "8px padding").category, "spacing");
-  assert.equal(sig("A stray value.", "8px").category, "size");
+  // Explicit wording beats the data: 11px is only a font size here, but this is a radius.
+  assert.equal(sig("Corners drift.", "11px radius").category, "radius");
+  assert.equal(sig("Captions are tiny.", "11px captions").category, "type");
 });
 
 test("a dismissed design issue is still recognised when a regenerate rewords it", () => {
   // Drops the size, shortens the hex, changes case.
   assert.ok(
-    same(
+    hides(
       ["Captions fail AA contrast.", "#444444 on #0a0a0a (2.03:1 contrast at 11px)"],
       ["Low-contrast caption text.", "#444 text on #0A0A0A"],
     ),
   );
   // Rewords the issue completely.
   assert.ok(
-    same(
-      ["Body text uses two near-identical sizes.", "15px and 16px"],
-      ["Two near-identical sizes.", "15px and 16px"],
-    ),
+    hides(["Body text uses two near-identical sizes.", "15px and 16px"], ["Two near-identical sizes.", "15px and 16px"]),
   );
   // Adds a page and reorders the values.
-  assert.ok(same(["Body sizes drift.", "15px and 17px"], ["Body sizes drift.", "17px / 15px on /blog"]));
-  // Two pairs, reworded every way at once: order, shorthand, joiner, ratios and one size dropped.
-  const dismissed = [
-    sig(
-      "Captions fail AA contrast.",
-      "#444444 on #0a0a0a (2.03:1 contrast at 11px) and #555555 on #0a0a0a (2.6:1 at 12px)",
-    ),
+  assert.ok(hides(["Body sizes drift.", "15px and 17px"], ["Body sizes drift.", "17px / 15px on /blog"]));
+  // Two pairs, reworded every way at once: order, shorthand, joiner, ratios, sizes.
+  const pairs: [string, string] = [
+    "Captions fail AA contrast.",
+    "#444444 on #0a0a0a (2.03:1 contrast at 11px) and #555555 on #0a0a0a (2.6:1 at 12px)",
   ];
-  assert.ok(isDismissedDesignIssue("Low-contrast captions.", "#555 and #444 text on #0A0A0A", dismissed, known));
-  assert.ok(
-    isDismissedDesignIssue("Muted copy on black.", "#0a0a0a background under #444444 / #555555 copy at 11px", dismissed, known),
-  );
+  assert.ok(hides(pairs, ["Low-contrast captions.", "#555 and #444 text on #0A0A0A"]));
+  assert.ok(hides(pairs, ["Low-contrast captions.", "#555 at 12px and #444 at 11px, both on #0A0A0A"]));
+  assert.ok(hides(pairs, ["Muted copy on black.", "#0a0a0a background under #444444 / #555555 copy"]));
   // A different pairing is a different issue.
-  assert.ok(!isDismissedDesignIssue("Captions fail AA contrast.", "#444444 on #ffffff at 11px (9.7:1)", dismissed, known));
-  assert.ok(!isDismissedDesignIssue("Captions fail AA contrast.", "#444444 on #0a0a0a at 11px", [], known));
+  assert.ok(!same(["Captions fail AA contrast.", "#444444 on #0a0a0a at 11px"], ["Captions fail AA contrast.", "#444444 on #ffffff at 11px (9.7:1)"]));
 });
 
 test("issues citing the same value for different things don't share a dismissal", () => {
   // A one-off background and a border color, both #0a0a0a.
   assert.ok(
-    !same(
+    !hides(
       ["One page has its own background.", "#0a0a0a one-off background on /about"],
       ["Borders use the page color.", "#0a0a0a used for borders on /pricing"],
     ),
   );
-  // …but a wording that leaves the role out is still the same color issue.
-  assert.ok(same(["A stray near-black.", "#0a0a0a one-off background"], ["A stray near-black.", "#0a0a0a"]));
+  // A role on one side and none on the other is a non-match.
+  assert.ok(!hides(["One page has its own background.", "#0a0a0a one-off background on /about"], ["A stray near-black.", "#0a0a0a on /pricing"]));
+  assert.ok(hides(["A stray near-black.", "#0a0a0a"], ["A stray near-black, again.", "#0A0A0A on /pricing"]));
 
-  // 11px type and an 11px radius, where the site has both.
+  // 11px type and an 11px radius, whether or not the site measures both.
   const both: KnownDesignValues = {
     ...known,
     type: new Set([...known.type, "11px"]),
     radius: new Set([...known.radius, "11px"]),
   };
   assert.ok(!same(["Captions are tiny.", "11px captions"], ["Corners drift.", "11px radius"], both));
+  const typeOnly: KnownDesignValues = { ...known, type: new Set([...known.type, "11px"]) };
+  assert.ok(!same(["Captions are tiny.", "11px captions"], ["Corners drift.", "11px radius"], typeOnly));
 
-  // The same pair failing at two sizes: dismissing the caption doesn't hide body text.
-  const caption = [sig("Captions fail contrast.", "#888888 on #0a0a0a at 11px")];
-  assert.ok(!isDismissedDesignIssue("Body text fails contrast.", "#888888 on #0a0a0a at 16px", caption, known));
-  assert.ok(isDismissedDesignIssue("Captions fail contrast.", "#888 on #0A0A0A", caption, known));
+  // The same pair failing at different sizes: two failures.
+  assert.ok(!hides(["Captions fail contrast.", "#888888 on #0a0a0a at 11px"], ["Body text fails contrast.", "#888888 on #0a0a0a at 16px"]));
+  // Overlapping isn't enough: both list sizes, so the sets must be the same.
+  assert.ok(
+    !hides(
+      ["Small text fails contrast.", "#888888 on #0a0a0a at 11px and 12px"],
+      ["Small text fails contrast.", "#888888 on #0a0a0a at 12px and 16px"],
+    ),
+  );
+  assert.ok(hides(["Captions fail contrast.", "#888888 on #0a0a0a at 11px"], ["Captions fail contrast.", "#888 on #0A0A0A, 11px"]));
+});
+
+test("one dismissal hides only the closest of two issues citing identical evidence", () => {
+  const current = [
+    { issue: "Captions fail AA contrast.", evidence: "#888888 on #0a0a0a" },
+    { issue: "Placeholder text fails AA contrast.", evidence: "#888888 on #0a0a0a" },
+  ];
+  const placeholders = { issue: "Placeholder text is too faint.", signature: sig(current[1].issue, current[1].evidence) };
+  assert.deepEqual([...dismissedIndexes(current, [placeholders], known)], [1]);
+  // Both dismissed: both hidden, each by its own entry.
+  const captions = { issue: "Captions fail AA contrast.", signature: sig(current[0].issue, current[0].evidence) };
+  assert.deepEqual([...dismissedIndexes(current, [placeholders, captions], known)].sort(), [0, 1]);
 });

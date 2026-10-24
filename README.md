@@ -519,11 +519,14 @@ else is withheld. Any value a fix introduces that the site doesn't render yet
 is labelled new. Issues can be ignored like the summary's losses, with a
 reason the model reads on every later review. The dismissal holds when a
 regenerate rewords the issue, as long as it's the same kind (a contrast pair,
-a color, or a type size, radius or padding, read from the measured design
-rather than the wording) citing the same values. A size or a color's role
-only tells two issues apart when both state one: dismissing a pair's
-contrast at 11px doesn't hide it failing at 16px, but a rewording that drops
-the size still matches. It
+a color, or a type size, radius or padding: named outright, or read from the
+measured design) citing the same values. When it's unclear, Polishd lets a
+dismissed issue come back rather than risk hiding a real one: a color's role
+must agree (one stated and one not is a different issue), and a contrast
+failure's sizes must be the same when both state them, so dismissing it at
+11px doesn't hide it failing at 16px. A rewording that only drops the size
+still matches, and of two issues citing identical evidence, a dismissal hides
+only the one worded closest to it. It
 follows the summary's token-thrift rules: the
 model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
