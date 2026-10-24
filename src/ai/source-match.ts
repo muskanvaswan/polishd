@@ -264,9 +264,11 @@ export function selectorNeedles(selector: string): Needle[] {
     for (const m of seg.matchAll(/\[data-component\s*=\s*["']?([^"'\]]+)["']?\]/g)) {
       out.push({ kind: "component", value: m[1].trim() });
     }
-    // Attribute values aren't classes — but a bracket glued to a class is an
-    // arbitrary variant, so keep it visible to the variant check below.
-    const bare = seg.replace(/(^|[^\w-])\[[^\]]*\]/g, "$1");
+    // Attribute selectors (`a[href="#x"]`, `.cta[data-x]`) aren't names —
+    // strip them. A bracket glued to a `-` is Tailwind's arbitrary syntax
+    // (`data-[state=open]:flex`, `text-[#555]`), so keep it visible to the
+    // variant check below.
+    const bare = seg.replace(/(^|[^-])\[[^\]]*\]/g, "$1");
     for (const m of bare.matchAll(/#([\w-]+)/g)) {
       if (!isGeneratedId(m[1]) && m[1].length >= 4) {
         out.push({ kind: "identifier", value: m[1], form: "literal", ...narrowOnly });
@@ -547,15 +549,20 @@ export function labelPatterns(label: string, whole = false): RegExp[] {
   );
   const body = parts.join(String.raw`\s+`);
   const jsx = new RegExp(`${JSX_OPEN}${body}${JSX_CLOSE}`, "i");
-  // A short label ("Log in", "Pay") is only ever its whole JSX text. ("OK"
-  // never gets this far: sourceNeedles doesn't search two-letter labels.)
+  // A short label ("Log in", "Pay") is only ever its whole JSX text. (A bare
+  // "OK" never gets this far — sourceNeedles doesn't search a two-letter label
+  // on its own — though a longer citation can still yield an "OK" needle,
+  // which only ever produces candidates.)
   if (isShortLabel(label)) return [jsx];
   const literal = new RegExp(`${LITERAL_OPEN}${body}${LITERAL_CLOSE}`);
   if (words.length === 1 || whole) return [jsx, literal];
   // Part of a longer text: still inside JSX text or a string — never an
-  // attribute value that names rather than says, and case-sensitive in one.
+  // attribute value that names rather than says. Starting at a `}` that
+  // closes an attribute expression (`onClick={go} id="…"`) the gap would
+  // cross into the next attribute, so it may not contain `=`. Case is
+  // ignored in JSX text: the captured label went through CSS text-transform.
   return [
-    new RegExp(String.raw`(?:>|\})[^<>{}]*?${body}`, "i"),
+    new RegExp(String.raw`(?:>|\})[^<>{}=]*?${body}`, "i"),
     new RegExp(String.raw`${LITERAL_OPEN.replace(String.raw`(["'\x60])\s*`, String.raw`(["'\x60])`)}[^"'\x60\n]*?${body}[^"'\x60\n]*?\1`),
   ];
 }

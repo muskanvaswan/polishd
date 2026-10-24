@@ -453,3 +453,19 @@ test("a truncated listing verifies nothing, not even a route", () => {
   assert.deepEqual(m.candidates, ["app/pricing/page.tsx"]);
 });
 
+
+test("attribute selectors are stripped; Tailwind's arbitrary brackets stay variants", () => {
+  assert.deepEqual(sourceNeedles('nav.flex>a[href="#features"]', NONE), [], "an href value is not an id");
+  assert.deepEqual(sourceNeedles("div.flex>button.hero-cta[data-x]", NONE), [
+    { kind: "identifier", value: "hero-cta", form: "literal" },
+  ]);
+  assert.deepEqual(sourceNeedles("div.flex>div.data-[state=open]:flex", NONE), []);
+});
+
+test("a multi-word label inside longer text never matches across into an attribute", () => {
+  const label = "Show all plans now";
+  assert.equal(labelMatches(label, '<div onClick={go} id="show all plans now">x</div>'), false);
+  assert.equal(labelMatches(label, '<div onClick={go} className="show all plans now">x</div>'), false);
+  assert.equal(labelMatches(label, "<p>Compare and show all plans now</p>"), true, "case-insensitive in JSX text");
+  assert.equal(labelMatches(label, "<p>{count} Show all plans now</p>"), true, "after an expression child");
+});
