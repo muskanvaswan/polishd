@@ -7,7 +7,9 @@ behavioral signals — rage clicks, dead clicks, scroll depth, JS errors, web
 vitals, component engagement — and explore them on a built-in, Vercel-style
 dashboard at `/polishd`. A second **Design** tab reverse-engineers your site's
 design system from the rendered pages — typography, palette, radii, spacing —
-and flags what breaks it.
+and flags what breaks it. The **Overview** the dashboard opens on puts both
+reviews side by side and copies everything they found as one prompt for your
+coding agent.
 
 No third-party service. Events go to your own database: **SQLite in dev**
 (zero-config, built into Node), **Postgres in production**. Anonymous by design —
@@ -289,9 +291,37 @@ in production, because that is the only place it is worth acting on.
 > `app/polishd/page.tsx` but keep the package, in which case the actions stay
 > routable and always deny.
 
+## Overview
+
+The dashboard opens on the **Overview**: the headline audience numbers
+(sessions, page views, views per session, the share on mobile), the
+[AI summary](#ai-summary) and the [design review](#design-review) one above the
+other, and the newest [site snapshot](#site-snapshots) when there is one. Both
+review cards are the full cards from their own tabs, so regenerating, ignoring
+a loss and filing a bug all work from here.
+
+**Copy fix prompt** turns every problem the two reviews found into one message
+for the coding agent working in your repo — Claude Code, Cursor, or anything
+else that reads a prompt. Each review's own **Copy prompt** button copies just
+its half. A prompt carries:
+
+- the site description and audience from Settings, and the traffic so far;
+- each review's summary, and what's working, so the agent doesn't regress it;
+- every problem, labelled `A1`, `D1`…, with the evidence it was found from,
+  the source file it was matched to (or a note to search for it), the
+  suggested fix, and the GitHub issue already filed for it;
+- instructions to find the responsible code before changing anything, skip a
+  finding the code shows isn't real, keep each change scoped, and report back
+  per problem.
+
+The prompt is built in the browser from what the cards show at the moment you
+click, so a loss you've just ignored is already out of it and a review you've
+just regenerated is already in. It sends nothing anywhere: it's text on your
+clipboard.
+
 ## AI summary
 
-The dashboard's top card turns the captured signals into a plain-English story
+The Analytics tab's top card (also on the Overview) turns the captured signals into a plain-English story
 of how people are actually using your site, followed by a **wins** list (what's
 working) and a **losses** list (specific problems). Losses are held to a higher
 bar: each must cite the exact page, selector, or component from the data —

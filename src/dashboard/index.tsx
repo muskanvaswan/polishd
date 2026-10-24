@@ -78,6 +78,7 @@ import DashboardChrome, { TabSkeleton, type PolishdDashboardTab } from "./chrome
 import { DesignPanel } from "./design";
 import InstallsView from "./installs";
 import IssuesView from "./issues";
+import OverviewPanel from "./overview";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
@@ -794,6 +795,42 @@ async function StatusBannersData() {
   return <StatusBanners overview={overview} health={health} />;
 }
 
+/**
+ * Cadence-based auto-refresh: when the owner opted into daily/weekly and the
+ * summary is both past its cadence AND built from different data, regenerate
+ * in the background after this response is sent. Unchanged data never
+ * triggers a model call, so the cadence only spends tokens when there's
+ * genuinely new behavior to narrate. Run by every render that shows the
+ * summary — the Analytics tab and the Overview.
+ */
+function scheduleSummaryRefresh(
+  data: PolishdDashboardData,
+  settings: PolishdAISettingsPublic,
+  state: { summary: PolishdSummary | null; stale: boolean },
+): void {
+  const cadence = settings.refreshCadence ?? "manual";
+  if (
+    cadence === "manual" ||
+    !settings.hasApiKey ||
+    !data.overview.ready ||
+    data.overview.totalEvents === 0
+  ) {
+    return;
+  }
+  const cadenceMs = cadence === "daily" ? 86_400_000 : 604_800_000;
+  const due =
+    state.summary === null ||
+    (state.stale && Date.now() - state.summary.generatedAt > cadenceMs);
+  if (!due) return;
+  after(async () => {
+    try {
+      await generateSummary();
+    } catch (err) {
+      console.warn("[polishd] scheduled summary refresh failed:", err);
+    }
+  });
+}
+
 async function SummaryData() {
   // The summary genuinely needs the whole dataset (its staleness fingerprint
   // hashes it), so this is the one section that waits for everything — behind
@@ -804,34 +841,7 @@ async function SummaryData() {
     getAISettingsPublic(),
     loadProfileState(data),
   ]);
-
-  // Cadence-based auto-refresh: when the owner opted into daily/weekly and
-  // the summary is both past its cadence AND built from different data,
-  // regenerate in the background after this response is sent. Unchanged data
-  // never triggers a model call, so the cadence only spends tokens when
-  // there's genuinely new behavior to narrate.
-  const cadence = settings.refreshCadence ?? "manual";
-  if (
-    cadence !== "manual" &&
-    settings.hasApiKey &&
-    data.overview.ready &&
-    data.overview.totalEvents > 0
-  ) {
-    const cadenceMs = cadence === "daily" ? 86_400_000 : 604_800_000;
-    const due =
-      summaryState.summary === null ||
-      (summaryState.stale &&
-        Date.now() - summaryState.summary.generatedAt > cadenceMs);
-    if (due) {
-      after(async () => {
-        try {
-          await generateSummary();
-        } catch (err) {
-          console.warn("[polishd] scheduled summary refresh failed:", err);
-        }
-      });
-    }
-  }
+  scheduleSummaryRefresh(data, settings, summaryState);
 
   return (
     <SummaryCard
@@ -942,6 +952,42 @@ function AnalyticsStream() {
 }
 
 // ── The other tabs, each loading behind the chrome ───────────────────────────
+
+async function OverviewTabData() {
+  // Both reviews, so both datasets: the summary's staleness hashes the whole
+  // analytics set, the design review's hashes the design metrics. Each comes
+  // from the same loaders the other tabs use.
+  const [data, settings, design, snapshots] = await Promise.all([
+    loadDashboardData(),
+    getAISettingsPublic(),
+    getDesignData(),
+    listSnapshots(),
+  ]);
+  const [summaryState, profileState, reviewState] = await Promise.all([
+    loadSummaryState(data),
+    loadProfileState(data),
+    loadDesignReviewState(design),
+  ]);
+  scheduleSummaryRefresh(data, settings, summaryState);
+  return (
+    <OverviewPanel
+      overview={data.overview}
+      trends={data.trends}
+      devices={data.devices}
+      settings={settings}
+      summary={summaryState.summary}
+      summaryStale={summaryState.stale}
+      profile={profileState.profile}
+      gaps={profileState.gaps}
+      sourceAvailable={profileState.sourceAvailable}
+      review={reviewState.review}
+      reviewStale={reviewState.stale}
+      scannedPages={design.pages.length}
+      // Only the newest snapshot that has pictures — the strip shows no history.
+      snapshot={snapshots.find((s) => s.shots.some((shot) => shot.file.length > 0)) ?? null}
+    />
+  );
+}
 
 async function DesignTabData() {
   const [design, settings, snapshots, snapshotMode] = await Promise.all([
@@ -1328,18 +1374,27 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     );
 
     // Which tab to render, from the `?tab=` query the sidebar links carry.
+    // No (or an unknown) tab lands on the Overview.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
     const tab: PolishdDashboardTab =
-      rawTab === "design" || rawTab === "issues" || rawTab === "installs" || rawTab === "settings"
+      rawTab === "analytics" ||
+      rawTab === "design" ||
+      rawTab === "issues" ||
+      rawTab === "installs" ||
+      rawTab === "settings"
         ? rawTab
-        : "analytics";
+        : "overview";
 
     // Every tab streams: the chrome and rail go out immediately, and the
     // tab's data loads behind a Suspense boundary showing the same skeleton
     // the client paints while navigating — so a slow query never blanks the
     // frame, it just holds the skeleton a beat longer.
     const body =
-      tab === "design" ? (
+      tab === "overview" ? (
+        <Suspense fallback={<TabSkeleton name="Overview" />}>
+          <OverviewTabData />
+        </Suspense>
+      ) : tab === "design" ? (
         <Suspense fallback={<TabSkeleton name="Design" />}>
           <DesignTabData />
         </Suspense>

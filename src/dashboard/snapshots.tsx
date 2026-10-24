@@ -12,6 +12,9 @@
  * dashboard never hands out a direct URL), and a clicked tile expands into a
  * full-height lightbox.
  *
+ * `SnapshotStrip` is the read-only cut of the same gallery the Overview tab
+ * shows: the newest snapshot, one rendering, no capture controls.
+ *
  * Where the section sits depends on what it can do here (`SnapshotMode`):
  * locally, or in production once the owner has allowed Polishd's screenshot
  * service and images have somewhere to go, it's near the top of the tab. In
@@ -759,21 +762,87 @@ function SnapshotsCard() {
         )}
       </div>
 
-      {zoom && (
-        <div
-          role="dialog"
-          aria-label={`${zoom.route} screenshot`}
-          onClick={() => setZoom(null)}
-          className="fixed inset-0 z-50 flex cursor-zoom-out items-start justify-center overflow-y-auto bg-black/85 p-6"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={zoom.src}
-            alt={`${zoom.route} full screenshot`}
-            className="w-full max-w-3xl rounded-md border border-[#333]"
-          />
-        </div>
-      )}
+      {zoom && <ShotLightbox zoom={zoom} onClose={() => setZoom(null)} />}
     </section>
+  );
+}
+
+/** A clicked shot at full height; a click anywhere closes it. */
+function ShotLightbox({
+  zoom,
+  onClose,
+}: {
+  zoom: { src: string; route: string };
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label={`${zoom.route} screenshot`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex cursor-zoom-out items-start justify-center overflow-y-auto bg-black/85 p-6"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={zoom.src}
+        alt={`${zoom.route} full screenshot`}
+        className="w-full max-w-3xl rounded-md border border-[#333]"
+      />
+    </div>
+  );
+}
+
+// ── The Overview's strip ─────────────────────────────────────────────────────
+
+/** Shots the strip shows before leaving the rest to the Design tab. */
+const STRIP_SHOTS = 8;
+
+/**
+ * The newest snapshot, read-only: the Overview's look at the site as it last
+ * rendered. One rendering — desktop and light where the snapshot has it,
+ * otherwise whichever it has first — with the same tiles and lightbox as the
+ * full section. Capturing, the other renderings and the history all stay on
+ * the Design tab, so nothing here can start a capture or ask for consent.
+ */
+export function SnapshotStrip({ snapshot }: { snapshot: PolishdSnapshot }) {
+  const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
+
+  const pictured = snapshot.shots.filter((s) => s.file.length > 0);
+  const lead =
+    pictured.find((s) => s.device === "desktop" && s.theme === "light") ?? pictured[0];
+  const shots = lead
+    ? pictured.filter((s) => s.device === lead.device && s.theme === lead.theme)
+    : [];
+  const visible = shots.slice(0, STRIP_SHOTS);
+  const more = shots.length - visible.length;
+
+  return (
+    <div data-component="overview-snapshots" className={`${card} overflow-hidden px-4 py-4 sm:px-5 sm:py-5`}>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {visible.map((s) => (
+          <ShotTile
+            key={`${snapshot.id}|${s.file}`}
+            snapshotId={snapshot.id}
+            shot={s}
+            onZoom={(src, route) => setZoom({ src, route })}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+        <span>
+          {/* "just now" from the server can be "1m ago" by hydration — a
+              relative time is allowed to differ, and shouldn't cost a re-render. */}
+          Captured <span suppressHydrationWarning>{relTime(snapshot.capturedAt)}</span> ·{" "}
+          {snapshot.origin}
+          {lead ? ` · ${lead.device}, ${lead.theme}` : ""}
+        </span>
+        {more > 0 && (
+          <span>
+            {more} more {more === 1 ? "page" : "pages"} on the Design tab
+          </span>
+        )}
+      </div>
+      {zoom && <ShotLightbox zoom={zoom} onClose={() => setZoom(null)} />}
+    </div>
   );
 }

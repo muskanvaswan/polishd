@@ -70,7 +70,7 @@ declare global {
 /** The telemetry path for the tab currently in the URL. */
 function telemetryPath(): string {
   const tab = new URLSearchParams(location.search).get("tab");
-  return `${PATH_PREFIX}/${tab || "analytics"}`;
+  return `${PATH_PREFIX}/${tab || "overview"}`;
 }
 
 /** A session id that survives soft navigation but not the browser session. */

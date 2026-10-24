@@ -115,9 +115,18 @@ const plural = (n: number, [one, many]: [string, string]) => `${n} ${n === 1 ? o
 export default function OverviewTiles({
   overview,
   trends,
+  metrics,
+  gridClassName = "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6",
 }: {
   overview: OverviewStats;
   trends: MetricTrends;
+  /**
+   * The tiles to show, in their usual order — all six when omitted. The
+   * chart drawer still switches between every metric, since all are loaded.
+   */
+  metrics?: MetricKey[];
+  /** The tiles' grid. `contents` lets them join a grid the caller owns. */
+  gridClassName?: string;
 }) {
   // Daily is the better default once there's more than a day of history;
   // before that it's a single bar, and hourly is the only shape worth drawing.
@@ -132,8 +141,8 @@ export default function OverviewTiles({
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {METRICS.map((m) => (
+      <div className={gridClassName}>
+        {METRICS.filter((m) => !metrics || metrics.includes(m.key)).map((m) => (
           <StatTile
             key={m.key}
             meta={m}

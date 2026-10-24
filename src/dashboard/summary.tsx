@@ -52,7 +52,14 @@ export interface SummaryCardProps {
   initialGaps: string[];
   /** Whether the app's source tree is on disk here. A scan can also read the connected repo. */
   sourceAvailable: boolean;
+  /** Told when a regenerate lands — the Overview builds its fix prompt from it. */
+  onSummaryChange?: (summary: PolishdSummary) => void;
+  /** Told when a loss is ignored, restored or filed, keyed by its evidence. */
+  onLossChange?: (evidence: string, change: LossChange) => void;
 }
+
+/** What can happen to a loss after it renders. */
+export type LossChange = { ignored: boolean } | { filed: { url: string; number: number } };
 
 export default function SummaryCard({
   initialSummary,
@@ -61,6 +68,8 @@ export default function SummaryCard({
   initialProfile,
   initialGaps,
   sourceAvailable,
+  onSummaryChange,
+  onLossChange,
 }: SummaryCardProps) {
   const [summary, setSummary] = useState<PolishdSummary | null>(initialSummary);
   const [stale, setStale] = useState(initialStale);
@@ -75,6 +84,7 @@ export default function SummaryCard({
       if (res.ok) {
         setSummary(res.summary);
         setStale(false);
+        onSummaryChange?.(res.summary);
       } else {
         setError(res.message);
       }
@@ -140,6 +150,7 @@ export default function SummaryCard({
               wins={summary!.wins}
               losses={summary!.losses}
               githubConnected={settings.hasGithubToken && !!settings.githubRepo}
+              onLossChange={onLossChange}
             />
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
               <span>
@@ -256,7 +267,15 @@ const microLink =
  * through with an undo, and only disappears on the next render. Ignored losses
  * never reappear — not from the cached summary, and not from a regenerate.
  */
-function LossCard({ loss, githubConnected }: { loss: PolishdLossItem; githubConnected: boolean }) {
+function LossCard({
+  loss,
+  githubConnected,
+  onChange,
+}: {
+  loss: PolishdLossItem;
+  githubConnected: boolean;
+  onChange?: (change: LossChange) => void;
+}) {
   const [ignored, setIgnored] = useState<PolishdIgnoredLoss | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -273,6 +292,7 @@ function LossCard({ loss, githubConnected }: { loss: PolishdLossItem; githubConn
       if (res.ok) {
         setIgnored(res.ignored);
         setEditing(false);
+        onChange?.({ ignored: true });
       } else setError(res.message);
     });
 
@@ -284,6 +304,7 @@ function LossCard({ loss, githubConnected }: { loss: PolishdLossItem; githubConn
         setIgnored(null);
         setEditing(false);
         setDraft("");
+        onChange?.({ ignored: false });
       } else setError(res.message);
     });
 
@@ -366,6 +387,7 @@ function LossCard({ loss, githubConnected }: { loss: PolishdLossItem; githubConn
         {(githubConnected || !!loss.issueUrl) && (
           <FileBugButton
             dataComponent="loss-file-bug"
+            onFiled={(filed) => onChange?.({ filed })}
             filed={loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null}
             file={() =>
               createIssueFromLossAction({
@@ -440,11 +462,13 @@ function WinsLosses({
   wins,
   losses,
   githubConnected,
+  onLossChange,
 }: {
   wins: PolishdSummary["wins"];
   losses: PolishdSummary["losses"];
   /** True when a GitHub repo + token are configured — enables "File bug". */
   githubConnected: boolean;
+  onLossChange?: (evidence: string, change: LossChange) => void;
 }) {
   const hasWins = !!wins?.length;
   const hasLosses = !!losses?.length;
@@ -467,7 +491,12 @@ function WinsLosses({
       {hasLosses && (
         <CardRail label="Losses" tone="text-red-400" count={losses!.length}>
           {losses!.map((l, i) => (
-            <LossCard key={l.evidence || i} loss={l} githubConnected={githubConnected} />
+            <LossCard
+              key={l.evidence || i}
+              loss={l}
+              githubConnected={githubConnected}
+              onChange={onLossChange && ((change) => onLossChange(l.evidence, change))}
+            />
           ))}
         </CardRail>
       )}
