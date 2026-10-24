@@ -48,7 +48,7 @@ test("a near miss reads as clicks beside the control, not as the control's label
       element({ label: "div.card", sampleText: "Weekly report" }),
     ]),
   );
-  assert.match(digest, /- div\.border-t \(clicks land beside "Show # more"\): 0 rage, 3 dead/);
-  assert.match(digest, /- Weekly report: 0 rage, 3 dead/, "an element's own text is unchanged");
+  assert.match(digest, /- div\.border-t: 0 rage, 3 dead, .*; the clicks land beside "Show # more" — near misses/);
+  assert.match(digest, /- Weekly report <div\.row>: 0 rage, 3 dead/, "an element's own text is unchanged");
   assert.doesNotMatch(digest, /- beside/);
 });

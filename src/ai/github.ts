@@ -21,6 +21,7 @@ import {
   keepPaging,
   worthListing,
 } from "./issue-pages";
+import { Lru } from "./lru";
 import { resolveSettings } from "./settings";
 import type {
   PolishdGithubIssue,
@@ -44,13 +45,34 @@ export async function isGithubConnected(): Promise<boolean> {
   return (await connection()) !== null;
 }
 
-/** One GitHub API call. Throws with GitHub's own message on non-2xx. */
+/** How long one GitHub read may take before it's abandoned. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Bounds on a request: `timeoutMs` for this one call, `signal` for the work
+ * it's part of (a caller's overall budget). Either aborting fails the call.
+ * Reads get `REQUEST_TIMEOUT_MS` by default; writes get no timer unless one
+ * is passed — abandoning a create GitHub finishes anyway is how an issue
+ * gets filed twice.
+ */
+export interface GithubRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+/** One GitHub API call. Throws with GitHub's own message on non-2xx, or on timeout. */
 async function gh<T>(
   token: string,
   method: string,
   path: string,
   body?: unknown,
+  opts: GithubRequestOptions = {},
 ): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? (method === "GET" ? REQUEST_TIMEOUT_MS : undefined);
+  const signals = [
+    ...(timeoutMs !== undefined ? [AbortSignal.timeout(timeoutMs)] : []),
+    ...(opts.signal ? [opts.signal] : []),
+  ];
   const res = await fetch(`${API}${path}`, {
     method,
     headers: {
@@ -61,6 +83,7 @@ async function gh<T>(
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    signal: signals.length ? AbortSignal.any(signals) : undefined,
   });
   if (!res.ok) {
     let message = `GitHub responded ${res.status}`;
@@ -161,49 +184,94 @@ export interface GithubTree {
   truncated: boolean;
 }
 
+// Reads of source are repeated on every summary and scan, and most of what
+// they return can't change: a commit's listing and a blob's content are fixed
+// by their sha. Only the default branch's name and head are asked each time.
+
+/** The repo's full name and default branch, re-checked every few minutes. */
+const branchCache = new Lru<{ repo: string; ref: string }>({ maxEntries: 8, ttlMs: 10 * 60_000 });
+/** Listings by `repo@commit` — a few, since a big repo's listing is big. */
+const treeCache = new Lru<GithubTree>({ maxEntries: 2 });
+/** File contents by blob sha, up to a few MB of text. */
+const blobCache = new Lru<string>({ maxEntries: 5_000, maxSize: 8_000_000, sizeOf: (s) => s.length });
+
 /**
- * List the default branch's files — two API calls however big the repo is.
- * This is what lets the codebase scan run where the source isn't on disk.
- * Null when nothing is connected; throws with GitHub's message otherwise, so
- * a token without Contents (read) fails the scan with a reason.
+ * List the default branch's files. Asks for the branch's head commit (one
+ * call; two when the branch name isn't cached) and lists it only when that
+ * commit hasn't been listed already. This is what lets the codebase scan run
+ * where the source isn't on disk. Null when nothing is connected; throws with
+ * GitHub's message otherwise, so a token without Contents (read) fails the
+ * scan with a reason.
  */
-export async function readGithubTree(): Promise<GithubTree | null> {
+export async function readGithubTree(opts: GithubRequestOptions = {}): Promise<GithubTree | null> {
   const conn = await connection();
   if (!conn) return null;
-  const repo = await gh<RepoResponse>(conn.token, "GET", `/repos/${conn.repo}`);
+  let branch = branchCache.get(conn.repo);
+  if (!branch) {
+    const repo = await gh<RepoResponse>(conn.token, "GET", `/repos/${conn.repo}`, undefined, opts);
+    branch = { repo: repo.full_name, ref: repo.default_branch };
+    branchCache.set(conn.repo, branch);
+  }
+  const head = await gh<{ object: { sha: string } }>(
+    conn.token,
+    "GET",
+    `/repos/${conn.repo}/git/ref/heads/${encodeURIComponent(branch.ref)}`,
+    undefined,
+    opts,
+  );
+  const key = `${conn.repo}@${head.object.sha}`;
+  const cached = treeCache.get(key);
+  if (cached) return cached;
   const tree = await gh<{
     tree: { path: string; type: string; size?: number; sha: string }[];
     truncated: boolean;
   }>(
     conn.token,
     "GET",
-    `/repos/${conn.repo}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`,
+    `/repos/${conn.repo}/git/trees/${head.object.sha}?recursive=1`,
+    undefined,
+    opts,
   );
-  return {
-    repo: repo.full_name,
-    ref: repo.default_branch,
+  const listing: GithubTree = {
+    repo: branch.repo,
+    ref: branch.ref,
     files: tree.tree
       .filter((e) => e.type === "blob")
       .map((e) => ({ path: e.path, size: e.size ?? 0, sha: e.sha })),
     truncated: tree.truncated,
   };
+  treeCache.set(key, listing);
+  return listing;
 }
 
 /** How many blob reads run at once. */
 const BLOB_FETCH_CONCURRENCY = 8;
 
 /**
- * Read file contents by blob sha (from `readGithubTree`), a few at a time.
- * A blob that can't be read is simply absent from the map — one unreadable
- * file shouldn't sink a scan of sixty.
+ * Read file contents by blob sha (from `readGithubTree`), a few at a time,
+ * from the cache where they've been read before. A blob that can't be read
+ * (an error, a timeout, the caller's budget running out) is simply absent
+ * from the map — one unreadable file shouldn't sink a scan of sixty, and the
+ * caller can see which are missing.
  */
-export async function readGithubBlobs(shas: string[]): Promise<Map<string, string>> {
+export async function readGithubBlobs(
+  shas: string[],
+  opts: GithubRequestOptions = {},
+): Promise<Map<string, string>> {
   const out = new Map<string, string>();
+  const unique = [...new Set(shas)];
+  const missing: string[] = [];
+  for (const sha of unique) {
+    const hit = blobCache.get(sha);
+    if (hit !== undefined) out.set(sha, hit);
+    else missing.push(sha);
+  }
+  if (!missing.length) return out;
   const conn = await connection();
   if (!conn) return out;
-  const unique = [...new Set(shas)];
-  for (let i = 0; i < unique.length; i += BLOB_FETCH_CONCURRENCY) {
-    const slice = unique.slice(i, i + BLOB_FETCH_CONCURRENCY);
+  for (let i = 0; i < missing.length; i += BLOB_FETCH_CONCURRENCY) {
+    if (opts.signal?.aborted) break; // out of budget: the rest stay unread
+    const slice = missing.slice(i, i + BLOB_FETCH_CONCURRENCY);
     await Promise.all(
       slice.map(async (sha) => {
         try {
@@ -211,9 +279,13 @@ export async function readGithubBlobs(shas: string[]): Promise<Map<string, strin
             conn.token,
             "GET",
             `/repos/${conn.repo}/git/blobs/${sha}`,
+            undefined,
+            opts,
           );
           if (blob.encoding === "base64" && typeof blob.content === "string") {
-            out.set(sha, Buffer.from(blob.content, "base64").toString("utf8"));
+            const text = Buffer.from(blob.content, "base64").toString("utf8");
+            blobCache.set(sha, text);
+            out.set(sha, text);
           }
         } catch {
           /* skip this file */
@@ -313,6 +385,8 @@ interface IssueResponse {
   created_at: string;
   updated_at: string;
   closed_at?: string | null;
+  /** Present when the "issue" is a pull request (the issues API lists both). */
+  pull_request?: unknown;
 }
 
 function toIssue(raw: IssueResponse): PolishdGithubIssue {
@@ -417,6 +491,37 @@ export async function readGithubIssues(
     }
   }
   return found;
+}
+
+/** How many of the newest issues `findRecentGithubIssue` looks through. */
+const RECENT_ISSUES = 50;
+
+/**
+ * The newest issue among the repo's latest that `match` accepts, or null —
+ * including when the list can't be read. This is how a filing whose outcome
+ * was never heard (the request failed after GitHub may already have created
+ * the issue) is found again instead of being filed a second time.
+ */
+export async function findRecentGithubIssue(
+  match: (issue: PolishdGithubIssue) => boolean,
+): Promise<PolishdGithubIssue | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  try {
+    const batch = await gh<IssueResponse[]>(
+      conn.token,
+      "GET",
+      `/repos/${conn.repo}/issues?state=all&sort=created&direction=desc&per_page=${RECENT_ISSUES}`,
+    );
+    for (const raw of batch) {
+      if (raw.pull_request) continue;
+      const issue = toIssue(raw);
+      if (match(issue)) return issue;
+    }
+  } catch {
+    /* unreadable: nothing found */
+  }
+  return null;
 }
 
 /** File an issue in the connected repo. Throws on failure. */

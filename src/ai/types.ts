@@ -138,10 +138,23 @@ export interface PolishdLossItem {
   issue: string;
   /** The identifier from the data that shows it (selector / component / path). */
   evidence: string;
-  /** Source file containing the cited element, when found on disk. */
+  /**
+   * Source file the cited element was matched to — on disk, or in the
+   * connected GitHub repo (then a repo path) where the source isn't on disk.
+   */
   location?: string;
-  /** True when the citation was matched to a file in the codebase. */
+  /**
+   * True when the citation matched exactly one file on something the author
+   * wrote — a component name, route, id, custom class or visible label —
+   * never on utility classes or tag names.
+   */
   verified: boolean;
+  /**
+   * Set instead of `location` when the match isn't specific enough to verify:
+   * the citation matched several files equally well (none of them picked), or
+   * its text matched one file in a repo too large to read whole.
+   */
+  candidates?: string[];
   /** The analytics volume behind the evidence. Absent when nothing counts it. */
   signal?: PolishdLossSignal;
   /** GitHub issue filed for this problem (manually or automatically). */

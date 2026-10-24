@@ -217,6 +217,51 @@ and a fix that changes something about a praised value without replacing it
 such as 9px → 10px is never touched. A value a suggestion introduces that the
 site doesn't render yet is labelled as new.
 
+### Analytics findings stop overstating, and point at the right file
+
+The summary model was told dead and rage clicks were genuine friction on
+things that looked actionable. They aren't always. A dead click is a structural
+guess: a drawer backdrop that closes on click counts as dead, because React's
+handler leaves no trace in the DOM. A click on the bar beside a small button
+reads as that button not responding. The prompt now explains how each signal
+is detected and what it can't see. Findings are written as hypotheses tied to
+the numbers, and say when a pattern looks like a backdrop or a near miss.
+
+- **The digest shows more of what happened.** It shows sessions behind each
+  count and the element that was actually clicked (`<div.flex>`, not just the
+  button text inside it). It also flags text-less positioned layers as possible
+  backdrops. When capture records them, it adds where dead clicks landed and
+  what came just before an error, with its stack frame and digest.
+- **Each finding carries its volume.** `signal` (event kind, count, sessions,
+  pages) is the cited digest line's own numbers, looked up after the model
+  answers and never taken from its prose. The kind follows what the finding is
+  about: a bounce on `/pricing` gets the page's views, not its one dead click.
+  Only a citation that is exactly one printed line gets a signal. One that
+  merely contains a line's name, or could mean two lines, gets none.
+- **Source matching stopped guessing.** It used to match any token of four
+  letters or more. A backdrop cited as `div.fixed>div.absolute` was "verified"
+  against whichever file first said `fixed`. Matching now searches only for
+  names the author chose: component names, routes (`/pricing` →
+  `app/pricing/page.tsx`, even when a component is also called `pricing`), ids
+  and custom classes, and visible labels, numbers included (`Show 9 more` finds
+  `` `Show ${hidden} more` ``). Short labels like "Log in" match only as exact
+  JSX text. Utility classes, tag names and comments never match. Only what a
+  finding cites outright can verify it. A shorter label inside the citation
+  ("Export" in "Export CSV") gives candidates at most, and so does a label
+  that happens to spell a path segment. When several files match equally, the
+  loss lists them as `candidates` and stays unverified instead of picking one.
+- **Matching works on Vercel.** When the source isn't on disk, findings are
+  matched against the connected GitHub repo. Before, every finding came back
+  "not matched to source". The read is bounded by a file budget, a timeout on
+  each request and on the whole match. Repeat reads come from a cache keyed by
+  commit and blob. If any file couldn't be read, only routes verify. If
+  GitHub cut the listing short, nothing verifies. The summary is saved before
+  matching starts, so a slow repo can't cost the model's answer.
+- **No duplicate issues from a lost reply.** Creating an issue no longer
+  aborts on a timer. Before filing, Polishd looks for an issue it already
+  filed for the same evidence, in case an earlier attempt succeeded but the
+  reply was lost.
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its
