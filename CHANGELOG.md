@@ -33,6 +33,7 @@ round: curated into a guideline and downloaded as a PDF.
 
 The Design header's **Refresh metrics** button is now an icon button, and
 the header stacks on phones instead of squeezing the title.
+
 ### An Overview tab, with a fix prompt for your coding agent
 
 The dashboard now opens on an **Overview**: sessions, page views, views per
