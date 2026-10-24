@@ -32,12 +32,18 @@ import type {
 } from "../ai/types";
 import { FileBugButton } from "./file-bug-button";
 import {
+  ArrowRightIcon,
+  Badge,
+  Callout,
+  CheckIcon,
   GearIcon,
   RefreshIcon,
-  border,
+  SparkIcon,
+  XIcon,
   card,
+  cardHeader,
+  cardTitleCls,
   iconBtn,
-  labelCls,
   microBtn,
   primaryBtn,
   relTime,
@@ -99,16 +105,19 @@ export default function SummaryCard({
     // exist for polishd's own dashboard telemetry: clicks captured by the
     // emitter group under these names on the collecting side, so "how often
     // is the summary refreshed?" is answerable. Inert for host apps.
-    <section data-component="ai-summary" className={`mb-8 ${card} overflow-hidden`}>
+    <section data-component="ai-summary" className={`mb-10 ${card} overflow-hidden`}>
       {/* Header */}
-      <div
-        className={`flex items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}
-      >
-        <div className="flex items-center gap-2">
-          <span className={labelCls}>All you need to know</span>
+      <div className={cardHeader}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="text-accent">
+            <SparkIcon size={15} />
+          </span>
+          <span className={cardTitleCls}>All you need to know</span>
           {settings.hasApiKey && (
-            <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
-              {settings.provider} · {settings.model}
+            <span className="hidden min-w-0 sm:flex">
+              <Badge mono className="truncate">
+                {settings.provider} · {settings.model}
+              </Badge>
             </span>
           )}
         </div>
@@ -136,37 +145,35 @@ export default function SummaryCard({
       </div>
 
       {/* Body */}
-      <div className="px-4 py-4 sm:px-5 sm:py-5">
+      <div className="px-4 py-5 sm:px-5">
         {error && (
-          <div className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">
+          <Callout tone="bad" className="mb-4">
             {error}
-          </div>
+          </Callout>
         )}
 
         {hasSummary ? (
           <>
-            <p className="text-[14px] leading-relaxed text-[#e4e4e4]">{summary!.text}</p>
+            <p className="max-w-[72ch] text-[15px] leading-[1.7] text-fg">{summary!.text}</p>
             <WinsLosses
               wins={summary!.wins}
               losses={summary!.losses}
               githubConnected={settings.hasGithubToken && !!settings.githubRepo}
               onLossChange={onLossChange}
             />
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>
                 Generated {relTime(summary!.generatedAt)} · {summary!.provider}/{summary!.model}
                 {cadence !== "manual" && ` · refreshes ${cadence}`}
               </span>
               {stale && (
-                <span className="rounded-full bg-amber-950/50 px-2 py-0.5 text-amber-400">
-                  Something's changed since this summary — refresh to update
-                </span>
+                <Badge tone="warn">Something&apos;s changed since this summary — refresh to update</Badge>
               )}
             </div>
           </>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] leading-relaxed text-[#888]">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
               {settings.hasApiKey
                 ? "No summary yet — generate the story of how visitors are using this site from the signals below."
                 : "No model connected yet. Add a key in Settings and Polishd will read these numbers back to you in plain English."}
@@ -179,7 +186,12 @@ export default function SummaryCard({
                 disabled={pending}
                 className={primaryBtn}
               >
-                {pending ? "Thinking…" : "Generate summary"}
+                {pending ? "Thinking…" : (
+                  <>
+                    <SparkIcon size={13} />
+                    Generate summary
+                  </>
+                )}
               </button>
             ) : (
               <span data-component="ai-connect-model" className="contents">
@@ -235,15 +247,14 @@ function ProfileNudge({
   if (!message) return null;
 
   return (
-    <div
-      className={`flex flex-wrap items-center justify-between gap-2 border-t ${border} bg-[#080808] px-4 py-2.5 sm:px-5`}
-    >
-      <span className="text-[11px] text-[#666]">{message}</span>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-sunken px-4 py-2.5 sm:px-5">
+      <span className="text-[12px] text-fg-3">{message}</span>
       <TabLink
         tab="settings"
-        className="text-[11px] text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+        className="inline-flex items-center gap-1 text-[12px] font-medium text-fg-2 transition-colors hover:text-fg"
       >
-        {action} →
+        {action}
+        <ArrowRightIcon />
       </TabLink>
     </div>
   );
@@ -253,7 +264,7 @@ function ProfileNudge({
 
 /** The verdict buttons on a loss share their style with the shared microBtn. */
 const microLink =
-  "text-[10px] text-[#666] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
+  "text-[11px] font-medium text-fg-3 underline decoration-fg-4 underline-offset-2 transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * One loss, and the two things you can do with it: file it as a bug, or ignore
@@ -310,14 +321,16 @@ function LossCard({
 
   if (ignored) {
     return (
-      <li className={`${railCard} text-[#666]`}>
+      <li className={`${railCard} text-fg-3`}>
         <div className="flex gap-2">
-          <span className="mt-px shrink-0 text-[#444]">✕</span>
-          <span className="line-through decoration-[#3a3a3a]">{loss.issue}</span>
+          <span className="mt-0.5 shrink-0 text-fg-4">
+            <XIcon size={13} />
+          </span>
+          <span className="line-through decoration-fg-4">{loss.issue}</span>
         </div>
-        <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#777]">
+        <Badge className="mt-2.5 self-start">
           Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
-        </span>
+        </Badge>
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
           {editing ? (
             <ReasonForm
@@ -354,33 +367,30 @@ function LossCard({
               </button>
             </>
           )}
-          {error && <span className="text-[10px] text-red-400">{error}</span>}
+          {error && <span className="text-[11px] text-bad">{error}</span>}
         </div>
       </li>
     );
   }
 
   return (
-    <li className={`${railCard} text-[#bbb]`}>
+    <li className={`${railCard} text-fg-2`}>
       <div className="flex gap-2">
-        <span className="mt-px shrink-0 text-red-400">✕</span>
-        <span>{loss.issue}</span>
+        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-bad" aria-hidden />
+        <span className="text-fg">{loss.issue}</span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <code className="break-all rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <Badge mono className="break-all">
           {loss.evidence}
-        </code>
+        </Badge>
         {loss.location ? (
-          <code className="break-all rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
+          <Badge tone="ok" mono className="break-all">
             {loss.location}
-          </code>
+          </Badge>
         ) : (
-          <span
-            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
-            title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
-          >
-            not matched to source
-          </span>
+          <Badge title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here).">
+            <span className="text-fg-3">not matched to source</span>
+          </Badge>
         )}
       </div>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
@@ -408,7 +418,7 @@ function LossCard({
         >
           {pending ? "Ignoring…" : "Ignore"}
         </button>
-        {error && <span className="text-[10px] text-red-400">{error}</span>}
+        {error && <span className="text-[11px] text-bad">{error}</span>}
       </div>
     </li>
   );
@@ -446,7 +456,7 @@ function ReasonForm({
         maxLength={240}
         placeholder="Why isn't this a problem?"
         aria-label="Reason for ignoring this loss"
-        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#555] focus:border-[#555] focus:outline-none"
+        className="h-7 w-full rounded-md border border-line-strong bg-canvas px-2 text-[12px] text-fg placeholder:text-fg-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
       <button type="submit" disabled={pending} className={microBtn}>
         {pending ? "Saving…" : "Save"}
@@ -476,12 +486,17 @@ function WinsLosses({
   return (
     <>
       {hasWins && (
-        <div className="mt-4">
-          <div className={`${labelCls} mb-2 text-emerald-500`}>Wins</div>
-          <ul className="space-y-1.5">
+        <div className="mt-5">
+          <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
+            Wins
+          </div>
+          <ul className="space-y-2">
             {wins!.map((w, i) => (
-              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
-                <span className="mt-px shrink-0 text-emerald-500">✓</span>
+              <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
+                <span className="mt-px shrink-0 text-ok">
+                  <CheckIcon size={13} />
+                </span>
                 <span>{w}</span>
               </li>
             ))}
@@ -489,7 +504,7 @@ function WinsLosses({
         </div>
       )}
       {hasLosses && (
-        <CardRail label="Losses" tone="text-red-400" count={losses!.length}>
+        <CardRail label="Losses" tone="bg-bad" count={losses!.length}>
           {losses!.map((l, i) => (
             <LossCard
               key={l.evidence || i}

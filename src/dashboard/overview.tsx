@@ -39,10 +39,15 @@ import OverviewTiles from "./metric-trends";
 import { SnapshotStrip } from "./snapshots";
 import SummaryCard, { type LossChange } from "./summary";
 import {
+  ArrowRightIcon,
+  Callout,
   CheckIcon,
+  Code,
   CopyIcon,
   InfoTip,
-  border,
+  PageHeader,
+  SectionHeader,
+  XIcon,
   card,
   ghostBtn,
   inputCls,
@@ -158,29 +163,25 @@ export default function OverviewPanel({
   };
 
   return (
-    <main className="text-white">
-      {/* Header */}
-      <div
-        className={`mb-8 flex flex-col gap-4 border-b ${border} pb-6 sm:flex-row sm:items-start sm:justify-between sm:gap-3`}
-      >
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-white">Overview</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
+    <main className="text-fg">
+      <PageHeader
+        title="Overview"
+        description={
+          <>
             Who&apos;s using the site, what the analytics and design reviews found, and the site
             as it last rendered — with a prompt that hands every problem to your coding agent.
-          </p>
-        </div>
-        <div className="shrink-0">{copyButton("all", "Copy fix prompt", true)}</div>
-      </div>
+          </>
+        }
+        actions={copyButton("all", "Copy fix prompt", true)}
+      />
 
       {manual !== null && <ManualCopy text={manual} onClose={() => setManual(null)} />}
 
       {!overview.ready && (
-        <div className="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400">
+        <Callout tone="warn" className="mb-8">
           The analytics store isn&apos;t writable in this environment. Run locally or configure a
-          database — see the <span className="font-mono text-amber-300">@polishd/next</span>{" "}
-          DATABASE.md guide.
-        </div>
+          database — see the <Code>@polishd/next</Code> DATABASE.md guide.
+        </Callout>
       )}
 
       <Section title="Visitors" link={{ tab: "analytics", label: "All metrics" }}>
@@ -276,19 +277,24 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-8">
-      <div className="mb-3 flex min-h-7 items-center justify-between gap-3">
-        <span className={labelCls}>{title}</span>
-        <div className="flex items-center gap-3">
-          {action}
-          <TabLink
-            tab={link.tab}
-            className="whitespace-nowrap text-[11px] text-[#666] transition-colors hover:text-white"
-          >
-            {link.label} →
-          </TabLink>
-        </div>
-      </div>
+    <section className="mb-10">
+      <SectionHeader
+        title={title}
+        actions={
+          <>
+            {action}
+            <TabLink
+              tab={link.tab}
+              className="group inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-medium text-fg-3 transition-colors hover:text-fg"
+            >
+              {link.label}
+              <span className="transition-transform group-hover:translate-x-0.5">
+                <ArrowRightIcon />
+              </span>
+            </TabLink>
+          </>
+        }
+      />
       {children}
     </section>
   );
@@ -351,30 +357,26 @@ function CopyPromptButton({
         aria-label={count === 0 ? label : `${label} (${problems})`}
         className={primary ? primaryBtn : ghostBtn}
       >
-        <span className="flex items-center gap-1.5">
-          <span className={copied ? (primary ? "text-emerald-700" : "text-emerald-400") : ""}>
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </span>
-          <span className="grid">
-            <span className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`}>{label}</span>
-            <span
-              aria-hidden
-              className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`}
-            >
-              Copied
-            </span>
-          </span>
-          {count > 0 && (
-            <span
-              aria-hidden
-              className={`rounded px-1 text-[10px] font-semibold tabular-nums ${
-                primary ? "bg-black/10 text-black/60" : "bg-[#1a1a1a] text-[#888]"
-              }`}
-            >
-              {count}
-            </span>
-          )}
+        <span className={copied ? (primary ? "text-accent-fg" : "text-ok") : ""}>
+          {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
         </span>
+        {/* Label and "Copied" share one cell, so the button holds its width. */}
+        <span className="inline-grid">
+          <span className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`}>{label}</span>
+          <span aria-hidden className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`}>
+            Copied
+          </span>
+        </span>
+        {count > 0 && (
+          <span
+            aria-hidden
+            className={`ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-1 text-[11px] font-semibold tabular-nums ${
+              primary ? "bg-accent-fg/12 text-accent-fg/75" : "bg-overlay text-fg-3"
+            }`}
+          >
+            {count}
+          </span>
+        )}
       </button>
       <span role="status" className="sr-only">
         {copied ? "Prompt copied to the clipboard" : ""}
@@ -390,9 +392,9 @@ function CopyPromptButton({
  */
 function ManualCopy({ text, onClose }: { text: string; onClose: () => void }) {
   return (
-    <div className="mb-8 rounded-lg border border-red-900/50 bg-red-950/20 px-4 py-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-[12px] text-red-400">
+    <div className="mb-8 rounded-xl border border-bad/25 bg-bad/[0.06] p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <p className="text-[13px] leading-relaxed text-bad">
           This browser wouldn&apos;t let the dashboard write to the clipboard. The prompt is
           selected below — copy it with ⌘C or Ctrl+C.
         </p>
@@ -400,9 +402,9 @@ function ManualCopy({ text, onClose }: { text: string; onClose: () => void }) {
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="text-[12px] text-[#888] transition-colors hover:text-white"
+          className="-m-1 rounded-md p-1 text-fg-3 transition-colors hover:text-fg"
         >
-          ✕
+          <XIcon size={15} />
         </button>
       </div>
       <textarea
@@ -411,7 +413,7 @@ function ManualCopy({ text, onClose }: { text: string; onClose: () => void }) {
         value={text}
         onFocus={(e) => e.currentTarget.select()}
         aria-label="Fix prompt"
-        className={`${inputCls} h-56 resize-y font-mono text-[11px] leading-relaxed`}
+        className={`${inputCls} h-56 resize-y font-mono text-[12px] leading-relaxed sm:text-[12px]`}
       />
     </div>
   );
@@ -431,13 +433,16 @@ function PlainTile({
   note?: string;
 }) {
   return (
-    <div className={`${card} px-4 py-4`}>
-      <div className="text-[28px] font-semibold tabular-nums leading-none text-white">{value}</div>
-      <div className={`mt-2 flex items-center ${labelCls}`}>
-        {label}
+    <div className={`${card} px-4 pb-3 pt-4`}>
+      <div className={`flex items-center gap-1.5 ${labelCls}`}>
+        <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg-4" />
+        <span className="truncate">{label}</span>
         <InfoTip text={tip} />
       </div>
-      <div className="mt-3 h-[18px] truncate text-[11px] leading-[18px] text-[#555]">{note}</div>
+      <div className="mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums text-fg">
+        {value}
+      </div>
+      <div className="mt-3 flex min-h-7 items-end pb-0.5 text-[12px] leading-snug text-fg-3">{note}</div>
     </div>
   );
 }

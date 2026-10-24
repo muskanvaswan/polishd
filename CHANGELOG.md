@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### The dashboard is redesigned
+
+Every tab keeps its content and layout. Each one is redrawn from a single set
+of design tokens instead of hex values repeated across thirty files.
+
+- **Ink, in light and dark.** Pure neutral greys with no tint. The accent is
+  the text colour itself, so the only colour on the page is status: green for
+  healthy, amber for dead clicks, red for rage clicks and errors. The
+  dashboard follows the viewer's OS light/dark setting, where it used to be
+  dark whatever the setting. Nothing is drawn with a gradient.
+- **The landing site's wordmark.** The sidebar and the lock screens carry the
+  hero's "polishd": the letters in its highway face, and for the h the
+  halftone polish bottle, its dots shimmering. It ships as SVG outlines, so
+  there's no font to load for it. The shimmer is scoped to the bottle, stops
+  under `prefers-reduced-motion`, and links to the Overview from the sidebar.
+- **The brand's type.** Body text is Open Sauce One, page and section titles
+  are Nohemi, and code is JetBrains Mono. The font files ship with the package
+  under private family names and load from the host's own origin. There's no
+  font CDN request, no CSP change, and no collision with a host loading the
+  same families itself. Licences are in `dist/fonts/LICENSE.md`.
+- **Readable at a glance.** Section headings are sentence case, not tracked
+  capitals. Stat tiles lead with their label, and numbers use tabular
+  figures. Secondary text clears WCAG AA (≥5:1) on every surface in both
+  modes, where the old `#555`/`#444` greys sat near 2.5:1.
+- **Keyboard-visible.** Every control shows one focus ring, and the "how is
+  this calculated" tips open on focus as well as hover. Text glyphs used as
+  icons (`✕`, `›`, `⏱`, `●`) are now SVG, and motion collapses under
+  `prefers-reduced-motion`.
+- **Nothing reaches the host.** Colour and font tokens are `--pd-*` custom
+  properties declared on `.polishd-root` only, so a host's own Tailwind theme
+  variables are never overwritten. The scoped reset now also covers `label`
+  and `legend`, so a host's global `label { font-weight: 600 }` no longer
+  bolds the dashboard's form fields.
+- **A smaller stylesheet.** The build scans only the dashboard's own source for
+  utilities. It used to scan the whole repository, landing site included, and
+  ship those classes too.
+
+No host changes are needed: the stylesheet import is the same. Its fonts sit
+beside it in `dist/fonts`, and the host's bundler picks them up from the
+stylesheet's relative URLs.
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its

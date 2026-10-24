@@ -14,35 +14,41 @@
 import { useState } from "react";
 
 import type { ElementStat } from "../server/queries";
-
-const border = "border-[#2e2e2e]";
-const divider = `border-t ${border}`;
+import { ChevronDownIcon, divider, toneSoft } from "./ui";
 
 /** Number of elements shown before "Show more" is needed. */
 const COLLAPSED_COUNT = 3;
 
 function scoreTone(score: number) {
-  if (score >= 10) return "text-red-500";
-  if (score >= 4) return "text-[#f5a623]";
-  return "text-[#0cce6b]";
+  if (score >= 10) return toneSoft.bad;
+  if (score >= 4) return toneSoft.warn;
+  return toneSoft.ok;
 }
 
 function ElementRow({ el }: { el: ElementStat }) {
   return (
-    <tr className={`${divider} align-top`}>
-      <td className="py-2.5 pl-5 pr-6">
-        <span className="font-mono text-[13px] font-medium text-white">{el.label}</span>
+    <tr className={`${divider} align-top transition-colors first:border-t-0 hover:bg-raised/50`}>
+      <td className="py-3 pl-5 pr-6">
+        <span className="font-mono text-[13px] font-medium text-fg">{el.label}</span>
         {el.sampleText && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#555]">"{el.sampleText}"</div>
+          <div className="mt-1 text-[12px] text-fg-2">&ldquo;{el.sampleText}&rdquo;</div>
         )}
       </td>
-      <td className={`py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums ${scoreTone(el.score)}`}>
-        {el.score}
+      <td className="py-3 px-4 text-right">
+        <span
+          className={`inline-flex h-6 min-w-8 items-center justify-center rounded-md px-1.5 text-[12px] font-semibold tabular-nums ring-1 ring-inset ${scoreTone(el.score)}`}
+        >
+          {el.score}
+        </span>
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{el.clicks}</td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{el.rageClicks}</td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{el.deadClicks}</td>
-      <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums text-[#888]">{el.pages}</td>
+      <td className="py-3 px-4 text-right text-[13px] tabular-nums text-fg-2">{el.clicks}</td>
+      <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${el.rageClicks > 0 ? "text-bad" : "text-fg-3"}`}>
+        {el.rageClicks}
+      </td>
+      <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${el.deadClicks > 0 ? "text-warn" : "text-fg-3"}`}>
+        {el.deadClicks}
+      </td>
+      <td className="py-3 pl-4 pr-5 text-right text-[13px] tabular-nums text-fg-2">{el.pages}</td>
     </tr>
   );
 }
@@ -72,13 +78,17 @@ export default function ElementsTable({
         </table>
       </div>
       {hidden > 0 && (
-        <div className={`${divider} px-5 py-2.5 text-center`}>
+        <div className={`${divider} px-5 py-2.5`}>
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="text-[12px] font-medium text-[#888] transition-colors hover:text-white"
+            aria-expanded={expanded}
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-fg-3 transition-colors hover:text-fg"
           >
             {expanded ? "Show less" : `Show ${hidden} more`}
+            <span className={`transition-transform ${expanded ? "rotate-180" : ""}`}>
+              <ChevronDownIcon size={13} />
+            </span>
           </button>
         </div>
       )}

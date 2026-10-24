@@ -87,7 +87,23 @@ import SettingsView from "./settings";
 import ShowMore from "./show-more";
 import SummaryCard from "./summary";
 import OverviewStatTiles from "./metric-trends";
-import { InfoTip, border, card, divider, labelCls as label } from "./ui";
+import {
+  BrandWordmark,
+  Callout,
+  Code,
+  EmptyState,
+  InfoIcon,
+  InfoTip,
+  LockIcon,
+  PageHeader,
+  Section,
+  StatusPill,
+  card,
+  divider,
+  inputCls,
+  labelCls as label,
+  primaryBtn,
+} from "./ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,11 +132,11 @@ function Th({
 }) {
   return (
     <th
-      className={`whitespace-nowrap py-2.5 ${
+      className={`whitespace-nowrap border-b border-line bg-sunken py-2.5 ${
         align === "left" ? "pl-5 pr-6 text-left" : "px-4 text-right"
       } ${label}`}
     >
-      <span className="inline-flex items-center gap-0.5">
+      <span className="inline-flex items-center gap-1">
         {children}
         <InfoTip text={tip} anchor={align === "left" ? "left" : "right"} below />
       </span>
@@ -129,45 +145,35 @@ function Th({
 }
 
 // ── Device row (with usage bar) ──────────────────────────────────────────────
-const DEVICE_META: Record<string, { label: string; icon: string }> = {
-  mobile: { label: "Mobile", icon: "▪" },
-  tablet: { label: "Tablet", icon: "▭" },
-  desktop: { label: "Desktop", icon: "▭▭" },
+const DEVICE_LABEL: Record<string, string> = {
+  mobile: "Mobile",
+  tablet: "Tablet",
+  desktop: "Desktop",
 };
 
 function DeviceRow({ bucket }: { bucket: DeviceBucket }) {
-  const meta = DEVICE_META[bucket.category] ?? { label: bucket.category, icon: "▫" };
+  const name = DEVICE_LABEL[bucket.category] ?? bucket.category;
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 sm:px-5 ${divider} first:border-t-0`}>
-      <span className="w-16 shrink-0 text-[13px] font-medium capitalize text-white sm:w-20">
-        {meta.label}
+    <div className={`flex items-center gap-4 px-4 py-3.5 sm:px-5 ${divider} first:border-t-0`}>
+      <span className="w-16 shrink-0 text-[13px] font-medium capitalize text-fg sm:w-20">
+        {name}
       </span>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#1a1a1a]">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
         <div
-          className="h-full rounded-full bg-blue-500"
+          className="h-full rounded-full bg-accent"
           style={{ width: `${Math.max(bucket.pct, 1.5)}%` }}
         />
       </div>
-      <span className="w-10 shrink-0 text-right text-[13px] font-semibold tabular-nums text-white sm:w-12">
+      <span className="w-12 shrink-0 text-right text-[13px] font-semibold tabular-nums text-fg">
         {bucket.pct}%
       </span>
-      <span className="hidden w-28 shrink-0 text-right text-[12px] tabular-nums text-[#666] sm:block">
+      <span className="hidden w-28 shrink-0 text-right text-[12px] tabular-nums text-fg-3 sm:block">
         {bucket.sessions} {bucket.sessions === 1 ? "session" : "sessions"}
       </span>
-      <span className="hidden w-20 shrink-0 text-right text-[12px] tabular-nums text-[#555] sm:block">
+      <span className="hidden w-20 shrink-0 text-right font-mono text-[11.5px] tabular-nums text-fg-3 sm:block">
         {bucket.avgWidth === null ? "—" : `~${bucket.avgWidth}px`}
       </span>
     </div>
-  );
-}
-
-// ── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
-  return (
-    <section className="mb-8">
-      <div className={`mb-3 flex items-center gap-2 ${label}`}>{title}</div>
-      {children}
-    </section>
   );
 }
 
@@ -177,37 +183,33 @@ function fmtMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** An empty measurement: drawn quiet so the numbers around it stand out. */
+const none = <span className="text-fg-4">—</span>;
+
 function MonitoredRow({ m }: { m: MonitoredComponent }) {
+  const num = "py-3 px-4 text-right text-[13px] tabular-nums text-fg-2";
   return (
-    <tr className={`${divider} first:border-t-0 align-top`}>
-      <td className="py-2.5 pl-5 pr-4 min-w-[280px]">
-        <div className="text-[13px] font-medium text-white">{m.name}</div>
-        <div className="mt-0.5 text-[11px] text-[#555]">
+    <tr className={`${divider} align-top transition-colors first:border-t-0 hover:bg-raised/50`}>
+      <td className="min-w-[280px] py-3 pl-5 pr-4">
+        <div className="text-[13px] font-medium text-fg">{m.name}</div>
+        <div className="mt-0.5 text-[12px] text-fg-3">
           {m.sessions} {m.sessions === 1 ? "session" : "sessions"} · {m.pages}{" "}
           {m.pages === 1 ? "page" : "pages"}
         </div>
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
-        {m.mounts > 0 ? m.mounts : <span className="text-[#444]">—</span>}
+      <td className={num}>{m.mounts > 0 ? m.mounts : none}</td>
+      <td className={`${num} font-semibold text-fg`}>
+        {m.componentViews > 0 ? m.componentViews : none}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums text-white">
-        {m.componentViews > 0 ? m.componentViews : <span className="font-normal text-[#444]">—</span>}
+      <td className={num}>{m.avgViewMs !== null ? fmtMs(m.avgViewMs) : none}</td>
+      <td className={num}>{m.avgScrollDepth !== null ? `${m.avgScrollDepth}%` : none}</td>
+      <td className={`${num} font-mono text-[12px] text-fg-3`}>
+        {m.heightPx !== null ? `${m.heightPx}px` : none}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
-        {m.avgViewMs !== null ? fmtMs(m.avgViewMs) : <span className="text-[#444]">—</span>}
-      </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
-        {m.avgScrollDepth !== null ? `${m.avgScrollDepth}%` : <span className="text-[#444]">—</span>}
-      </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#555]">
-        {m.heightPx !== null ? `${m.heightPx}px` : <span className="text-[#444]">—</span>}
-      </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{m.clicks > 0 ? m.clicks : <span className="text-[#444]">—</span>}</td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums">
-        {m.hovers > 0 ? <span className="text-[#888]">{m.hovers}</span> : <span className="text-[#444]">—</span>}
-      </td>
-      <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums">
-        {m.rageClicks > 0 ? <span className="text-red-400">{m.rageClicks}</span> : <span className="text-[#444]">—</span>}
+      <td className={num}>{m.clicks > 0 ? m.clicks : none}</td>
+      <td className={num}>{m.hovers > 0 ? m.hovers : none}</td>
+      <td className="py-3 pl-4 pr-5 text-right text-[13px] font-medium tabular-nums">
+        {m.rageClicks > 0 ? <span className="text-bad">{m.rageClicks}</span> : none}
       </td>
     </tr>
   );
@@ -246,33 +248,29 @@ export type { PolishdDashboardTab } from "./chrome";
 // ── Analytics: header + status (shared by batch and streamed renders) ────────
 function AnalyticsHeader({ pill }: { pill: ReactNode }) {
   return (
-    <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
-      <div>
-        <h1 className="text-[22px] font-semibold tracking-tight text-white">
-          Analytics
-        </h1>
-        <p className="mt-1 text-[13px] text-[#666]">
+    <PageHeader
+      title="Analytics"
+      description={
+        <>
           Stage 1 — Capture. Hover{" "}
-          <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#444] text-[8px] font-bold text-[#666]">
-            i
+          <span className="inline-flex translate-y-[2px] text-fg-4">
+            <InfoIcon size={13} />
           </span>{" "}
           for calculation details.
-        </p>
-      </div>
-      {pill}
-    </div>
+        </>
+      }
+      actions={pill}
+    />
   );
 }
 
-function StatusPill({ ready }: { ready: boolean }) {
-  return (
-    <div className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-      ready
-        ? "bg-emerald-950 text-emerald-400"
-        : "bg-[#1a1a1a] text-[#666]"
-    }`}>
-      {ready ? "● collecting" : "○ no store"}
-    </div>
+function CaptureStatusPill({ ready }: { ready: boolean }) {
+  return ready ? (
+    <StatusPill tone="ok" live>
+      Collecting
+    </StatusPill>
+  ) : (
+    <StatusPill tone="neutral">No store</StatusPill>
   );
 }
 
@@ -293,53 +291,47 @@ function StatusBanners({
   return (
     <>
       {!overview.ready && (
-        <div className={`mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400`}>
-          The analytics store isn't writable in this environment. Run locally or configure a
-          database — see the <span className="font-mono text-amber-300">@polishd/next</span> DATABASE.md guide.
-        </div>
+        <Callout tone="warn" className="mb-8">
+          The analytics store isn&apos;t writable in this environment. Run locally or configure a
+          database — see the <Code>@polishd/next</Code> DATABASE.md guide.
+        </Callout>
       )}
 
       {capture.level === "broken" && (
-        <div className="mb-8 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-[13px] text-red-400">
-          <p className="font-medium text-red-300">
-            Receiving events, but no session cookie — your proxy isn't running.
-          </p>
-          <p className="mt-1.5">
+        <Callout
+          tone="bad"
+          className="mb-8"
+          title="Receiving events, but no session cookie — your proxy isn't running."
+        >
+          <p>
             {capture.droppedBatches.toLocaleString()}{" "}
             {capture.droppedBatches === 1 ? "batch has" : "batches have"} been dropped
             {capture.nothingStored ? "" : ` and nothing has been stored in the last ${windowLabel}`}
             . Polishd attributes every event to the anonymous cookie the proxy mints
             {capture.nothingStored ? ", so nothing is being stored" : ""}. Check that you have a{" "}
-            <span className="font-mono text-red-300">proxy.ts</span> (Next 16+) or{" "}
-            <span className="font-mono text-red-300">middleware.ts</span> (Next 15) at your project
+            <Code>proxy.ts</Code> (Next 16+) or <Code>middleware.ts</Code> (Next 15) at your project
             root — matching your installed Next major — exporting a function of the same name, with{" "}
-            <span className="font-mono text-red-300">config.matcher</span> written as an inline
-            literal that covers the pages you're capturing.
+            <Code>config.matcher</Code> written as an inline literal that covers the pages you&apos;re
+            capturing.
           </p>
-          <p className="mt-1.5 text-red-500/80">
-            Run{" "}
-            <span className="font-mono text-red-300">
-              npx @polishd/next doctor --url &lt;your deployed origin&gt;
-            </span>{" "}
-            to check this against the running site. Plain{" "}
-            <span className="font-mono text-red-300">doctor</span> only reads your source tree, so
-            it can pass every check while the deployed build still doesn't mint a cookie —{" "}
-            <span className="font-mono text-red-300">--url</span> is the part that proves it.
+          <p className="mt-2 text-fg-3">
+            Run <Code>npx @polishd/next doctor --url &lt;your deployed origin&gt;</Code> to check
+            this against the running site. Plain <Code>doctor</Code> only reads your source tree, so
+            it can pass every check while the deployed build still doesn&apos;t mint a cookie —{" "}
+            <Code>--url</Code> is the part that proves it.
           </p>
-        </div>
+        </Callout>
       )}
 
       {capture.level === "notice" && (
-        <div className={`mb-8 rounded-lg border ${border} bg-[#0f0f0f] px-4 py-3 text-[13px] text-[#999]`}>
-          <p>
-            {capture.droppedBatches.toLocaleString()}{" "}
-            {capture.droppedBatches === 1 ? "batch" : "batches"} arrived without a session cookie in
-            the last {windowLabel}
-            {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (bots, or
-            visitors with cookies blocked). Those events aren't stored; capture itself is working
-            {capture.storedSinceDrop ? " — a batch has been stored since the most recent drop" : ""}.
-          </p>
-        </div>
+        <Callout tone="neutral" className="mb-8">
+          {capture.droppedBatches.toLocaleString()}{" "}
+          {capture.droppedBatches === 1 ? "batch" : "batches"} arrived without a session cookie in
+          the last {windowLabel}
+          {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (bots, or
+          visitors with cookies blocked). Those events aren&apos;t stored; capture itself is working
+          {capture.storedSinceDrop ? " — a batch has been stored since the most recent drop" : ""}.
+        </Callout>
       )}
     </>
   );
@@ -352,15 +344,8 @@ function StatusBanners({
 function OverviewSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Overview
-          <InfoTip
-            anchor="left"
-            text="All-time totals for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day."
-          />
-        </>
-      }
+      title="Overview"
+      tip="All-time totals for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day."
     >
       {children}
     </Section>
@@ -370,15 +355,8 @@ function OverviewSection({ children }: { children: ReactNode }) {
 function DevicesSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Device sizes
-          <InfoTip
-            anchor="left"
-            text="One viewport sample per session, taken at session start, bucketed by CSS width: mobile (<640px), tablet (640–1023px), desktop (≥1024px). Shows what screen size visitors actually use."
-          />
-        </>
-      }
+      title="Device sizes"
+      tip="One viewport sample per session, taken at session start, bucketed by CSS width: mobile (<640px), tablet (640–1023px), desktop (≥1024px). Shows what screen size visitors actually use."
     >
       {children}
     </Section>
@@ -388,15 +366,8 @@ function DevicesSection({ children }: { children: ReactNode }) {
 function PagesSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Top pages
-          <InfoTip
-            anchor="left"
-            text="The most-visited routes, ranked by distinct sessions. Click a page to open a chart of its sessions over time."
-          />
-        </>
-      }
+      title="Top pages"
+      tip="The most-visited routes, ranked by distinct sessions. Click a page to open a chart of its sessions over time."
     >
       {children}
     </Section>
@@ -405,11 +376,9 @@ function PagesSection({ children }: { children: ReactNode }) {
 
 function DevicesCard({ devices }: { devices: DeviceBucket[] }) {
   return (
-    <div className={card}>
+    <div className={`${card} overflow-hidden`}>
       {devices.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-          No viewport data yet — browse the site then refresh.
-        </p>
+        <EmptyState>No viewport data yet — browse the site then refresh.</EmptyState>
       ) : (
         devices.map((d) => <DeviceRow key={d.category} bucket={d} />)
       )}
@@ -420,15 +389,8 @@ function DevicesCard({ devices }: { devices: DeviceBucket[] }) {
 function MonitoredSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Monitored components
-          <InfoTip
-            anchor="left"
-            text="Components explicitly wrapped in <PolishdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
-          />
-        </>
-      }
+      title="Monitored components"
+      tip="Components explicitly wrapped in <PolishdMonitor>. Shows viewport engagement (views, avg time visible, scroll depth, dimensions) alongside click activity. A high view count with low clicks often signals interest without commitment."
     >
       {children}
     </Section>
@@ -437,12 +399,12 @@ function MonitoredSection({ children }: { children: ReactNode }) {
 
 function MonitoredCard({ monitored }: { monitored: MonitoredComponent[] }) {
   return (
-    <div className={card}>
+    <div className={`${card} overflow-hidden`}>
       {monitored.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <EmptyState>
           No monitored components yet — wrap elements with{" "}
-          <code className="font-mono text-[#777]">{"<PolishdMonitor name=\"…\">"}</code> to track them here.
-        </p>
+          <Code>{"<PolishdMonitor name=\"…\">"}</Code> to track them here.
+        </EmptyState>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[820px]">
@@ -474,15 +436,8 @@ function MonitoredCard({ monitored }: { monitored: MonitoredComponent[] }) {
 function JourneysSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Sampled user journeys
-          <InfoTip
-            anchor="left"
-            text="Full sessions sampled and ranked by a composite score (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
-          />
-        </>
-      }
+      title="Sampled user journeys"
+      tip="Full sessions sampled and ranked by a composite score (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
     >
       {children}
     </Section>
@@ -492,15 +447,8 @@ function JourneysSection({ children }: { children: ReactNode }) {
 function FeaturesSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Most-used features
-          <InfoTip
-            anchor="left"
-            text="Interactive elements ranked by raw click volume (successful clicks only — rage and dead clicks excluded). The buttons and features visitors actually use most."
-          />
-        </>
-      }
+      title="Most-used features"
+      tip="Interactive elements ranked by raw click volume (successful clicks only — rage and dead clicks excluded). The buttons and features visitors actually use most."
     >
       {children}
     </Section>
@@ -509,11 +457,9 @@ function FeaturesSection({ children }: { children: ReactNode }) {
 
 function FeaturesCard({ topUsed }: { topUsed: TopInteraction[] }) {
   return (
-    <div className={card}>
+    <div className={`${card} overflow-hidden`}>
       {topUsed.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-          No clicks captured yet — browse the site then refresh.
-        </p>
+        <EmptyState>No clicks captured yet — browse the site then refresh.</EmptyState>
       ) : (
         <TopFeaturesTable
           features={topUsed}
@@ -534,15 +480,8 @@ function FeaturesCard({ topUsed }: { topUsed: TopInteraction[] }) {
 function ElementsSection({ children }: { children: ReactNode }) {
   return (
     <Section
-      title={
-        <>
-          Interactions by element
-          <InfoTip
-            anchor="left"
-            text="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <PolishdMonitor> are listed separately under Monitored components."
-          />
-        </>
-      }
+      title="Interactions by element"
+      tip="Click-type events grouped by DOM selector. This is which UI element the issues are on — the primary input to Stage 2 synthesis. Components wrapped in <PolishdMonitor> are listed separately under Monitored components."
     >
       {children}
     </Section>
@@ -551,11 +490,9 @@ function ElementsSection({ children }: { children: ReactNode }) {
 
 function ElementsCard({ elements }: { elements: ElementStat[] }) {
   return (
-    <div className={card}>
+    <div className={`${card} overflow-hidden`}>
       {elements.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-          No interactions captured yet — browse the site then refresh.
-        </p>
+        <EmptyState>No interactions captured yet — browse the site then refresh.</EmptyState>
       ) : (
         <ElementsTable
           elements={elements}
@@ -589,36 +526,40 @@ function ErrorRow({ e, first }: { e: RecentError; first: boolean }) {
   const others = e.paths.length - 1;
   return (
     <div className={first ? "" : divider}>
-      <div className="flex items-start gap-3 px-5 py-3">
+      <div className="flex items-start gap-3 px-5 py-3.5">
+        <span
+          aria-hidden
+          className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${e.origin ? "bg-fg-4" : "bg-bad"}`}
+        />
         <div className="min-w-0 flex-1">
           {/* Errors the page can't claim as its own are dimmed rather
               than hidden: the classification is a judgement about
               where the code came from, so it's shown, not enforced. */}
           <div
-            className={`break-words font-mono text-[13px] ${e.origin ? "text-[#8a6a6a]" : "text-red-400"}`}
+            className={`break-words font-mono text-[12.5px] leading-relaxed ${e.origin ? "text-fg-3" : "text-bad"}`}
           >
             {e.message}
           </div>
-          <div className="mt-0.5 text-[11px] text-[#555]">
-            {e.path}
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-fg-3">
+            <span className="font-mono text-fg-2">{e.path}</span>
             {others > 0 && (
               <span title={e.paths.slice(0, 10).join("\n")}>
-                {` +${others} more ${others === 1 ? "page" : "pages"}`}
+                {`+${others} more ${others === 1 ? "page" : "pages"}`}
               </span>
             )}
-            {e.component ? ` · ${e.component}` : ""}
-            {e.origin === "foreign" ? " · not your code" : ""}
-            {e.origin === "unknown" ? " · unattributable" : ""}
+            {e.component && <span>· {e.component}</span>}
+            {e.origin === "foreign" && <span>· not your code</span>}
+            {e.origin === "unknown" && <span>· unattributable</span>}
           </div>
         </div>
         {e.count > 1 && (
           <span
             title={`Seen ${e.count.toLocaleString()} times`}
-            className={`mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${
-              e.origin ? "bg-[#2a1f1f] text-[#b08a8a]" : "bg-red-500 text-white"
+            className={`inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-md px-1.5 text-[11px] font-semibold tabular-nums ring-1 ring-inset ${
+              e.origin ? "bg-raised text-fg-3 ring-line-strong" : "bg-bad/12 text-bad ring-bad/25"
             }`}
           >
-            {compactCount(e.count)}
+            ×{compactCount(e.count)}
           </span>
         )}
       </div>
@@ -633,15 +574,8 @@ function RecentErrors({ errors }: { errors: RecentError[] }) {
   const key = (e: RecentError) => `${e.message}|${e.component ?? ""}|${e.origin ?? ""}`;
   return (
     <Section
-      title={
-        <>
-          Recent errors
-          <InfoTip
-            anchor="left"
-            text="Repeats of the same error are grouped into one row, most recently seen first. The badge counts every time it was thrown, across all pages."
-          />
-        </>
-      }
+      title="Recent errors"
+      tip="Repeats of the same error are grouped into one row, most recently seen first. The badge counts every time it was thrown, across all pages."
     >
       <div className={`${card} overflow-hidden`}>
         {visible.map((e, i) => (
@@ -676,8 +610,8 @@ export function PolishdDashboard({
 }) {
   return (
     <DashboardChrome active="analytics" showInstalls={showInstalls} showIssues={showIssues}>
-    <main className="text-white">
-      <AnalyticsHeader pill={<StatusPill ready={data.overview.ready} />} />
+    <main className="text-fg">
+      <AnalyticsHeader pill={<CaptureStatusPill ready={data.overview.ready} />} />
       <StatusBanners overview={data.overview} health={data.health} />
 
       {/* AI summary — the model's story of how people use the site */}
@@ -725,19 +659,18 @@ export function PolishdDashboard({
 // replaces its skeleton the moment its own data resolves. The per-request
 // cache in ./data keeps sections that share inputs from re-running queries.
 
+const skel = "rounded-md bg-raised";
+
 function CardSkeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <div className={`${card} animate-pulse overflow-hidden`} aria-hidden="true">
+    <div className={`${card} overflow-hidden motion-safe:animate-pulse`} aria-hidden="true">
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
-          className="flex items-center justify-between gap-4 border-t border-[#2e2e2e] px-5 py-3.5 first:border-t-0"
+          className="flex items-center justify-between gap-4 border-t border-line px-5 py-4 first:border-t-0"
         >
-          <div
-            className="h-3 flex-1 rounded bg-[#141414]"
-            style={{ maxWidth: `${70 - i * 12}%` }}
-          />
-          <div className="h-3 w-12 shrink-0 rounded bg-[#141414]" />
+          <div className={`h-3 flex-1 ${skel} opacity-60`} style={{ maxWidth: `${70 - i * 12}%` }} />
+          <div className={`h-3 w-12 shrink-0 ${skel} opacity-60`} />
         </div>
       ))}
     </div>
@@ -747,13 +680,14 @@ function CardSkeleton({ rows = 4 }: { rows?: number }) {
 function TileGridSkeleton() {
   return (
     <div
-      className="grid animate-pulse grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+      className="grid grid-cols-2 gap-3 motion-safe:animate-pulse sm:grid-cols-3 lg:grid-cols-6"
       aria-hidden="true"
     >
       {Array.from({ length: 6 }, (_, i) => (
         <div key={i} className={`${card} px-4 py-4`}>
-          <div className="h-6 w-14 rounded bg-[#1a1a1a]" />
-          <div className="mt-3 h-2.5 w-16 rounded bg-[#141414]" />
+          <div className={`h-3 w-16 ${skel} opacity-60`} />
+          <div className={`mt-3 h-6 w-14 ${skel}`} />
+          <div className={`mt-4 h-5 w-full ${skel} opacity-40`} />
         </div>
       ))}
     </div>
@@ -763,14 +697,14 @@ function TileGridSkeleton() {
 function SummarySkeleton() {
   return (
     <section
-      className={`mb-8 ${card} animate-pulse overflow-hidden px-4 py-5 sm:px-5`}
+      className={`mb-10 ${card} overflow-hidden px-4 py-5 motion-safe:animate-pulse sm:px-5`}
       aria-hidden="true"
     >
-      <div className="h-3 w-32 rounded bg-[#1a1a1a]" />
-      <div className="mt-4 space-y-2">
-        <div className="h-3 w-full rounded bg-[#141414]" />
-        <div className="h-3 w-[92%] rounded bg-[#141414]" />
-        <div className="h-3 w-[68%] rounded bg-[#141414]" />
+      <div className={`h-3.5 w-36 ${skel}`} />
+      <div className="mt-5 space-y-2.5">
+        <div className={`h-3 w-full ${skel} opacity-60`} />
+        <div className={`h-3 w-[92%] ${skel} opacity-60`} />
+        <div className={`h-3 w-[68%] ${skel} opacity-60`} />
       </div>
     </section>
   );
@@ -779,7 +713,7 @@ function SummarySkeleton() {
 function PillSkeleton() {
   return (
     <div
-      className="h-6 w-24 shrink-0 animate-pulse rounded-full bg-[#141414]"
+      className="h-7 w-28 shrink-0 rounded-full bg-raised motion-safe:animate-pulse"
       aria-hidden="true"
     />
   );
@@ -787,7 +721,7 @@ function PillSkeleton() {
 
 async function StatusPillData() {
   const overview = await loadOverview();
-  return <StatusPill ready={overview.ready} />;
+  return <CaptureStatusPill ready={overview.ready} />;
 }
 
 async function StatusBannersData() {
@@ -891,7 +825,7 @@ async function ErrorsData() {
 /** The analytics tab, streamed section by section. */
 function AnalyticsStream() {
   return (
-    <main className="text-white">
+    <main className="text-fg">
       <AnalyticsHeader
         pill={
           <Suspense fallback={<PillSkeleton />}>
@@ -1057,16 +991,38 @@ async function SettingsTabData() {
 }
 
 // ── Built-in fallback for a failed auth check ────────────────────────────────
+/** The frame the access screens share: the mark, a title, then the body. */
+function AccessScreen({
+  title,
+  width = "max-w-sm",
+  children,
+}: {
+  title: string;
+  width?: string;
+  children: ReactNode;
+}) {
+  return (
+    <main className={`mx-auto flex min-h-[80vh] ${width} flex-col justify-center px-6 py-16 text-fg`}>
+      <BrandWordmark height={44} />
+      <div className={`mt-8 ${card} p-6`}>
+        <div className="flex items-center gap-2 text-fg-3">
+          <LockIcon size={15} />
+          <h1 className="text-[17px] font-semibold text-fg">{title}</h1>
+        </div>
+        {children}
+      </div>
+    </main>
+  );
+}
+
 function Unauthorized() {
   return (
-    <main className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center text-white">
-      <p className={label}>Polishd</p>
-      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Unauthorized</h1>
-      <p className="mt-2 text-[13px] text-[#666]">
-        This dashboard is protected. Pass an <code className="font-mono">unauthorized</code> element to
-        <code className="font-mono"> createPolishdPage()</code> to render your own sign-in UI here.
+    <AccessScreen title="Unauthorized" width="max-w-md">
+      <p className="mt-2 text-[13px] leading-relaxed text-fg-3">
+        This dashboard is protected. Pass an <Code>unauthorized</Code> element to{" "}
+        <Code>createPolishdPage()</Code> to render your own sign-in UI here.
       </p>
-    </main>
+    </AccessScreen>
   );
 }
 
@@ -1093,11 +1049,10 @@ function Unauthorized() {
  */
 function PolishdShell({ children }: { children: ReactNode }) {
   return (
-    // `text-white` is set here as a utility as well as on `.polishd-root` in
-    // the stylesheet, so the shell looks right in a 0.1.x app that upgraded
-    // without adding the stylesheet import and is still styled by its own
-    // Tailwind scanning our dist.
-    <div className="fixed inset-0 z-[2147483000] overflow-y-auto overscroll-contain bg-[#050505] text-white">
+    // `text-fg` is set here as a utility as well as on `.polishd-root` in
+    // the stylesheet, so the shell's colour holds even where a host rule
+    // targets the wrapper's descendants more specifically than the root.
+    <div className="fixed inset-0 z-[2147483000] overflow-y-auto overscroll-contain bg-canvas text-fg">
       {children}
     </div>
   );
@@ -1175,80 +1130,72 @@ export interface CreatePolishdPageOptions {
  */
 function TokenUnlock({ error }: { error?: "invalid" | "rate" }) {
   return (
-    <main className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center px-6 text-white">
-      <p className={label}>Polishd</p>
-      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Dashboard locked</h1>
-      <p className="mt-2 text-[13px] text-[#888]">
+    <AccessScreen title="Dashboard locked">
+      <p className="mt-2 text-[13px] leading-relaxed text-fg-3">
         Enter the dashboard token to continue.
       </p>
       <form action={unlockPolishdDashboard} className="mt-5">
-        <input
-          type="password"
-          name="token"
-          autoComplete="off"
-          autoFocus
-          placeholder="Dashboard token"
-          aria-label="Dashboard token"
-          className={`w-full rounded-lg border ${border} bg-[#0a0a0a] px-3 py-2 text-[13px] text-white placeholder:text-[#555] focus:border-[#555] focus:outline-none`}
-        />
+        <label className="block">
+          <span className="sr-only">Dashboard token</span>
+          <input
+            type="password"
+            name="token"
+            autoComplete="off"
+            autoFocus
+            placeholder="Dashboard token"
+            aria-invalid={error ? true : undefined}
+            className={`${inputCls} h-10 ${error ? "border-bad/60" : ""}`}
+          />
+        </label>
         {error && (
-          <p role="alert" className="mt-2 text-[12px] text-red-400">
+          <p role="alert" className="mt-2 text-[12px] text-bad">
             {error === "rate"
               ? "Too many attempts. Wait a minute and try again."
               : "That token isn't right."}
           </p>
         )}
-        <button
-          type="submit"
-          className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-[13px] font-medium text-black transition-opacity hover:opacity-90"
-        >
+        <button type="submit" className={`${primaryBtn} mt-3 h-10 w-full`}>
           Unlock
         </button>
       </form>
-      <p className="mt-5 text-[12px] leading-relaxed text-[#555]">
-        The token is the value of{" "}
-        <code className="font-mono">POLISHD_DASHBOARD_TOKEN</code> in your deployment
+      <p className="mt-5 border-t border-line pt-4 text-[12px] leading-relaxed text-fg-3">
+        The token is the value of <Code>POLISHD_DASHBOARD_TOKEN</Code> in your deployment
         environment.
       </p>
-    </main>
+    </AccessScreen>
   );
 }
 
 /** Shown in production when the host never made an access decision. */
 function SetupRequired() {
+  const option = "rounded-lg border border-line bg-sunken px-3.5 py-3";
   return (
-    <main className="mx-auto flex min-h-[60vh] max-w-lg flex-col justify-center px-6 text-white">
-      <p className={label}>Polishd</p>
-      <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Dashboard locked</h1>
-      <p className="mt-2 text-[13px] leading-relaxed text-[#888]">
+    <AccessScreen title="Dashboard locked" width="max-w-xl">
+      <p className="mt-2 text-[13px] leading-relaxed text-fg-3">
         This dashboard is unprotected and running in production, so Polishd is refusing to serve
         it. It exposes your analytics, and its settings can change the model and API base URL —
         which means anyone who finds this URL can point your requests at their own endpoint and
         spend your API key.
       </p>
-      <p className="mt-4 text-[13px] text-[#888]">Choose one:</p>
-      <ul className="mt-2 space-y-2 text-[13px] text-[#888]">
-        <li>
-          Set a token — no code needed:{" "}
-          <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_TOKEN</code>
-          <span className="mt-0.5 block text-[12px] text-[#555]">
-            Generate one with <code className="font-mono">openssl rand -hex 32</code>.
+      <p className="mt-5 text-[13px] font-medium text-fg">Choose one:</p>
+      <ul className="mt-2.5 space-y-2 text-[13px] text-fg-2">
+        <li className={option}>
+          Set a token — no code needed: <Code>POLISHD_DASHBOARD_TOKEN</Code>
+          <span className="mt-1 block text-[12px] text-fg-3">
+            Generate one with <Code>openssl rand -hex 32</Code>.
           </span>
         </li>
-        <li>
-          Or pass your app's own check:{" "}
-          <code className="font-mono text-[#aaa]">createPolishdPage(&#123; authenticate &#125;)</code>
+        <li className={option}>
+          Or pass your app&apos;s own check: <Code>createPolishdPage(&#123; authenticate &#125;)</Code>
         </li>
-        <li>
-          Or make it public on purpose:{" "}
-          <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_PUBLIC=true</code>
+        <li className={option}>
+          Or make it public on purpose: <Code>POLISHD_DASHBOARD_PUBLIC=true</Code>
         </li>
       </ul>
-      <p className="mt-4 text-[12px] text-[#555]">
-        Local development is unaffected — this only applies when{" "}
-        <code className="font-mono">NODE_ENV=production</code>.
+      <p className="mt-5 text-[12px] text-fg-3">
+        Local development is unaffected — this only applies when <Code>NODE_ENV=production</Code>.
       </p>
-    </main>
+    </AccessScreen>
   );
 }
 

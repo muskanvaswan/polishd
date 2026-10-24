@@ -38,6 +38,7 @@ import {
 } from "react";
 
 import {
+  BrandWordmark,
   ChartIcon,
   DropletIcon,
   GearIcon,
@@ -46,7 +47,6 @@ import {
   IssueIcon,
   SpinnerIcon,
   card,
-  labelCls,
 } from "./ui";
 
 export type PolishdDashboardTab =
@@ -59,16 +59,16 @@ export type PolishdDashboardTab =
 
 const TABS: { id: PolishdDashboardTab; name: string; icon: ReactNode }[] = [
   // The landing tab: both reviews, the headline numbers, the fix prompt.
-  { id: "overview", name: "Overview", icon: <GridIcon /> },
-  { id: "analytics", name: "Analytics", icon: <ChartIcon /> },
-  { id: "design", name: "Design", icon: <DropletIcon /> },
+  { id: "overview", name: "Overview", icon: <GridIcon size={15} /> },
+  { id: "analytics", name: "Analytics", icon: <ChartIcon size={15} /> },
+  { id: "design", name: "Design", icon: <DropletIcon size={15} /> },
   // Shown only once a GitHub repo is connected — the tab has nothing to list,
   // and no way to list it, until there's a tracker to read.
-  { id: "issues", name: "Issues", icon: <IssueIcon /> },
+  { id: "issues", name: "Issues", icon: <IssueIcon size={15} /> },
   // Shown only on installations that collect cross-install telemetry — for
   // everyone else (the senders) it would be a permanently empty screen.
-  { id: "installs", name: "Installs", icon: <GlobeIcon /> },
-  { id: "settings", name: "Settings", icon: <GearIcon /> },
+  { id: "installs", name: "Installs", icon: <GlobeIcon size={15} /> },
+  { id: "settings", name: "Settings", icon: <GearIcon size={15} /> },
 ];
 
 /** Set by the chrome; null when a tab's markup is rendered outside it. */
@@ -183,17 +183,28 @@ export default function DashboardChrome({
 
   return (
     <TabNavContext.Provider value={navigate}>
-      <div ref={rootRef} className="mx-auto max-w-6xl px-4 py-8 text-white sm:px-6 sm:py-10">
-        <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
-          <aside className="shrink-0 lg:w-44">
-            <div className="lg:sticky lg:top-8">
-              <p className={labelCls}>Polishd</p>
-              <p className="mt-1 hidden text-[12px] leading-snug text-[#555] lg:block">
-                What gets measured gets improved
-              </p>
+      <div
+        ref={rootRef}
+        className="mx-auto max-w-[1200px] px-4 pb-16 pt-5 text-fg sm:px-6 lg:px-8 lg:pt-10"
+      >
+        <div className="flex flex-col gap-6 lg:flex-row lg:gap-12">
+          <aside className="shrink-0 lg:w-48">
+            <div className="lg:sticky lg:top-10">
+              <div className="lg:px-2.5">
+                <TabLink
+                  tab="overview"
+                  aria-label="Polishd — Overview"
+                  className="inline-flex rounded-md"
+                >
+                  <BrandWordmark height={44} />
+                </TabLink>
+                <p className="mt-2 text-[11.5px] leading-snug text-fg-3">
+                  What gets measured gets improved
+                </p>
+              </div>
               <nav
                 aria-label="Dashboard sections"
-                className="mt-1 flex flex-wrap gap-1.5 lg:mt-5 lg:flex-col lg:flex-nowrap"
+                className="-mx-4 mt-5 flex gap-1 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:mt-8 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"
               >
                 {TABS.filter(
                   // Direct navigation to a tab this install hasn't earned
@@ -208,13 +219,19 @@ export default function DashboardChrome({
                       tab={tab.id}
                       current={isSelected}
                       busy={loading && isSelected}
-                      className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] transition-colors ${
+                      className={`group relative flex h-9 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium transition-colors lg:h-8 lg:px-2.5 ${
                         isSelected
-                          ? "border-[#2e2e2e] bg-[#141414] font-medium text-white"
-                          : "border-transparent text-[#888] hover:bg-[#0f0f0f] hover:text-white"
+                          ? "bg-raised text-fg shadow-[inset_0_0_0_1px_var(--pd-line-strong)]"
+                          : "text-fg-3 hover:bg-raised/60 hover:text-fg"
                       }`}
                     >
-                      {loading && isSelected ? <SpinnerIcon /> : tab.icon}
+                      <span
+                        className={`transition-colors ${
+                          isSelected ? "text-accent" : "text-fg-4 group-hover:text-fg-2"
+                        }`}
+                      >
+                        {loading && isSelected ? <SpinnerIcon size={15} /> : tab.icon}
+                      </span>
                       {tab.name}
                     </TabLink>
                   );
@@ -244,34 +261,36 @@ export default function DashboardChrome({
  * handoff from "navigating" to "loading data" is invisible.
  */
 export function TabSkeleton({ name }: { name: string }) {
+  const bar = "rounded-md bg-raised";
   return (
-    <div className="animate-pulse text-white">
+    <div className="text-fg motion-safe:animate-pulse">
       <span className="sr-only" role="status">
         Loading {name}
       </span>
 
-      <div className="mb-8 flex items-start justify-between gap-3 border-b border-[#2e2e2e] pb-6">
+      <div className="mb-8 flex items-start justify-between gap-3 border-b border-line pb-6">
         <div>
-          <div className="h-[22px] w-40 rounded bg-[#1a1a1a]" />
-          <div className="mt-2.5 h-3 w-64 max-w-full rounded bg-[#141414]" />
+          <div className={`h-6 w-40 ${bar}`} />
+          <div className={`mt-3 h-3.5 w-72 max-w-full ${bar} opacity-60`} />
         </div>
-        <div className="h-6 w-28 shrink-0 rounded-full bg-[#141414]" />
+        <div className="h-7 w-28 shrink-0 rounded-full bg-raised opacity-60" />
       </div>
 
-      <div className={`mb-8 ${card} px-4 py-5 sm:px-5`}>
-        <div className="h-3 w-32 rounded bg-[#1a1a1a]" />
-        <div className="mt-4 space-y-2">
-          <div className="h-3 w-full rounded bg-[#141414]" />
-          <div className="h-3 w-[92%] rounded bg-[#141414]" />
-          <div className="h-3 w-[68%] rounded bg-[#141414]" />
+      <div className={`mb-10 ${card} px-4 py-5 sm:px-5`}>
+        <div className={`h-3.5 w-36 ${bar}`} />
+        <div className="mt-5 space-y-2.5">
+          <div className={`h-3 w-full ${bar} opacity-60`} />
+          <div className={`h-3 w-[92%] ${bar} opacity-60`} />
+          <div className={`h-3 w-[68%] ${bar} opacity-60`} />
         </div>
       </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {Array.from({ length: 6 }, (_, i) => (
           <div key={i} className={`${card} px-4 py-4`}>
-            <div className="h-6 w-14 rounded bg-[#1a1a1a]" />
-            <div className="mt-3 h-2.5 w-16 rounded bg-[#141414]" />
+            <div className={`h-3 w-16 ${bar} opacity-60`} />
+            <div className={`mt-3 h-6 w-14 ${bar}`} />
+            <div className={`mt-4 h-5 w-full ${bar} opacity-40`} />
           </div>
         ))}
       </div>
@@ -280,13 +299,13 @@ export function TabSkeleton({ name }: { name: string }) {
         {Array.from({ length: 4 }, (_, i) => (
           <div
             key={i}
-            className="flex items-center justify-between gap-4 border-t border-[#2e2e2e] px-5 py-3.5 first:border-t-0"
+            className="flex items-center justify-between gap-4 border-t border-line px-5 py-4 first:border-t-0"
           >
             <div
-              className="h-3 flex-1 rounded bg-[#141414]"
+              className={`h-3 flex-1 ${bar} opacity-60`}
               style={{ maxWidth: `${70 - i * 12}%` }}
             />
-            <div className="h-3 w-12 shrink-0 rounded bg-[#141414]" />
+            <div className={`h-3 w-12 shrink-0 ${bar} opacity-60`} />
           </div>
         ))}
       </div>

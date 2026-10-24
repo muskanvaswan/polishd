@@ -12,11 +12,21 @@
 import { useEffect, useState } from "react";
 
 import type { JourneyStep, SessionJourney } from "../server/queries";
-
-// ── Design tokens (kept in sync with page.tsx's Vercel aesthetic) ─────────────
-const border = "border-[#2e2e2e]";
-const card = `border ${border} rounded-lg bg-[#0a0a0a]`;
-const divider = `border-t ${border}`;
+import {
+  Badge,
+  ChevronRightIcon,
+  ClockIcon,
+  EmptyState,
+  XIcon,
+  card,
+  divider,
+  eyebrowCls,
+  iconBtn,
+  labelCls,
+  toneSoft,
+  toneText,
+  type Tone,
+} from "./ui";
 
 const DEVICE_META: Record<string, { label: string }> = {
   mobile: { label: "Mobile" },
@@ -42,10 +52,10 @@ function fmtClock(ts: number): string {
   });
 }
 
-function scoreTone(score: number) {
-  if (score >= 10) return "text-red-500";
-  if (score >= 4) return "text-[#f5a623]";
-  return "text-[#0cce6b]";
+function scoreTone(score: number): Tone {
+  if (score >= 10) return "bad";
+  if (score >= 4) return "warn";
+  return "ok";
 }
 
 function deviceLabel(device: SessionJourney["device"]): string {
@@ -73,39 +83,39 @@ function summarize(j: SessionJourney): string {
 // ── Flow-chart step row (shared by the drawer) ────────────────────────────────
 const STEP_STYLE: Record<
   JourneyStep["type"],
-  { dot: string; verb: string; verbTone: string; tag?: { text: string; cls: string } }
+  { dot: string; verb: string; verbTone: string; tag?: { text: string; tone: Tone } }
 > = {
-  page_view: { dot: "bg-blue-500", verb: "Viewed", verbTone: "text-blue-400" },
-  click: { dot: "bg-[#555]", verb: "Clicked", verbTone: "text-[#bbb]" },
+  page_view: { dot: "bg-accent", verb: "Viewed", verbTone: "text-accent" },
+  click: { dot: "bg-fg-3", verb: "Clicked", verbTone: "text-fg-2" },
   rage_click: {
-    dot: "bg-red-500",
+    dot: "bg-bad",
     verb: "Rage-clicked",
-    verbTone: "text-red-400",
-    tag: { text: "rage", cls: "bg-red-950 text-red-400" },
+    verbTone: "text-bad",
+    tag: { text: "rage", tone: "bad" },
   },
   dead_click: {
-    dot: "bg-[#f5a623]",
+    dot: "bg-warn",
     verb: "Dead-clicked",
-    verbTone: "text-[#f5a623]",
-    tag: { text: "dead", cls: "bg-amber-950 text-amber-400" },
+    verbTone: "text-warn",
+    tag: { text: "dead", tone: "warn" },
   },
   js_error: {
-    dot: "bg-red-600",
+    dot: "bg-bad",
     verb: "Error",
-    verbTone: "text-red-400",
-    tag: { text: "error", cls: "bg-red-950 text-red-400" },
+    verbTone: "text-bad",
+    tag: { text: "error", tone: "bad" },
   },
-  session_end: { dot: "bg-[#666]", verb: "Left the site", verbTone: "text-[#888]" },
+  session_end: { dot: "bg-fg-4", verb: "Left the site", verbTone: "text-fg-3" },
   // Non-action types never reach the flow chart, but the map must be total.
-  text_click: { dot: "bg-[#444]", verb: "Clicked text", verbTone: "text-[#888]" },
-  scroll_depth: { dot: "bg-[#444]", verb: "Scrolled", verbTone: "text-[#888]" },
-  viewport: { dot: "bg-[#444]", verb: "Viewport", verbTone: "text-[#888]" },
-  web_vital: { dot: "bg-[#444]", verb: "Web vital", verbTone: "text-[#888]" },
-  hover: { dot: "bg-purple-500", verb: "Hovered", verbTone: "text-purple-400" },
-  component_view: { dot: "bg-purple-400", verb: "Viewed component", verbTone: "text-purple-300" },
-  mount: { dot: "bg-purple-400", verb: "Rendered component", verbTone: "text-purple-300" },
-  design_scan: { dot: "bg-[#444]", verb: "Design scan", verbTone: "text-[#888]" },
-  install_state: { dot: "bg-[#444]", verb: "Install state", verbTone: "text-[#888]" },
+  text_click: { dot: "bg-fg-4", verb: "Clicked text", verbTone: "text-fg-3" },
+  scroll_depth: { dot: "bg-fg-4", verb: "Scrolled", verbTone: "text-fg-3" },
+  viewport: { dot: "bg-fg-4", verb: "Viewport", verbTone: "text-fg-3" },
+  web_vital: { dot: "bg-fg-4", verb: "Web vital", verbTone: "text-fg-3" },
+  hover: { dot: "bg-violet", verb: "Hovered", verbTone: "text-violet" },
+  component_view: { dot: "bg-violet", verb: "Viewed component", verbTone: "text-violet" },
+  mount: { dot: "bg-violet", verb: "Rendered component", verbTone: "text-violet" },
+  design_scan: { dot: "bg-fg-4", verb: "Design scan", verbTone: "text-fg-3" },
+  install_state: { dot: "bg-fg-4", verb: "Install state", verbTone: "text-fg-3" },
 };
 
 function JourneyStepRow({
@@ -122,32 +132,28 @@ function JourneyStepRow({
   return (
     <li className="relative flex gap-3">
       {/* rail: dot + connector down to the next node */}
-      <div className="relative flex w-2.5 shrink-0 justify-center">
-        <span className={`z-10 mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full ${s.dot}`} />
-        {!isLast && <span className="absolute top-[5px] h-full w-px bg-[#2e2e2e]" />}
+      <div className="relative flex w-3 shrink-0 justify-center">
+        <span
+          className={`z-10 mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full ring-[3px] ring-surface ${s.dot}`}
+        />
+        {!isLast && <span className="absolute top-[7px] h-full w-px bg-line-strong" />}
       </div>
       {/* node */}
-      <div className="min-w-0 flex-1 pb-3">
+      <div className="min-w-0 flex-1 pb-3.5">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className={`text-[13px] font-medium ${s.verbTone}`}>{s.verb}</span>
           {showPath ? (
-            <span className="truncate font-mono text-[12px] text-[#ccc]">{step.path}</span>
+            <span className="truncate font-mono text-[12px] text-fg-2">{step.path}</span>
           ) : step.label ? (
-            <span className="truncate text-[13px] text-white">{step.label}</span>
+            <span className="truncate text-[13px] text-fg">{step.label}</span>
           ) : null}
-          {s.tag && (
-            <span
-              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${s.tag.cls}`}
-            >
-              {s.tag.text}
-            </span>
-          )}
+          {s.tag && <Badge tone={s.tag.tone}>{s.tag.text}</Badge>}
         </div>
         {step.detail && (
-          <div className="mt-0.5 truncate font-mono text-[11px] text-red-400/80">{step.detail}</div>
+          <div className="mt-1 truncate font-mono text-[11.5px] text-bad/85">{step.detail}</div>
         )}
         {!showPath && step.type !== "session_end" && prevPath !== step.path && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#555]">on {step.path}</div>
+          <div className="mt-0.5 font-mono text-[11.5px] text-fg-3">on {step.path}</div>
         )}
       </div>
     </li>
@@ -155,6 +161,10 @@ function JourneyStepRow({
 }
 
 // ── Compact, clickable list card ──────────────────────────────────────────────
+function StatusBadge({ complete }: { complete: boolean }) {
+  return <Badge tone={complete ? "ok" : "neutral"}>{complete ? "complete" : "partial"}</Badge>;
+}
+
 function JourneyListCard({
   journey,
   onOpen,
@@ -162,42 +172,47 @@ function JourneyListCard({
   journey: SessionJourney;
   onOpen: () => void;
 }) {
+  const tone = scoreTone(journey.score);
   return (
     <button
       type="button"
       data-component="journey-open"
       onClick={onOpen}
-      className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#111] sm:gap-4 sm:px-5 sm:py-3.5 ${divider} first:border-t-0`}
+      className={`group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-raised/50 sm:gap-4 sm:px-5 ${divider} first:border-t-0`}
     >
       {/* score */}
-      <div className="flex w-12 shrink-0 flex-col items-center">
-        <span className={`text-[18px] font-semibold tabular-nums leading-none ${scoreTone(journey.score)}`}>
-          {journey.score}
+      <div
+        className={`flex h-11 w-12 shrink-0 flex-col items-center justify-center rounded-lg ring-1 ring-inset ${toneSoft[tone]}`}
+        title="Polishd score"
+      >
+        <span className="text-[16px] font-semibold leading-none tabular-nums">{journey.score}</span>
+        <span className="mt-1 text-[9.5px] font-medium uppercase tracking-[0.08em] opacity-80">
+          score
         </span>
-        <span className="mt-1 text-[9px] uppercase tracking-wider text-[#555]">score</span>
       </div>
       {/* identity + summary */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[13px] text-white">#{journey.id}</span>
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              journey.complete ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#777]"
-            }`}
-          >
-            {journey.complete ? "complete" : "partial"}
-          </span>
+          <span className="font-mono text-[13px] font-medium text-fg">#{journey.id}</span>
+          <StatusBadge complete={journey.complete} />
         </div>
-        <div className="mt-1 truncate text-[12px] text-[#888]">{summarize(journey)}</div>
+        <div className="mt-1 truncate text-[12.5px] text-fg-3">{summarize(journey)}</div>
       </div>
       {/* metadata */}
       <div className="hidden shrink-0 flex-col items-end gap-0.5 sm:flex">
-        <span className="text-[12px] tabular-nums text-[#ccc]">⏱ {fmtDuration(journey.durationMs)}</span>
-        <span className="text-[11px] text-[#666]">{deviceLabel(journey.device)}</span>
-        <span className="text-[11px] text-[#555]">{fmtClock(journey.startedAt)}</span>
+        <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium tabular-nums text-fg-2">
+          <span className="text-fg-3">
+            <ClockIcon size={12} />
+          </span>
+          {fmtDuration(journey.durationMs)}
+        </span>
+        <span className="text-[12px] text-fg-3">{deviceLabel(journey.device)}</span>
+        <span className="text-[12px] tabular-nums text-fg-3">{fmtClock(journey.startedAt)}</span>
       </div>
       {/* affordance */}
-      <span className="shrink-0 text-[#555] transition-colors group-hover:text-[#999]">›</span>
+      <span className="shrink-0 text-fg-4 transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-fg-2">
+        <ChevronRightIcon size={15} />
+      </span>
     </button>
   );
 }
@@ -205,9 +220,9 @@ function JourneyListCard({
 // ── Right-side detail drawer ──────────────────────────────────────────────────
 function MetaCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className={`px-4 py-3 ${border} border-t`}>
-      <div className="text-[10px] uppercase tracking-[0.08em] text-[#666]">{label}</div>
-      <div className={`mt-1 text-[13px] tabular-nums ${tone ?? "text-white"}`}>{value}</div>
+    <div className="border-t border-line px-4 py-3 odd:border-r sm:px-5">
+      <div className={labelCls}>{label}</div>
+      <div className={`mt-1 text-[13px] font-medium tabular-nums ${tone ?? "text-fg"}`}>{value}</div>
     </div>
   );
 }
@@ -244,7 +259,7 @@ function JourneyDrawer({
       {/* backdrop */}
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
+        className={`absolute inset-0 bg-black/60 backdrop-blur-[2px] transition-opacity duration-200 ${
           open ? "opacity-100" : "opacity-0"
         }`}
       />
@@ -253,37 +268,36 @@ function JourneyDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Session journey detail"
-        className={`absolute right-0 top-0 flex h-full w-full max-w-sm flex-col border-l ${border} bg-[#0a0a0a] shadow-2xl transition-transform duration-200 ease-out sm:max-w-md ${
+        className={`absolute right-0 top-0 flex h-full w-full max-w-sm flex-col border-l border-line-strong bg-surface shadow-pop transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] sm:max-w-md ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {journey && (
           <>
             {/* header */}
-            <div className={`flex items-center gap-3 border-b ${border} px-4 py-4 sm:px-5`}>
-              <span className="font-mono text-[14px] font-semibold text-white">#{journey.id}</span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  journey.complete ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#777]"
-                }`}
-              >
-                {journey.complete ? "complete" : "partial"}
-              </span>
+            <div className="flex items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5">
+              <div className="min-w-0">
+                <div className={eyebrowCls}>Session</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="font-mono text-[15px] font-semibold text-fg">#{journey.id}</span>
+                  <StatusBadge complete={journey.complete} />
+                </div>
+              </div>
               <button
                 type="button"
                 data-component="journey-close"
                 onClick={onClose}
                 aria-label="Close"
-                className="ml-auto flex h-7 w-7 items-center justify-center rounded-md border border-[#2e2e2e] text-[#888] transition-colors hover:bg-[#111] hover:text-white"
+                className={`${iconBtn} ml-auto`}
               >
-                ✕
+                <XIcon size={15} />
               </button>
             </div>
 
             {/* scrollable body */}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {/* metadata grid */}
-              <div className="grid grid-cols-2">
+              <div className="-mt-px grid grid-cols-2">
                 <MetaCell label="Recorded" value={fmtClock(journey.startedAt)} />
                 <MetaCell label="Duration" value={fmtDuration(journey.durationMs)} />
                 <MetaCell label="Device" value={deviceLabel(journey.device)} />
@@ -294,7 +308,7 @@ function JourneyDrawer({
                 <MetaCell
                   label="Polishd score"
                   value={String(journey.score)}
-                  tone={scoreTone(journey.score)}
+                  tone={toneText[scoreTone(journey.score)]}
                 />
                 <MetaCell
                   label="Frustration"
@@ -311,17 +325,15 @@ function JourneyDrawer({
                   }
                   tone={
                     journey.rageClicks + journey.deadClicks + journey.jsErrors > 0
-                      ? "text-[#f5a623]"
-                      : "text-[#0cce6b]"
+                      ? "text-warn"
+                      : "text-ok"
                   }
                 />
               </div>
 
               {/* flow chart */}
-              <div className={`border-t ${border} px-4 py-4 sm:px-5`}>
-                <div className="mb-3 text-[10px] uppercase tracking-[0.08em] text-[#666]">
-                  Flow — {journey.steps.length} actions
-                </div>
+              <div className="border-t border-line px-4 py-5 sm:px-5">
+                <div className={`mb-4 ${eyebrowCls}`}>Flow — {journey.steps.length} actions</div>
                 <ol>
                   {journey.steps.map((step, i) => {
                     const prevPath = lastPath;
@@ -337,10 +349,10 @@ function JourneyDrawer({
                   })}
                   {journey.truncated && (
                     <li className="flex gap-3">
-                      <div className="flex w-2.5 shrink-0 justify-center">
-                        <span className="mt-[5px] h-2.5 w-2.5 rounded-full bg-[#333]" />
+                      <div className="flex w-3 shrink-0 justify-center">
+                        <span className="mt-[5px] h-2.5 w-2.5 rounded-full border border-dashed border-fg-4" />
                       </div>
-                      <span className="text-[12px] italic text-[#555]">
+                      <span className="text-[12px] italic text-fg-3">
                         … journey continues (more actions captured)
                       </span>
                     </li>
@@ -362,17 +374,17 @@ export default function JourneyList({ journeys }: { journeys: SessionJourney[] }
   if (journeys.length === 0) {
     return (
       <div className={card}>
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <EmptyState>
           No complete sessions captured yet — browse the site (try a few rage and dead clicks) then
           refresh.
-        </p>
+        </EmptyState>
       </div>
     );
   }
 
   return (
     <>
-      <div className={card}>
+      <div className={`${card} overflow-hidden`}>
         {journeys.map((j) => (
           <JourneyListCard key={j.id} journey={j} onOpen={() => setSelected(j)} />
         ))}

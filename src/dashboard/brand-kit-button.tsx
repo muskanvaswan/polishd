@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { BrandKit } from "../shared/brand-kit";
 import { brandKitFaces, brandKitPdf, canvasTypeRenderer } from "./brand-kit-pdf";
+import { DownloadIcon, SpinnerIcon, ghostBtn } from "./ui";
 
 /** Local and LAN hosts aren't a link anyone else can open. */
 function isLocal(hostname: string): boolean {
@@ -25,26 +26,6 @@ function isLocal(hostname: string): boolean {
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "site";
-}
-
-function DownloadIcon() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  );
 }
 
 export default function BrandKitButton({ kit }: { kit: BrandKit }) {
@@ -95,13 +76,9 @@ export default function BrandKitButton({ kit }: { kit: BrandKit }) {
           ? `Couldn't build the brand kit: ${error}`
           : "Download the design system as a brand kit PDF — palette, type, radii and spacing, one-offs left out"
       }
-      className={`flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        state === "failed"
-          ? "border-red-900/60 text-red-400"
-          : "border-[#2e2e2e] text-[#aaa] hover:border-[#555] hover:text-white"
-      }`}
+      className={`${ghostBtn} ${state === "failed" ? "border-bad/40 text-bad hover:text-bad" : ""}`}
     >
-      <DownloadIcon />
+      {state === "building" ? <SpinnerIcon size={13} /> : <DownloadIcon size={13} />}
       {state === "building" ? "Building…" : state === "failed" ? "Couldn't build" : "Brand kit"}
     </button>
   );
