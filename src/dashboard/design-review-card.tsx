@@ -303,7 +303,7 @@ function IssueCard({
         <span>{iss.issue}</span>
       </div>
       <div className="mt-2 flex flex-col items-start gap-1">
-        <span className="rounded bg-[#161616] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
+        <span className="rounded bg-[#1a1a1a] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
           <Annotated text={iss.evidence} />
         </span>
         {iss.suggestion && (
@@ -321,7 +321,7 @@ function IssueCard({
         )}
         {iss.suggestionWithheld && (
           <span
-            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] leading-relaxed text-[#777]"
+            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] leading-relaxed text-[#888]"
             title="Polishd dropped the model's suggested fix — the problem may still be real"
           >
             Suggestion withheld: {iss.suggestionWithheld}

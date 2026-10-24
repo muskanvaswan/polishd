@@ -657,7 +657,7 @@ function VerdictImport({
                 ) : (
                   <>
                     {p.finding.issue}
-                    <span className="block text-[11px] text-[#666]">
+                    <span className="block text-[11px] text-[#888]">
                       {p.action === "dismiss"
                         ? `Will be ignored — “${p.reason}”`
                         : "Nothing to record — the next review shows whether the fix held."}
@@ -690,7 +690,7 @@ function VerdictImport({
             : `Ignore ${toRecord.length} ${toRecord.length === 1 ? "finding" : "findings"}`}
         </button>
         {!fromCopy && plans.length > 0 && (
-          <span className="text-[11px] text-[#666]">
+          <span className="text-[11px] text-[#888]">
             Matched against the findings shown now — no prompt was copied in this visit, so check
             each is the one the agent saw.
           </span>
