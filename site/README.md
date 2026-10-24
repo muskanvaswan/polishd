@@ -43,6 +43,21 @@ npm run dev      # http://localhost:3000
 Deploy anywhere that runs Next — Vercel picks it up with the root directory set
 to `site/`.
 
+### Snapshots of the dashboard
+
+The site's Design tab measures Polishd's own dashboard (it reads dashboard
+telemetry), so its flagged values live on the dashboard's tabs. Production
+captures can't shoot those, because they sit behind `POLISHD_DASHBOARD_TOKEN`.
+Capture them locally instead, against production data:
+
+```bash
+vercel env pull .env.local   # production DB, Blob store and analytics source
+npm run dev                  # then /polishd → Design → Capture snapshot
+```
+
+Your Chrome shoots the site's pages and each dashboard tab, and the pictures
+upload to the production Blob store, so the live dashboard shows them.
+
 ## The story the page tells
 
 Shipping is cheap now, so working software is no longer the bar — taste is. The

@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   MAX_PREVIEWS_PER_SHOT,
+  capturePathFor,
+  dashboardTabOf,
   darkModeVerdict,
   imageMime,
   parseSnapshotFile,
@@ -92,4 +94,13 @@ test("no complete pairs says nothing about dark mode", () => {
 test("a value is missed only if it was pictured nowhere", () => {
   assert.deepEqual(previewMisses(["a", "b", "a", "c"], ["b"]), ["a", "c"]);
   assert.deepEqual(previewMisses([], ["b"]), []);
+});
+
+test("dashboard telemetry pages map to the dashboard's own tabs", () => {
+  assert.equal(capturePathFor("/~polishd/design", "/polishd"), "/polishd?tab=design");
+  assert.equal(capturePathFor("/~polishd/issues", "/admin/polishd/"), "/admin/polishd?tab=issues");
+  assert.equal(capturePathFor("/pricing", "/polishd"), "/pricing");
+  for (const route of ["/~polishd", "/~polishd/", "/~polishd/a/b", "/~polishd/../x", "/~other/design"]) {
+    assert.equal(dashboardTabOf(route), null, route);
+  }
 });

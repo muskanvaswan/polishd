@@ -145,6 +145,29 @@ export function isVercelProtectionResponse(status: number, headers: Record<strin
 }
 
 /**
+ * Run in every captured page before its own scripts (`context.addInitScript`):
+ * `navigator.sendBeacon` becomes a no-op that reports success. Analytics —
+ * the site's own Polishd beacons, dashboard telemetry, anyone else's — flush
+ * with a beacon as the page closes, and a beacon is the one request a
+ * request guard never sees, so this is what keeps a capture from ever
+ * counting as a visit. Nothing on a page waits on a beacon's result.
+ */
+export function silenceBeacons(): void {
+  try {
+    Object.defineProperty(Navigator.prototype, "sendBeacon", {
+      configurable: true,
+      writable: true,
+      value: function sendBeacon() {
+        return true;
+      },
+    });
+  } catch {
+    // A page that froze Navigator first keeps its beacons; the guard still
+    // answers whatever goes through fetch.
+  }
+}
+
+/**
  * What the context's request guard does with one request:
  * - `continue` let it through (the egress rules still apply to it)
  * - `stay`     answer 204 No Content, which a browser takes as "don't navigate"
@@ -158,9 +181,10 @@ export type RequestAction = "continue" | "stay" | "beacon" | "abort";
  * navigation off the origin — script-driven, a meta refresh, a link the
  * consent dismisser clicked — is answered with a 204, so the page stays on
  * the site that asked, still shootable (aborting it instead would leave
- * Chromium on its own error page). Polishd's own analytics beacons are
+ * Chromium on its own error page). Polishd's own analytics batches are
  * answered locally: a capture is a measurement, and its page loads would
- * otherwise land in the store as visits. HTTP redirects never reach a request
+ * otherwise land in the store as visits. (Batches sent with `sendBeacon`
+ * never reach a guard — `silenceBeacons` handles those.) HTTP redirects never reach a request
  * guard (Playwright routes only the first URL of a redirect chain);
  * `landingOf` catches those after the load.
  */
@@ -175,14 +199,21 @@ export function requestAction(
     return "abort";
   }
   if (req.navigation && req.mainFrame && url.origin !== origin) return "stay";
-  if (
-    url.origin === origin &&
-    req.method === "POST" &&
-    (req.postData ?? "").startsWith('{"events":')
-  ) {
-    return "beacon";
-  }
+  if (req.method === "POST" && isPolishdBeacon(url.origin === origin, req.postData)) return "beacon";
   return "continue";
+}
+
+/**
+ * True for a batch Polishd itself would record: the site's own analytics
+ * (`{"events":…}`, posted to its ingest route) or dashboard telemetry
+ * (`{"sessionId":…,"events":…}`, posted to the telemetry collector — on
+ * another origin for every install but the collecting one). A capture that
+ * renders the dashboard must report neither.
+ */
+export function isPolishdBeacon(sameOrigin: boolean, postData: string | null): boolean {
+  const body = postData ?? "";
+  if (sameOrigin && body.startsWith('{"events":')) return true;
+  return /^\{"sessionId":"[^"]{0,200}","events":\[/.test(body);
 }
 
 // ── Framing ──────────────────────────────────────────────────────────────────

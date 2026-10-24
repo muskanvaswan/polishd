@@ -69,6 +69,8 @@ export interface CaptureOutcome {
   block: CaptureBlock | null;
   /** Anything else that went wrong. */
   error: string | null;
+  /** Nothing ran: the owner hasn't allowed the screenshot service yet. */
+  consentRequired?: true;
 }
 
 /** Cells in flight at once against the service; the local engine runs one at a time. */
@@ -217,7 +219,11 @@ async function storeImage(
  */
 export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureOutcome> {
   const begun = await beginSnapshotCaptureAction();
-  if (!begun.ok) return { snapshot: null, block: null, error: begun.message };
+  if (!begun.ok) {
+    return begun.consentRequired
+      ? { snapshot: null, block: null, error: null, consentRequired: true }
+      : { snapshot: null, block: null, error: begun.message };
+  }
   const plan: SnapshotPlan = begun;
   cb.onPlan(plan);
 
@@ -239,6 +245,11 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
   const found = new Set<string>();
   /** Values being looked for by a cell in flight — not sent again until it answers. */
   const searching = new Set<string>();
+  /** How many renderings have looked for each value without finding it. */
+  const tries = new Map<string, number>();
+  const noteLooked = (looked: string[]) => {
+    for (const key of looked) tries.set(key, (tries.get(key) ?? 0) + 1);
+  };
   const memo: BlobAccessMemo = { known: null };
 
   // Recording reads and rewrites the server's pending record, so record calls
@@ -250,11 +261,16 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
     return next;
   };
 
+  // A cell can look for 16 values. Hand out the ones looked for least so far,
+  // so values that never turn up don't hold every slot while the rest of the
+  // list (off-grid paddings come last) never gets a turn.
   const findFor = (route: string): FindTarget[] =>
     plan.targets
-      .filter((t) => t.pages.includes(route) && !found.has(t.key) && !searching.has(t.key))
+      .map((t, order) => ({ t, order }))
+      .filter(({ t }) => t.pages.includes(route) && !found.has(t.key) && !searching.has(t.key))
+      .sort((a, b) => (tries.get(a.t.key) ?? 0) - (tries.get(b.t.key) ?? 0) || a.order - b.order)
       .slice(0, 16)
-      .map((t) => ({ key: t.key, ref: t.ref }));
+      .map(({ t }) => ({ key: t.key, ref: t.ref }));
 
   const shootLocal = async (slot: ShotSlot) => {
     const res = await serial(() => captureLocalShotAction(plan.id, slot, findFor(slot.route).map((t) => t.key)));
@@ -263,6 +279,7 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
       return;
     }
     for (const p of res.shot.previews) found.add(p.key);
+    noteLooked(res.shot.looked);
     cb.onShot({
       ...slot,
       src: res.shot.image ? dataUrl(res.shot.image) : null,
@@ -320,6 +337,7 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
         return;
       }
       for (const p of shot.previews) found.add(p.key);
+      noteLooked(shot.looked);
     } catch (err) {
       error ??= err instanceof StoreError ? err.message : "Couldn't store the screenshots.";
     }

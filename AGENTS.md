@@ -345,12 +345,12 @@ owner's browser, so the host never runs a browser. Tell the user plainly that
 **page URLs and pixels pass through that service**. It shoots only the calling
 site's public pages and stores nothing.
 
-The dashboard asks the owner once, in a consent dialog on the Design tab,
-before the service is ever used, and keeps the answer in the store. **That
-choice is the owner's: don't pre-answer it, write it to the store, or set
-anything to skip it.** Until it's allowed, or when there's no Blob store on
-Vercel, the Site snapshots section sits at the bottom of the tab, turned off,
-with the reason. That's expected, not a broken install. Two things can still
+The dashboard asks the owner once, in a consent dialog the first time they
+press Capture, before the service is ever used, and keeps the answer in the
+store. **That choice is the owner's: don't pre-answer it, write it to the
+store, or set anything to skip it.** If it's declined, or there's no Blob
+store on Vercel, the Site snapshots section sits at the bottom of the tab,
+turned off, with the reason. That's expected, not a broken install. Two things can still
 need a change:
 
 - **A strict Content-Security-Policy.** If the app sets `connect-src`, add

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { PolishdDesignData } from "../server/design";
-import { designPreviewTargets, designValueKey } from "./design-values.ts";
+import { designPreviewTargets, designValueKey, unpicturedReason } from "./design-values.ts";
 
 test("keys are stable per value, and colors ignore case and role", () => {
   assert.equal(designValueKey({ kind: "font", family: "Inter", sizePx: 17, weight: 500 }), "font:Inter|17|500");
@@ -61,4 +61,36 @@ test("only flagged values become targets, one-offs before off-grid spacing", () 
   );
   assert.deepEqual(targets[1].ref, { kind: "color", hex: "#fafafa", roles: ["background"] });
   assert.deepEqual(targets[3].pages, ["/", "/about"]);
+});
+
+test("a value measured only on dashboard pseudo-pages waits for a local capture", () => {
+  assert.equal(unpicturedReason(["/~polishd/design", "/~polishd/analytics"], ["/"]), "dashboard_only");
+  assert.equal(unpicturedReason(["/~polishd/design"], null), "dashboard_only");
+  // Once a local capture has shot the tab, it's an ordinary value.
+  assert.equal(unpicturedReason(["/~polishd/design"], ["/", "/~polishd/design"]), "capture");
+});
+
+test("a value whose pages the latest snapshot didn't shoot says so", () => {
+  assert.equal(unpicturedReason(["/pricing"], ["/", "/about"]), "not_shot");
+  assert.equal(unpicturedReason(["/pricing", "/about"], ["/", "/about"]), "capture");
+  assert.equal(unpicturedReason(["/pricing"], null), "capture");
+  assert.equal(unpicturedReason([], ["/"]), "capture");
+});
+
+test("every off-grid padding is a target, most used first", () => {
+  const spacing = Array.from({ length: 12 }, (_, i) => ({
+    px: 3 + i * 2,
+    count: i + 1,
+    offGrid: true,
+    pages: ["/"],
+  }));
+  const data = { fonts: [], colors: [], radii: [], spacing } as unknown as PolishdDesignData;
+  const keys = designPreviewTargets(data).map((t) => t.key);
+  assert.equal(keys.length, 12);
+  assert.equal(keys[0], "spacing:25");
+});
+
+test("a value past the picture cap says so rather than asking for a capture", () => {
+  assert.equal(unpicturedReason(["/"], ["/"], false), "not_targeted");
+  assert.equal(unpicturedReason(["/~polishd/design"], ["/"], false), "dashboard_only");
 });

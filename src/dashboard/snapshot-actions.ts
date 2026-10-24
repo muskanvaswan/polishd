@@ -31,7 +31,7 @@ import { resolveSettings } from "../ai/settings";
 import { parseCaptureBlock, type StoredCaptureBlock } from "../capture/protocol";
 import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
-import type { ShotSlot } from "../server/snapshot-files";
+import { dashboardTabOf, type ShotSlot } from "../server/snapshot-files";
 import { resolveSiteOrigin } from "../server/site-origin";
 import {
   MAX_SNAPSHOT_ROUTES,
@@ -60,7 +60,9 @@ function failed(prefix: string, err: unknown): Failure {
 }
 
 /** Plan a capture: the routes, renderings and values to picture, and who shoots. */
-export async function beginSnapshotCaptureAction(): Promise<({ ok: true } & SnapshotPlan) | Failure> {
+export async function beginSnapshotCaptureAction(): Promise<
+  ({ ok: true } & SnapshotPlan) | (Failure & { consentRequired?: true })
+> {
   await requirePolishdAuth();
   try {
     const origin = await resolveSiteOrigin();
@@ -73,14 +75,47 @@ export async function beginSnapshotCaptureAction(): Promise<({ ok: true } & Snap
       };
     }
 
+    // The same decision the Design tab rendered with, re-made per call: the
+    // service is only ever used once the owner has agreed to it.
+    const { mode, storageIssue } = await snapshotAvailability(origin);
+    if (mode.kind === "consent") {
+      // Asked on the first capture, not before: the dashboard opens the
+      // consent dialog on this answer and captures once it's allowed.
+      return {
+        ok: false,
+        consentRequired: true,
+        message: "Allow Polishd's screenshot service to capture.",
+      };
+    }
+    if (mode.kind === "disabled") {
+      return {
+        ok: false,
+        message:
+          mode.reason === "no_storage"
+            ? (storageIssue ?? "Snapshot images have nowhere to be stored here.")
+            : mode.reason === "declined"
+              ? "Site snapshots are off: Polishd's screenshot service wasn't allowed."
+              : "Site snapshots are off on this deployment (POLISHD_SNAPSHOT_SERVICE=off).",
+      };
+    }
+    const engine =
+      mode.kind === "service" ? { kind: "service" as const, url: mode.url } : { kind: "local" as const };
+
     const data = await getDesignData();
     const dashboardRoute = resolveDashboardRoute();
-    // Shoot what visitors have actually rendered, never the dashboard itself
-    // (nor the telemetry pseudo-paths the collector namespaces under /~polishd).
+    // Shoot what visitors have actually rendered, never the dashboard as a
+    // page of the site. The exception is an install that measures Polishd's
+    // own dashboard (it reads dashboard telemetry, labelled /~polishd/<tab>):
+    // a local capture shoots those tabs too, where the development dashboard
+    // is open. The hosted service never does — it would need the dashboard's
+    // credentials.
     const scanned = data.pages
       .map((p) => p.path)
       .filter(
-        (p) => p.startsWith("/") && !p.startsWith("/~") && !isDashboardPath(p, dashboardRoute),
+        (p) =>
+          p.startsWith("/") &&
+          !isDashboardPath(p, dashboardRoute) &&
+          (!p.startsWith("/~") || (engine.kind === "local" && dashboardTabOf(p) !== null)),
       );
     const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
 
@@ -97,27 +132,6 @@ export async function beginSnapshotCaptureAction(): Promise<({ ok: true } & Snap
     const shot = new Set(routes);
     const targets = designPreviewTargets(data).filter((t) => t.pages.some((p) => shot.has(p)));
 
-    // The same decision the Design tab rendered with, re-made per call: the
-    // service is only ever used once the owner has agreed to it.
-    const { mode, storageIssue } = await snapshotAvailability(origin);
-    if (mode.kind === "consent") {
-      return {
-        ok: false,
-        message: "Allow Polishd's screenshot service first — the Site snapshots section asks.",
-      };
-    }
-    if (mode.kind === "disabled") {
-      return {
-        ok: false,
-        message:
-          mode.reason === "no_storage"
-            ? (storageIssue ?? "Snapshot images have nowhere to be stored here.")
-            : mode.reason === "declined"
-              ? "Site snapshots are off: Polishd's screenshot service wasn't allowed."
-              : "Site snapshots are off on this deployment (POLISHD_SNAPSHOT_SERVICE=off).",
-      };
-    }
-    const engine = mode.kind === "service" ? { kind: "service" as const, url: mode.url } : { kind: "local" as const };
     return await beginSnapshot({ origin, routes, fingerprint, targets, engine });
   } catch (err) {
     return failed("Snapshot capture failed unexpectedly", err);

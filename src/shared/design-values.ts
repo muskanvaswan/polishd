@@ -42,15 +42,14 @@ export function designValueKey(ref: DesignValueRef): string {
   }
 }
 
-/** Off-grid paddings pictured per capture, most used first. */
-const MAX_SPACING_TARGETS = 8;
 /** Hard cap on values pictured per capture, bounding its extra screenshots. */
-export const MAX_PREVIEW_TARGETS = 48;
+export const MAX_PREVIEW_TARGETS = 64;
 
 /**
- * The values worth a picture: every one-off font, color and radius, plus the
- * most used off-grid paddings. One-offs come first so a site drowning in
- * off-grid spacing still gets its one-offs pictured under the cap.
+ * The values worth a picture: every value the Design tab flags — each
+ * one-off font, color and radius, and each off-grid padding, most used
+ * first. One-offs come first so a site drowning in off-grid spacing still
+ * gets its one-offs pictured under the cap.
  */
 export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarget[] {
   const refs: { ref: DesignValueRef; pages: string[] }[] = [];
@@ -70,14 +69,35 @@ export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarg
     if (!r.outlier) continue;
     refs.push({ ref: { kind: "radius", value: r.value }, pages: r.pages });
   }
-  const offGrid = data.spacing
-    .filter((s) => s.offGrid)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, MAX_SPACING_TARGETS);
+  const offGrid = data.spacing.filter((s) => s.offGrid).sort((a, b) => b.count - a.count);
   for (const s of offGrid) {
     refs.push({ ref: { kind: "spacing", px: s.px }, pages: s.pages });
   }
   return refs
     .slice(0, MAX_PREVIEW_TARGETS)
     .map(({ ref, pages }) => ({ key: designValueKey(ref), ref, pages }));
+}
+
+/**
+ * Why a flagged value has no picture yet, so its card can say something
+ * true. A value measured only on Polishd's dashboard pseudo-pages
+ * (`/~polishd/<tab>`, what an install reading dashboard telemetry measures)
+ * is only pictured by a local capture, which can open the dashboard — a
+ * production capture never shoots it. One measured on pages the latest
+ * snapshot didn't shoot needs those pages captured, and another identical
+ * capture won't help; nor will it for a value past the per-capture cap on
+ * pictures (`targeted` false).
+ */
+export function unpicturedReason(
+  pages: string[],
+  shotRoutes: string[] | null,
+  targeted = true,
+): "dashboard_only" | "not_targeted" | "not_shot" | "capture" {
+  const shotHere = (p: string) => shotRoutes?.includes(p) ?? false;
+  if (pages.length > 0 && pages.every((p) => p.startsWith("/~")) && !pages.some(shotHere)) {
+    return "dashboard_only";
+  }
+  if (!targeted) return "not_targeted";
+  if (shotRoutes && pages.length > 0 && !pages.some((p) => shotRoutes.includes(p))) return "not_shot";
+  return "capture";
 }

@@ -49,6 +49,7 @@ import {
   type SnapshotMode,
   type SnapshotTheme,
 } from "../capture/protocol";
+import { resolveDashboardRoute } from "../config";
 import type { DesignPreviewTarget } from "../shared/design-values";
 import {
   blobConfigured,
@@ -60,6 +61,7 @@ import {
   type BlobAccess,
 } from "./snapshot-blob";
 import {
+  capturePathFor,
   darkModeVerdict,
   imageMime,
   parseSnapshotFile,
@@ -67,7 +69,7 @@ import {
   snapshotFileFor,
   type ShotSlot,
 } from "./snapshot-files";
-import { localCaptureUnavailable, shootLocally } from "./snapshot-local";
+import { localCaptureUnavailable, onVercelDeployment, shootLocally } from "./snapshot-local";
 import { getMeta, setMeta, storeReady } from "./store";
 
 /** One captured (or deliberately skipped) screenshot within a snapshot. */
@@ -766,7 +768,8 @@ export async function captureLocalShot(
   try {
     shot = await shootLocally({
       origin: pending.origin,
-      route: slot.route,
+      // A dashboard-telemetry page is shot as the dashboard tab it stands for.
+      route: capturePathFor(slot.route, resolveDashboardRoute()),
       device: slot.device,
       theme: slot.theme,
       find,
@@ -1009,7 +1012,7 @@ export async function snapshotAvailability(origin: string | null): Promise<Snaps
  * for callers that never rendered the dashboard.
  */
 export async function snapshotCaptureIssue(): Promise<string | null> {
-  if (process.env.VERCEL && !blobConfigured()) {
+  if (onVercelDeployment() && !blobConfigured()) {
     return (
       "Snapshot images have nowhere to live on this deployment: the filesystem " +
       "is read-only and no Blob store is connected. Connect a Vercel Blob store " +

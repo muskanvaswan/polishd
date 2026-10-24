@@ -461,7 +461,7 @@ taken before a round of design fixes can be held against one taken after. The
 last 6 are kept.
 
 Each capture also pictures the flagged values in place: for every one-off type
-style, color and radius, and the most-used off-grid paddings, it finds the
+style, color and radius, and every off-grid padding (up to 64 values), it finds the
 element carrying the value on its page and saves a ringed crop of it. Hover a
 flagged value on the Design tab to see that picture and the page it's on.
 
@@ -477,10 +477,11 @@ flagged value on the Design tab to see that picture and the page it's on.
    (`shots.polishd.muskanvaswan.xyz`, source in [`service/`](./service)) one
    at a time. The service loads that page on the site the dashboard is
    running on and sends back WebP images, which appear in the gallery as they
-   arrive and are then stored by your install. Before that happens, the
-   Design tab **asks you once, in a dialog**, whether snapshots may use the
-   service, and says what it does and doesn't see. The answer is kept per
-   install.
+   arrive and are then stored by your install. The first time you press
+   **Capture**, a dialog **asks you once** whether snapshots may use the
+   service, and says what it does and doesn't see. Allowing it starts the
+   capture. The answer is kept per install; until you've been asked, the
+   section stays where it is.
 3. **Production without a place for images or without your agreement**: the
    Site snapshots section moves to the **bottom of the Design tab, turned
    off**, and says why. The reasons are: no Blob store connected on Vercel,
@@ -512,6 +513,17 @@ What the service does, plainly:
 - You can withdraw the agreement any time from the section ("Turn off").
   `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever being called;
   snapshots are then only taken in local development.
+
+**Polishd's own dashboard pages.** An install that reads dashboard telemetry
+(`POLISHD_ANALYTICS_SOURCE=telemetry`, which is Polishd's own site) measures
+the dashboard's tabs, labelled `/~polishd/<tab>`. Production captures never
+shoot those, because the service would need your dashboard's credentials. A
+capture in local development does: your own Chrome opens each tab of the
+development dashboard (where it's open without a login). Run the site locally
+with the production environment (`vercel env pull`) and the pictures upload
+to the production Blob store, so the live Design tab shows them. Telemetry the
+captured dashboard would send is answered locally, so it never counts as
+usage.
 
 **Where the images go.** On disk under `.polishd/snapshots/` locally, and on
 a self-hosted server with a writable disk (`POLISHD_SNAPSHOT_DIR` overrides).

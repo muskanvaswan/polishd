@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
+import { unpicturedReason } from "../shared/design-values";
 import { getSnapshotImageAction } from "./snapshot-actions";
 import { labelCls, relTime } from "./ui";
 
@@ -34,7 +35,11 @@ export type ValuePreviewState =
   | { kind: "pictured"; preview: ValuePreviewRef }
   /** The newest snapshot looked for the value on its page and never saw it on screen. */
   | { kind: "missed"; capturedAt: number }
-  | { kind: "none"; hasSnapshots: boolean };
+  /**
+   * No picture. `shotRoutes` are the pages the newest snapshot shot, when there
+   * is one; `targeted` is false for a value past the per-capture cap on pictures.
+   */
+  | { kind: "none"; hasSnapshots: boolean; shotRoutes: string[] | null; targeted: boolean };
 
 /** Fetched pictures, shared by every card — a value hovered twice loads once. */
 const imageCache = new Map<string, Promise<string | null>>();
@@ -151,12 +156,26 @@ function CardBody({
       <p className="text-[12px] leading-relaxed text-[#888]">
         {state.kind === "missed"
           ? `The latest snapshot (${relTime(state.capturedAt)}) didn't find ${label} on screen — it may only render after an interaction, or at a screen size snapshots don't shoot.`
-          : state.hasSnapshots
-            ? "Capture a new snapshot to picture it in place."
-            : "Capture a snapshot to picture it in place."}
+          : unpictured(pages, state)}
       </p>
     </>
   );
+}
+
+/** The line under a value with no picture: why, and whether a capture would help. */
+function unpictured(pages: string[], state: Extract<ValuePreviewState, { kind: "none" }>): string {
+  switch (unpicturedReason(pages, state.shotRoutes, state.targeted)) {
+    case "dashboard_only":
+      return "Measured on Polishd's own dashboard pages, which only a capture in local development (next dev) can shoot.";
+    case "not_targeted":
+      return "Snapshots picture up to 64 flagged values, most-used first, and this one is past the limit.";
+    case "not_shot":
+      return "The latest snapshot didn't shoot the pages it's measured on — snapshots take up to 12 of the scanned pages.";
+    case "capture":
+      return state.hasSnapshots
+        ? "Capture a new snapshot to picture it in place."
+        : "Capture a snapshot to picture it in place.";
+  }
 }
 
 export default function ValuePreview({
