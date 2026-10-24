@@ -79,3 +79,45 @@ export function createBlobUploader() {
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : "unknown error";
 }
+
+// ── Browser-direct uploads ───────────────────────────────────────────────────
+
+/** Where a snapshot's images live in the store: `polishd/snapshots/<id>/<file>`. */
+export function snapshotBlobPathname(snapshotId: string, file: string): string {
+  return `polishd/snapshots/${snapshotId}/${file}`;
+}
+
+/**
+ * True when `url` is a Vercel Blob object URL — the only kind a browser may
+ * report back after an upload. Anything else would have the server fetch a
+ * URL the client chose.
+ */
+export function isBlobObjectUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return (
+      u.protocol === "https:" &&
+      (u.hostname.endsWith(".public.blob.vercel-storage.com") ||
+        u.hostname.endsWith(".private.blob.vercel-storage.com"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a stored blob's pathname is the one its upload URL was signed
+ * for. Uploads add a random suffix before the extension
+ * (`r0-desktop-light.webp` → `r0-desktop-light-Ab12Cd.webp`), so the check is
+ * the signed stem plus a suffix, in the same snapshot's folder.
+ */
+export function blobPathnameMatches(pathname: string, snapshotId: string, file: string): boolean {
+  const dot = file.lastIndexOf(".");
+  if (dot <= 0) return false;
+  const stem = snapshotBlobPathname(snapshotId, file.slice(0, dot));
+  const ext = file.slice(dot);
+  if (pathname === stem + ext) return true;
+  if (!pathname.startsWith(`${stem}-`) || !pathname.endsWith(ext)) return false;
+  const suffix = pathname.slice(stem.length + 1, pathname.length - ext.length);
+  return /^[A-Za-z0-9]{1,64}$/.test(suffix);
+}

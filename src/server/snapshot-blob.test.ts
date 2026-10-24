@@ -9,8 +9,11 @@ import { test } from "node:test";
 
 import {
   blobConfigured,
+  blobPathnameMatches,
   createBlobUploader,
+  isBlobObjectUrl,
   isPrivateBlobUrl,
+  snapshotBlobPathname,
   type BlobAccess,
 } from "./snapshot-blob.ts";
 
@@ -136,4 +139,38 @@ test("a failed probe isn't remembered — the next upload probes again", async (
   down = false;
   await upload(put);
   assert.deepEqual(attempts, ["public", "private", "public"]);
+});
+
+test("browser uploads land under the snapshot's own folder", () => {
+  assert.equal(snapshotBlobPathname("m1abc", "r0-desktop-light.webp"), "polishd/snapshots/m1abc/r0-desktop-light.webp");
+});
+
+test("only Vercel Blob object URLs are accepted back from the browser", () => {
+  assert.equal(isBlobObjectUrl("https://abc.public.blob.vercel-storage.com/polishd/x.webp"), true);
+  assert.equal(isBlobObjectUrl("https://abc.private.blob.vercel-storage.com/polishd/x.webp"), true);
+  for (const url of [
+    "http://abc.public.blob.vercel-storage.com/x.webp",
+    "https://blob.vercel-storage.com.evil.example/x.webp",
+    "https://evil.example/abc.public.blob.vercel-storage.com",
+    "https://169.254.169.254/latest/meta-data",
+    "not a url",
+  ]) {
+    assert.equal(isBlobObjectUrl(url), false, url);
+  }
+});
+
+test("a stored pathname must be the signed one plus the random suffix", () => {
+  const id = "m1abc";
+  const file = "r0-desktop-light.webp";
+  assert.equal(blobPathnameMatches(`polishd/snapshots/${id}/r0-desktop-light-Ab12Cd34.webp`, id, file), true);
+  assert.equal(blobPathnameMatches(`polishd/snapshots/${id}/r0-desktop-light.webp`, id, file), true);
+  for (const pathname of [
+    `polishd/snapshots/other/r0-desktop-light-Ab12.webp`, // another snapshot
+    `polishd/snapshots/${id}/r1-desktop-light-Ab12.webp`, // another slot
+    `polishd/snapshots/${id}/r0-desktop-light-Ab12.png`, // another type
+    `polishd/snapshots/${id}/r0-desktop-light-../../x.webp`,
+    `polishd/snapshots/${id}/r0-desktop-light-a/b.webp`,
+  ]) {
+    assert.equal(blobPathnameMatches(pathname, id, file), false, pathname);
+  }
 });

@@ -4,7 +4,7 @@
  * The Design tab flags values that break the system (a one-off 17px type
  * style, a stray #fafafa, a 7px padding). A flag alone says *what*; a picture
  * of the element carrying it says *where*. Those pictures are shot while a
- * site snapshot is captured (see server/value-previews.ts), and this module
+ * site snapshot is captured (capture/core.ts shoots and frames them), and this module
  * holds the pure pieces both ends of that agree on:
  *
  *   • **Keys.** One string per value — `font:Inter|17|500`, `color:#fafafa`,
@@ -12,19 +12,14 @@
  *     found again from the row the dashboard renders.
  *   • **Targets.** Which values are worth picturing: the ones flagged one-off
  *     or off-grid. Every other value is the system working as intended.
- *   • **Framing.** The crop around a located element: wide enough to show the
- *     component it sits in, never so wide the element disappears.
  *
  * Pure: no DOM, no store, no React — the test file pins the edge cases.
  */
+import type { DesignValueRef } from "../capture/protocol";
 import type { PolishdDesignData } from "../server/design";
 
 /** The identity of one measured value, as the design scan tallies it. */
-export type DesignValueRef =
-  | { kind: "font"; family: string; sizePx: number; weight: number }
-  | { kind: "color"; hex: string; roles: ("text" | "background" | "border")[] }
-  | { kind: "radius"; value: string }
-  | { kind: "spacing"; px: number };
+export type { DesignValueRef };
 
 /** A value to picture at capture time, and the pages it was measured on. */
 export interface DesignPreviewTarget {
@@ -85,57 +80,4 @@ export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarg
   return refs
     .slice(0, MAX_PREVIEW_TARGETS)
     .map(({ ref, pages }) => ({ key: designValueKey(ref), ref, pages }));
-}
-
-// ── Framing ──────────────────────────────────────────────────────────────────
-
-export interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/** Context kept around the element on every side, in CSS px. */
-const CONTEXT_PX = 40;
-/** Crops come out 16:10 — the hover card's shape — unless the viewport can't fit it. */
-const ASPECT = 1.6;
-/** Small elements still get a component's worth of surroundings. */
-const MIN_WIDTH = 360;
-
-/**
- * The clip to screenshot for an element at `el` (viewport coordinates, after
- * it was scrolled into view): the element plus context, grown to 16:10,
- * centered on the element's visible part and kept inside the viewport.
- * Null when no part of the element is on screen — a drawer parked off-canvas,
- * say — since a crop of whatever sits there instead would be a lie.
- */
-export function previewClip(el: Box, viewport: { width: number; height: number }): Box | null {
-  const vw = Math.floor(viewport.width);
-  const vh = Math.floor(viewport.height);
-  if (vw <= 0 || vh <= 0 || el.width <= 0 || el.height <= 0) return null;
-
-  // The part of the element actually on screen.
-  const left = Math.max(el.x, 0);
-  const top = Math.max(el.y, 0);
-  const right = Math.min(el.x + el.width, vw);
-  const bottom = Math.min(el.y + el.height, vh);
-  if (right <= left || bottom <= top) return null;
-
-  let width = right - left + CONTEXT_PX * 2;
-  let height = bottom - top + CONTEXT_PX * 2;
-  if (width / height < ASPECT) width = height * ASPECT;
-  else height = width / ASPECT;
-  if (width < MIN_WIDTH) {
-    width = MIN_WIDTH;
-    height = MIN_WIDTH / ASPECT;
-  }
-  width = Math.min(Math.ceil(width), vw);
-  height = Math.min(Math.ceil(height), vh);
-
-  const cx = (left + right) / 2;
-  const cy = (top + bottom) / 2;
-  const x = Math.min(Math.max(Math.round(cx - width / 2), 0), vw - width);
-  const y = Math.min(Math.max(Math.round(cy - height / 2), 0), vh - height);
-  return { x, y, width, height };
 }

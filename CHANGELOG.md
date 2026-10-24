@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+### Site snapshots are shot by Polishd's screenshot service
+
+Production snapshot capture used to run a headless Chromium inside the host's
+own functions: a serverless Chromium (`@sparticuz/chromium`) in every
+install, and `outputFileTracingIncludes` in the host's `next.config` because
+Next's tracing can't see the browser's files. That's gone. Shots are now taken
+by **Polishd's screenshot service**, a separate deployment
+(`shots.polishd.muskanvaswan.xyz`, source in `service/`), which the dashboard
+calls straight from the owner's browser.
+
+- **Page URLs and pixels pass through the service.** It loads each page of
+  your site like a visitor would and returns the images; it doesn't store or
+  log them. Its rate limiter keeps your site's hostname, and a hash of the
+  caller's IP, for at most an hour.
+- **It only shoots the site that asks**, as named by the browser's `Origin`
+  header, and only public pages. Every connection its browser makes (the page,
+  each subresource, each redirect hop) goes through a proxy that resolves DNS
+  itself and refuses private, loopback, link-local, CGNAT and cloud-metadata
+  addresses, then connects to the address it checked. Top-level navigation
+  stays on your origin, and a page that redirects elsewhere is refused by name
+  rather than shot.
+- **It's rate-limited**: per site, per caller, and in total. Hitting a limit
+  ends the run with a message saying whose limit it is and when to try again;
+  the pages already shot are kept.
+- **Images arrive as they're shot.** The gallery shows each one in a live grid,
+  then stores it: on Vercel, uploaded straight from the browser to your Blob
+  store with a presigned URL your server signs for that one file (no webhook,
+  so no `BLOB_WEBHOOK_PUBLIC_KEY`); elsewhere, streamed to disk in chunks.
+  Images are now WebP, much smaller than the old PNGs.
+- **It asks first.** The first time the Design tab opens in production, a
+  dialog explains the call (what the service sees, what it never gets, why
+  it's harmless) and asks whether snapshots may use it. The answer is kept per
+  install. It can be reviewed later, and withdrawn with "Turn off".
+- **Three modes.** Local development (`next dev`, or a dashboard on localhost
+  or a private address) is shot by your own Chrome, through the same capture
+  loop, with nothing to agree to. Production with a Blob store (or a writable
+  disk, self-hosted) and the owner's agreement uses the service; the section
+  stays where it was. Anything else moves the section to the **bottom of the
+  Design tab, turned off**, with the reason.
+- **Clear messages** for the reasons the section is off: no Blob store, the
+  service not allowed, `POLISHD_SNAPSHOT_SERVICE=off`. Also for the reasons a
+  capture finds:
+  - the site's CSP blocking the service or the Blob upload (with the
+    `connect-src` entries to add);
+  - a preview behind Vercel's Deployment Protection;
+  - a site the service can't reach;
+  - rate limits;
+  - the service being down.
+  
+  A block found during a capture is kept per install, so the section stays
+  off at the bottom, across reloads, until "Try again" gets a capture
+  through. Production never falls back to a browser on the host.
+- **Removed:** the `@sparticuz/chromium` optional dependency and the
+  serverless capture path. No host should need `next.config` changes for
+  snapshots; any `outputFileTracingIncludes` added for them can be removed.
+  `maxDuration = 300` in the dashboard page stays useful for the AI analyses.
+- Snapshots taken before this release still display.
+
 ### Recent errors are grouped and counted
 
 The Recent errors list showed the last eight throws one row each, so a single
