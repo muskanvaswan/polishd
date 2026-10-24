@@ -9,7 +9,9 @@
  * combined note, long lists collapse behind a client-side "Show more",
  * and the AI review card at the top adds the model's aesthetic read.
  * Every flagged value opens a hover card picturing the element that carries
- * it, cropped from the newest snapshot that found it.
+ * it, cropped from the newest snapshot that found it. The header also hands
+ * the same system over the other way round: curated into a brand kit, one-
+ * offs left out, downloaded as a PDF.
  */
 import type { ReactNode } from "react";
 
@@ -20,7 +22,9 @@ import type {
 } from "../server/design";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import type { PolishdSnapshot, SnapshotAvailability } from "../server/snapshots";
+import { buildBrandKit } from "../shared/brand-kit";
 import { designPreviewTargets, designValueKey, type DesignValueRef } from "../shared/design-values";
+import BrandKitButton from "./brand-kit-button";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
 import { SnapshotsProvider, SnapshotsSlot } from "./snapshots";
 import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
@@ -623,7 +627,9 @@ export function DesignPanel({
     <main className="text-white">
       <SnapshotsProvider initial={snapshots} availability={snapshotMode}>
         {/* Header */}
-        <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
+        <div
+          className={`mb-8 flex flex-col gap-4 border-b ${border} pb-6 sm:flex-row sm:items-start sm:justify-between sm:gap-3`}
+        >
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight text-white">Design review</h1>
             <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
@@ -632,7 +638,8 @@ export function DesignPanel({
               the system flagged.
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+            {hasScans && <BrandKitButton kit={buildBrandKit(data)} />}
             <RefreshMetricsButton />
             <div
               className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
