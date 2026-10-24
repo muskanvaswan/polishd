@@ -14,30 +14,41 @@ card) counted as dead on every press, even when the press worked.
   responded, it's an ordinary click. An element with a React `onClick` (on
   the clicked element or its parent) counts as a control straight away,
   except a handler that only stops propagation, like a modal panel's.
-- **Only changes related to the click count.** Changes inside the clicked
-  component, or on its nearest ancestors, count. So does any change within
-  64px of where the pointer was, such as the panel an accordion header reveals
-  below itself or an image swapped underneath, wherever it sits on the page.
-  The clicked element being removed counts, and so does a dialog or modal
-  opening at any point in the hold. A menu or listbox counts if it opens
-  before the pointer moves on. A toast counts only near the click, or within
-  300ms of it.
-- **Background activity doesn't hide real dead clicks.** The page's own churn
-  is learned continuously, per container. Every slide of a fading carousel
-  feeds one history, so a slide coming back after fifteen seconds is
-  background. Anything with a change in the ten seconds before the click is
-  background, however rarely it changes: a carousel, a polling spinner, a
-  chat stream (including the paragraphs of a brand-new message).
-  - Learning only pauses for the second after a press or click, so a drawer a
-    button opened can still be closed by its backdrop, and for typing in the
-    focused element. It never pauses for scrolling.
-  - What the pointer moves onto after the click is hover, not a response.
-  - The click, key press or scroll that comes next takes the credit for what
-    follows it.
+- **A click that worked is never reported dead.** The judge works in tiers,
+  and the first two never ask whether the page was busy anyway:
+  1. Any change to the clicked element or inside it, or to the element
+     carrying its click handler, counts. So does either one being removed or
+     hidden.
+  2. A dialog or modal surface counts at any point in the hold: added, or one
+     already in the page shown or hidden.
+  3. Otherwise a change counts if it's related to the click and isn't the
+     page's own churn:
+     - on the nearest ancestors;
+     - within 64px of the click point or of the clicked element's box, such
+       as the details a card reveals under itself or an accordion panel
+       opening or closing;
+     - a menu, or a toast near the click or within 300ms.
+- **Background activity doesn't hide real dead clicks** in that third tier.
+  - The page's churn is learned continuously and per container. Every slide
+    of a carousel feeds one `aria-hidden` history, but clickable dots don't
+    share `class` history with each other.
+  - A container is background only while it has changed in the ten seconds
+    before the click, so a list rendered once is never background to its own
+    cards.
+  - Learning pauses for the second after a press or click, and for typing in
+    the focused element, never for scrolling.
+  - What the pointer moves onto after the click is hover, and the next click,
+    key press or scroll takes the credit for what follows it.
   - Polishd's own UI is ignored.
-- **Known limits.**
-  - A plain div whose only effect is far from it reads as dead, unless the
-    effect is a dialog.
+- **Known limits.** Each of these is a deliberate trade toward never reporting
+  a working click as dead.
+  - Anything that keeps changing the clicked element on its own credits clicks
+    on it: an autoplay carousel swapping out the slide you clicked, a hover
+    animation on the clicked card. A click on a page-sized wrapper is credited
+    by any change inside it.
+  - Rotations inside a focused carousel aren't learned as background.
+  - A plain div whose only effect is far from it, and isn't a dialog, reads
+    as dead.
   - A hover card marked `role="dialog"` that opens as the pointer moves on
     credits the click.
   - The first change a busy region ever makes has no history yet.
@@ -64,10 +75,10 @@ card) counted as dead on every press, even when the press worked.
   you can grep for: it stops at the nearest `data-component` or id, and names
   each level by its most distinctive class rather than a generic utility. A
   near miss adds `meta.nearHandle` for the control it missed.
-- **Rage clicks count hits on the same control**, not the same selector or
-  the exact node clicked. A like button that gains `liked` as it's clicked,
-  or an icon toggle whose `<svg>` is re-created on every click, still adds up
-  to a burst.
+- **Rage clicks count hits on the same control**, not on the exact node
+  clicked. A like button that gains `liked` as it's clicked, or an icon toggle
+  whose `<svg>` is re-created on every click, still adds up to a burst. A fake
+  button (a plain div) counts hits on its selector, as before.
 - **The dashboard reads the new context.** The errors list keeps one entry per
   error however its context varies. Before, a frequent error whose throws
   differed by `afterMs` filled the list and pushed the others off. Each error

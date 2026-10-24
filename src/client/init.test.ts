@@ -65,6 +65,7 @@ const fakeDocument = Object.assign(documentTarget, {
   querySelector: () => null,
   elementFromPoint: () => null,
   getElementsByClassName: () => ({ length: 1 }),
+  querySelectorAll: () => [],
 });
 
 Object.assign(globalThis, {
@@ -127,6 +128,21 @@ test("a click still being judged when the page goes away leaves as a click", asy
 
   const types = events.map((e) => e.type);
   assert.ok(types.indexOf("session_end") > types.lastIndexOf("click"), "settled before session_end");
+});
+
+test("hammering a fake button — a plain div — is rage", async () => {
+  // No control to key on, and React re-renders its label on every click, so
+  // each click lands on a new <span>: the selector is what stays the same.
+  const fake = element("div", { class: "fake-btn" }, body);
+  for (let i = 0; i < 3; i++) fire("click", element("span", { class: "label" }, fake));
+  windowTarget.dispatchEvent(new Event("pagehide"));
+  const { events } = JSON.parse(await beacons[beacons.length - 1].text()) as {
+    events: Array<{ type: string; selector?: string }>;
+  };
+  assert.deepEqual(
+    events.filter((e) => e.type === "rage_click").map((e) => e.selector),
+    ["div.fake-btn>span.label"],
+  );
 });
 
 test("hammering an icon toggle whose svg is re-created every click is rage", async () => {
