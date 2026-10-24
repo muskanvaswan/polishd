@@ -60,7 +60,15 @@ export function FileBugButton({ filed, file, dataComponent, onFiled }: FileBugBu
   const run = () =>
     startFile(async () => {
       setFailed(null);
-      const res = await file();
+      let res: CreateIssueResult;
+      try {
+        res = await file();
+      } catch {
+        // A thrown action (expired session, timeout) — say so here instead of
+        // letting the transition rethrow it into the page.
+        setFailed({ notABug: false, message: "Couldn't reach the server — reload and try again." });
+        return;
+      }
       if (res.ok) {
         setCreated({ url: res.url, number: res.number });
         onFiled?.({ url: res.url, number: res.number });

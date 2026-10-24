@@ -46,10 +46,16 @@ export default function BottomDrawer({
 
   return (
     <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
-      {/* backdrop */}
-      <div
+      {/* backdrop — a button, because clicking it closes the drawer. As a
+          plain div with a React onClick, the click capture can't see the
+          handler and logs every close as a dead click. Hidden from assistive
+          tech and the tab order; Escape and the ✕ button are the ways out. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
+        className={`absolute inset-0 cursor-default bg-black/60 transition-opacity duration-200 ${
           open ? "opacity-100" : "opacity-0"
         }`}
       />
@@ -63,7 +69,7 @@ export default function BottomDrawer({
           role="dialog"
           aria-modal="true"
           aria-label={label}
-          className={`mx-auto max-h-[80vh] max-w-5xl overflow-y-auto rounded-t-xl border ${border} bg-[#0a0a0a] px-4 pb-6 pt-4 shadow-2xl sm:px-6 sm:pb-8 sm:pt-5`}
+          className={`mx-auto max-h-[80vh] max-w-5xl overflow-y-auto rounded-t-lg border ${border} bg-[#0a0a0a] px-4 pb-6 pt-4 shadow-2xl sm:px-6 sm:pb-8 sm:pt-5`}
         >
           {/* drag affordance */}
           <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#2e2e2e]" />

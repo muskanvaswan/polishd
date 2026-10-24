@@ -165,7 +165,7 @@ export default function OverviewPanel({
       >
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-white">Overview</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
+          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#888]">
             Who&apos;s using the site, what the analytics and design reviews found, and the site
             as it last rendered — with a prompt that hands every problem to your coding agent.
           </p>
@@ -283,7 +283,7 @@ function Section({
           {action}
           <TabLink
             tab={link.tab}
-            className="whitespace-nowrap text-[11px] text-[#666] transition-colors hover:text-white"
+            className="whitespace-nowrap text-[11px] text-[#888] transition-colors hover:text-white"
           >
             {link.label} →
           </TabLink>
@@ -437,7 +437,7 @@ function PlainTile({
         {label}
         <InfoTip text={tip} />
       </div>
-      <div className="mt-3 h-[18px] truncate text-[11px] leading-[18px] text-[#555]">{note}</div>
+      <div className="mt-3 h-[18px] truncate text-[11px] leading-[18px] text-[#888]">{note}</div>
     </div>
   );
 }

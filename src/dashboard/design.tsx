@@ -118,7 +118,7 @@ const FLAGGED_ROW = "transition-colors hover:bg-[#111] focus-visible:bg-[#111]";
 
 function OutlierBadge({ text = "one-off" }: { text?: string }) {
   return (
-    <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-amber-950 text-amber-400">
+    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-950 text-amber-400">
       {text}
     </span>
   );
@@ -172,7 +172,7 @@ function Section({ title, tip, children }: { title: string; tip?: string; childr
     <section className="mb-8">
       <div className={`mb-3 flex items-baseline gap-2 ${label}`}>
         {title}
-        {tip && <span className="normal-case tracking-normal text-[11px] font-normal text-[#444]">{tip}</span>}
+        {tip && <span className="normal-case tracking-normal text-[11px] font-normal text-[#888]">{tip}</span>}
       </div>
       {children}
     </section>
@@ -211,13 +211,13 @@ function FontRow({
       >
         {f.sample || "The quick brown fox jumps over the lazy dog"}
       </span>
-      <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-[#666]">
+      <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-[#888]">
         <span className="text-[#aaa]">
           {f.sizePx}px / {f.weight}
         </span>
         · {f.count.toLocaleString()} uses · {f.pages.length}{" "}
         {f.pages.length === 1 ? "page" : "pages"}
-        {f.tags.length > 0 && <span className="text-[#444]">· {f.tags.join(", ")}</span>}
+        {f.tags.length > 0 && <span className="text-[#888]">· {f.tags.join(", ")}</span>}
         {f.outlier && <OutlierBadge />}
       </span>
     </Flaggable>
@@ -241,7 +241,7 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
                 key={f.family}
                 className="rounded-full border border-[#2e2e2e] px-2.5 py-1 text-[11px] text-[#aaa]"
               >
-                {f.family} <span className="text-[#555]">· {f.count.toLocaleString()} uses</span>
+                {f.family} <span className="text-[#888]">· {f.count.toLocaleString()} uses</span>
               </span>
             ))}
           </div>
@@ -349,7 +349,7 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
                   style={{ backgroundColor: c.hex }}
                 />
                 <div className="mt-1.5 truncate font-mono text-[11px] text-[#ccc]">{c.hex}</div>
-                <div className="flex flex-wrap items-center gap-1 text-[10px] text-[#555]">
+                <div className="flex flex-wrap items-center gap-1 text-[10px] text-[#888]">
                   <span className="tabular-nums">{c.pct}%</span>
                   <span>· {roleLabel(c.roles)}</span>
                   {c.outlier && <OutlierBadge />}
@@ -385,16 +385,16 @@ function ContrastRow({ p, first }: { p: PolishdDesignData["contrast"][number]; f
       >
         Aa
       </span>
-      <span className="flex items-center gap-1.5 text-[11px] text-[#777]">
+      <span className="flex items-center gap-1.5 text-[11px] text-[#888]">
         <ColorToken hex={p.fg} /> on <ColorToken hex={p.bg} />
       </span>
       <span className="flex items-center gap-2">
         <ContrastMeter ratio={p.ratio} required={p.required} />
-        <span className="text-[11px] tabular-nums text-[#666]">
+        <span className="text-[11px] tabular-nums text-[#888]">
           needs {contrastPercent(p.required)}% at {p.minSizePx}px
         </span>
       </span>
-      <span className="text-[11px] text-[#555]">
+      <span className="text-[11px] text-[#888]">
         {p.pages.slice(0, 2).join(", ")}
         {p.pages.length > 2 ? ", …" : ""}
       </span>
@@ -454,7 +454,7 @@ function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; pr
       flaggedClassName={`-m-1.5 rounded-md p-1.5 ${FLAGGED_ROW}`}
     >
       <div
-        className="h-12 w-12 border border-[#555] bg-[#161616]"
+        className="h-12 w-12 border border-[#555] bg-[#1a1a1a]"
         style={{
           borderRadius: r.value === "full" ? "9999px" : r.value.replace(" (mixed)", ""),
         }}
@@ -463,7 +463,7 @@ function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; pr
         <span className="font-mono">{r.value}</span>
         {r.outlier && <OutlierBadge />}
       </div>
-      <span className="text-[10px] tabular-nums text-[#555]">×{r.count.toLocaleString()}</span>
+      <span className="text-[10px] tabular-nums text-[#888]">×{r.count.toLocaleString()}</span>
     </Flaggable>
   );
 }
@@ -514,13 +514,13 @@ function SpacingRow({
       <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-[#999]">
         {s.px}px
       </span>
-      <div className="h-3 flex-1 overflow-hidden rounded-sm bg-[#141414]">
+      <div className="h-3 flex-1 overflow-hidden rounded bg-[#1a1a1a]">
         <div
-          className={`h-full rounded-sm ${s.offGrid ? "bg-amber-500/70" : "bg-blue-500/80"}`}
+          className={`h-full rounded ${s.offGrid ? "bg-amber-500/70" : "bg-blue-500/80"}`}
           style={{ width: `${Math.max((s.px / max) * 100, 2)}%` }}
         />
       </div>
-      <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-[#555]">
+      <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-[#888]">
         ×{s.count.toLocaleString()}
       </span>
       <span className="w-14 shrink-0 text-[10px] text-amber-400">
@@ -568,7 +568,7 @@ function PageRow({ p, first }: { p: PolishdDesignData["pages"][number]; first: b
       className={`flex items-center justify-between gap-3 px-4 py-2.5 sm:px-5 ${first ? "" : divider}`}
     >
       <span className="truncate font-mono text-[12px] text-[#ccc]">{p.path}</span>
-      <span className="shrink-0 text-[11px] tabular-nums text-[#555]">
+      <span className="shrink-0 text-[11px] tabular-nums text-[#888]">
         {p.elements.toLocaleString()} elements ·{" "}
         {new Date(p.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
       </span>
@@ -632,7 +632,7 @@ export function DesignPanel({
         >
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight text-white">Design review</h1>
-            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
+            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#888]">
               Your site&apos;s brand guideline, reverse-engineered from the rendered pages — the
               typography, palette, radii and spacing it actually ships, with anything that breaks
               the system flagged.
@@ -643,7 +643,7 @@ export function DesignPanel({
             <RefreshMetricsButton />
             <div
               className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-                hasScans ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#666]"
+                hasScans ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#888]"
               }`}
             >
               {hasScans

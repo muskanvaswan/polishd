@@ -9,7 +9,7 @@
  * or separate page) keeps the dashboard in view while you drill into one
  * session — the standard pattern for session-replay tooling.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import type { JourneyStep, SessionJourney } from "../server/queries";
 
@@ -33,13 +33,32 @@ function fmtDuration(ms: number): string {
   return rem ? `${m}m ${rem}s` : `${m}m`;
 }
 
-function fmtClock(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, {
+/**
+ * "Oct 24, 02:45 PM". `local` formats in the viewer's own locale and timezone;
+ * without it the result is pinned to en-US/UTC, the same on every machine.
+ */
+function fmtClock(ts: number, local: boolean): string {
+  return new Date(ts).toLocaleString(local ? undefined : "en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    ...(local ? {} : { timeZone: "UTC", timeZoneName: "short" }),
   });
+}
+
+const subscribeNothing = () => () => {};
+
+/**
+ * A timestamp in the viewer's clock, safe to server-render. The server can't
+ * know the viewer's timezone or locale, so formatting locally during hydration
+ * produced different text on each side — React's hydration error #418 for
+ * every viewer outside the server's timezone. The server render and hydration
+ * both show the pinned UTC form; the local time swaps in right after.
+ */
+function LocalClock({ ts }: { ts: number }) {
+  const hydrated = useSyncExternalStore(subscribeNothing, () => true, () => false);
+  return <time dateTime={new Date(ts).toISOString()}>{fmtClock(ts, hydrated)}</time>;
 }
 
 function scoreTone(score: number) {
@@ -137,7 +156,7 @@ function JourneyStepRow({
           ) : null}
           {s.tag && (
             <span
-              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${s.tag.cls}`}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${s.tag.cls}`}
             >
               {s.tag.text}
             </span>
@@ -147,7 +166,7 @@ function JourneyStepRow({
           <div className="mt-0.5 truncate font-mono text-[11px] text-red-400/80">{step.detail}</div>
         )}
         {!showPath && step.type !== "session_end" && prevPath !== step.path && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#555]">on {step.path}</div>
+          <div className="mt-0.5 font-mono text-[11px] text-[#888]">on {step.path}</div>
         )}
       </div>
     </li>
@@ -174,7 +193,7 @@ function JourneyListCard({
         <span className={`text-[18px] font-semibold tabular-nums leading-none ${scoreTone(journey.score)}`}>
           {journey.score}
         </span>
-        <span className="mt-1 text-[9px] uppercase tracking-wider text-[#555]">score</span>
+        <span className="mt-1 text-[10px] uppercase tracking-wider text-[#888]">score</span>
       </div>
       {/* identity + summary */}
       <div className="min-w-0 flex-1">
@@ -182,7 +201,7 @@ function JourneyListCard({
           <span className="font-mono text-[13px] text-white">#{journey.id}</span>
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              journey.complete ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#777]"
+              journey.complete ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#888]"
             }`}
           >
             {journey.complete ? "complete" : "partial"}
@@ -193,11 +212,13 @@ function JourneyListCard({
       {/* metadata */}
       <div className="hidden shrink-0 flex-col items-end gap-0.5 sm:flex">
         <span className="text-[12px] tabular-nums text-[#ccc]">⏱ {fmtDuration(journey.durationMs)}</span>
-        <span className="text-[11px] text-[#666]">{deviceLabel(journey.device)}</span>
-        <span className="text-[11px] text-[#555]">{fmtClock(journey.startedAt)}</span>
+        <span className="text-[11px] text-[#888]">{deviceLabel(journey.device)}</span>
+        <span className="text-[11px] text-[#888]">
+          <LocalClock ts={journey.startedAt} />
+        </span>
       </div>
       {/* affordance */}
-      <span className="shrink-0 text-[#555] transition-colors group-hover:text-[#999]">›</span>
+      <span className="shrink-0 text-[#888] transition-colors group-hover:text-[#999]">›</span>
     </button>
   );
 }
@@ -206,7 +227,7 @@ function JourneyListCard({
 function MetaCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className={`px-4 py-3 ${border} border-t`}>
-      <div className="text-[10px] uppercase tracking-[0.08em] text-[#666]">{label}</div>
+      <div className="text-[10px] uppercase tracking-[0.08em] text-[#888]">{label}</div>
       <div className={`mt-1 text-[13px] tabular-nums ${tone ?? "text-white"}`}>{value}</div>
     </div>
   );
@@ -241,10 +262,16 @@ function JourneyDrawer({
 
   return (
     <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
-      {/* backdrop */}
-      <div
+      {/* backdrop — a button, because clicking it closes the drawer. As a
+          plain div with a React onClick, the click capture can't see the
+          handler and logs every close as a dead click. Hidden from assistive
+          tech and the tab order; Escape and the ✕ button are the ways out. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
+        className={`absolute inset-0 cursor-default bg-black/60 transition-opacity duration-200 ${
           open ? "opacity-100" : "opacity-0"
         }`}
       />
@@ -264,7 +291,7 @@ function JourneyDrawer({
               <span className="font-mono text-[14px] font-semibold text-white">#{journey.id}</span>
               <span
                 className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  journey.complete ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#777]"
+                  journey.complete ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#888]"
                 }`}
               >
                 {journey.complete ? "complete" : "partial"}
@@ -284,7 +311,7 @@ function JourneyDrawer({
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {/* metadata grid */}
               <div className="grid grid-cols-2">
-                <MetaCell label="Recorded" value={fmtClock(journey.startedAt)} />
+                <MetaCell label="Recorded" value={fmtClock(journey.startedAt, true)} />
                 <MetaCell label="Duration" value={fmtDuration(journey.durationMs)} />
                 <MetaCell label="Device" value={deviceLabel(journey.device)} />
                 <MetaCell
@@ -319,7 +346,7 @@ function JourneyDrawer({
 
               {/* flow chart */}
               <div className={`border-t ${border} px-4 py-4 sm:px-5`}>
-                <div className="mb-3 text-[10px] uppercase tracking-[0.08em] text-[#666]">
+                <div className="mb-3 text-[10px] uppercase tracking-[0.08em] text-[#888]">
                   Flow — {journey.steps.length} actions
                 </div>
                 <ol>
@@ -340,7 +367,7 @@ function JourneyDrawer({
                       <div className="flex w-2.5 shrink-0 justify-center">
                         <span className="mt-[5px] h-2.5 w-2.5 rounded-full bg-[#333]" />
                       </div>
-                      <span className="text-[12px] italic text-[#555]">
+                      <span className="text-[12px] italic text-[#888]">
                         … journey continues (more actions captured)
                       </span>
                     </li>
@@ -362,7 +389,7 @@ export default function JourneyList({ journeys }: { journeys: SessionJourney[] }
   if (journeys.length === 0) {
     return (
       <div className={card}>
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <p className="px-5 py-8 text-center text-[13px] text-[#888]">
           No complete sessions captured yet — browse the site (try a few rage and dead clicks) then
           refresh.
         </p>

@@ -26,12 +26,14 @@ export default function ShowMore({
   return (
     <>
       {open && children}
-      <div className="border-t border-[#2e2e2e] px-4 py-2.5 sm:px-5">
+      <div className="border-t border-[#2e2e2e]">
+        {/* The whole strip is the button — a click beside the label used to
+            land on the bare div and do nothing. */}
         <button
           type="button"
           data-component="show-more"
           onClick={() => setOpen((o) => !o)}
-          className="text-[11px] font-medium text-[#888] transition-colors hover:text-white"
+          className="w-full px-4 py-2.5 text-left text-[11px] font-medium text-[#888] transition-colors hover:bg-[#111] hover:text-white sm:px-5"
         >
           {open ? `Show less ↑` : `Show ${count} more ${label} ↓`}
         </button>

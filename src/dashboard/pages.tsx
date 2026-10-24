@@ -66,17 +66,17 @@ function PageMeta({ page }: { page: TopPage }) {
       <MetaCell
         label="Rage clicks"
         value={String(page.rageClicks)}
-        tone={page.rageClicks > 0 ? "text-red-400" : "text-[#555]"}
+        tone={page.rageClicks > 0 ? "text-red-400" : "text-[#888]"}
       />
       <MetaCell
         label="Dead clicks"
         value={String(page.deadClicks)}
-        tone={page.deadClicks > 0 ? "text-[#f5a623]" : "text-[#555]"}
+        tone={page.deadClicks > 0 ? "text-[#f5a623]" : "text-[#888]"}
       />
       <MetaCell
         label="JS errors"
         value={String(page.jsErrors)}
-        tone={page.jsErrors > 0 ? "text-red-400" : "text-[#555]"}
+        tone={page.jsErrors > 0 ? "text-red-400" : "text-[#888]"}
       />
     </div>
   );
@@ -86,7 +86,7 @@ function PageMeta({ page }: { page: TopPage }) {
 
 function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
   if (trend.length === 0) {
-    return <p className="py-8 text-center text-[13px] text-[#555]">No session data yet.</p>;
+    return <p className="py-8 text-center text-[13px] text-[#888]">No session data yet.</p>;
   }
   const peak = Math.max(...trend.map((p) => p.sessions), 1);
   const { top, ticks } = yScale(peak);
@@ -133,7 +133,7 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
               y1={yFor(t)}
               x2={W - padR}
               y2={yFor(t)}
-              stroke="#1c1c1c"
+              stroke="#1a1a1a"
               strokeWidth={1}
             />
             <text
@@ -141,7 +141,7 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
               y={yFor(t) + 3.5}
               textAnchor="end"
               fontSize={10}
-              fill="#666"
+              fill="#888"
               className="tabular-nums"
             >
               {t}
@@ -162,7 +162,7 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
               </title>
             </circle>
             {showLabel(i) && (
-              <text x={p.x} y={H - 9} textAnchor="middle" fontSize={10} fill="#666">
+              <text x={p.x} y={H - 9} textAnchor="middle" fontSize={10} fill="#888">
                 {p.label}
               </text>
             )}
@@ -211,7 +211,7 @@ function PageRow({ page, onOpen }: { page: TopPage; onOpen: () => void }) {
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.rageClicks}</td>
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.deadClicks}</td>
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.jsErrors}</td>
-      <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums text-[#555]">
+      <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums text-[#888]">
         <span className="group-hover:text-[#999]">›</span>
       </td>
     </tr>
@@ -225,7 +225,7 @@ export default function TopPagesTable({ pages }: { pages: TopPage[] }) {
     <>
       <div className={card}>
         {pages.length === 0 ? (
-          <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+          <p className="px-5 py-8 text-center text-[13px] text-[#888]">
             No data yet — browse the site then refresh.
           </p>
         ) : (

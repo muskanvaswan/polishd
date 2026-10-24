@@ -71,7 +71,7 @@ export default function InstallsView({
     <main className="text-white">
       <div className={`mb-8 border-b ${border} pb-6`}>
         <h1 className="text-[22px] font-semibold tracking-tight text-white">Installs</h1>
-        <p className="mt-1 text-[13px] text-[#666]">
+        <p className="mt-1 text-[13px] text-[#888]">
           Polishd dashboards out in the wild — anonymous usage reported by installations whose
           owners opted in, named by the domain they run on. This install&apos;s own analytics are
           never mixed in here, and these rows never appear in its analytics.
@@ -91,7 +91,7 @@ export default function InstallsView({
         <div className={`mb-3 ${label}`}>Installations</div>
         <div className={card}>
           {installs.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+            <p className="px-5 py-8 text-center text-[13px] text-[#888]">
               No telemetry received yet. This tab fills in once a dashboard whose owner opted in
               reports to this installation&apos;s <code className="font-mono">/telemetry</code>{" "}
               endpoint.
@@ -123,9 +123,9 @@ export default function InstallsView({
                             {[i.provider, i.model].filter(Boolean).join(" · ") || "connected"}
                           </span>
                         ) : i.hasModel === false ? (
-                          <span className="text-[#555]">none</span>
+                          <span className="text-[#888]">none</span>
                         ) : (
-                          <span className="text-[#444]">—</span>
+                          <span className="text-[#888]">—</span>
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
@@ -141,17 +141,17 @@ export default function InstallsView({
                         {i.rageClicks > 0 ? (
                           <span className="text-red-400">{i.rageClicks}</span>
                         ) : (
-                          <span className="text-[#444]">—</span>
+                          <span className="text-[#888]">—</span>
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums">
                         {i.deadClicks > 0 ? (
                           <span className="text-[#f5a623]">{i.deadClicks}</span>
                         ) : (
-                          <span className="text-[#444]">—</span>
+                          <span className="text-[#888]">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 pl-4 pr-5 text-right text-[12px] tabular-nums text-[#666]">
+                      <td className="py-2.5 pl-4 pr-5 text-right text-[12px] tabular-nums text-[#888]">
                         {timeAgo(i.lastSeen)}
                       </td>
                     </tr>

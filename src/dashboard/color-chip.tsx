@@ -112,7 +112,7 @@ export function ColorToken({ hex }: { hex: string }) {
       onClick={() => void copyText(hex).then((ok) => setState(ok ? "copied" : "failed"))}
       title={label}
       aria-label={label}
-      className="group/chip inline-flex cursor-pointer items-center gap-1 rounded border border-[#2e2e2e] bg-[#161616] px-1 py-px align-middle font-mono text-[11px] text-[#ccc] transition-colors hover:border-[#555] hover:bg-[#1f1f1f] focus:outline-none focus-visible:border-[#777]"
+      className="group/chip inline-flex cursor-pointer items-center gap-1 rounded border border-[#2e2e2e] bg-[#1a1a1a] px-1 py-px align-middle font-mono text-[11px] text-[#ccc] transition-colors hover:border-[#555] hover:bg-[#1f1f1f] focus:outline-none focus-visible:border-[#777]"
     >
       <span className="relative h-2.5 w-2.5 shrink-0">
         <span

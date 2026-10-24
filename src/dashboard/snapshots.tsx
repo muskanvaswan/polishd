@@ -76,7 +76,7 @@ function TogglePills<T extends string>({
           data-component={component}
           onClick={() => onChange(opt)}
           className={`px-2.5 py-1 text-[11px] capitalize transition-colors ${
-            opt === value ? "bg-[#1e1e1e] text-white" : "text-[#777] hover:text-[#aaa]"
+            opt === value ? "bg-[#1e1e1e] text-white" : "text-[#888] hover:text-[#aaa]"
           }`}
         >
           {opt}
@@ -144,7 +144,7 @@ function ShotTile({
             className="h-full w-full object-cover object-top"
           />
         ) : (
-          <span className="flex h-full items-center justify-center px-2 text-center text-[11px] text-[#555]">
+          <span className="flex h-full items-center justify-center px-2 text-center text-[11px] text-[#888]">
             {failed ? "image missing" : "loading…"}
           </span>
         )}
@@ -421,7 +421,7 @@ function ConsentDialog({
             visits are never counted in your analytics.
           </li>
         </ul>
-        <p className="mt-3 text-[12px] text-[#666]">
+        <p className="mt-3 text-[12px] text-[#888]">
           Allowing it starts this capture. You can turn it off later from the Site snapshots
           section.
         </p>
@@ -662,12 +662,12 @@ function SnapshotsCard() {
                       className="h-full w-full object-cover object-top"
                     />
                   ) : (
-                    <span className="flex h-full items-center justify-center px-1 text-center text-[10px] text-[#555]">
+                    <span className="flex h-full items-center justify-center px-1 text-center text-[10px] text-[#888]">
                       {shot.skipped ?? "no image"}
                     </span>
                   )}
                 </div>
-                <figcaption className="mt-1 truncate font-mono text-[10px] text-[#777]">
+                <figcaption className="mt-1 truncate font-mono text-[10px] text-[#888]">
                   {shot.route} · {shot.device} {shot.theme}
                 </figcaption>
               </figure>
@@ -708,10 +708,10 @@ function SnapshotsCard() {
               </div>
             )}
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#888]">
               <span>Captured {relTime(selected.capturedAt)}</span>
               {selected.noDarkMode && (
-                <span className="rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[#777]">
+                <span className="rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[#888]">
                   Site renders identically in dark mode
                 </span>
               )}
@@ -740,13 +740,13 @@ function SnapshotsCard() {
         )}
 
         {needsConsent && !capturing && (
-          <p className="mt-3 text-[11px] text-[#555]">
+          <p className="mt-3 text-[11px] text-[#888]">
             In production, captures use Polishd&rsquo;s screenshot service — you&rsquo;ll be asked
             before the first one.
           </p>
         )}
         {mode.kind === "service" && !capturing && (
-          <p className="mt-3 text-[11px] text-[#555]">
+          <p className="mt-3 text-[11px] text-[#888]">
             Captures use Polishd&rsquo;s screenshot service — page paths and pixels pass through it;
             it keeps neither.{" "}
             <button
@@ -828,7 +828,7 @@ export function SnapshotStrip({ snapshot }: { snapshot: PolishdSnapshot }) {
           />
         ))}
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#888]">
         <span>
           {/* "just now" from the server can be "1m ago" by hydration — a
               relative time is allowed to differ, and shouldn't cost a re-render. */}

@@ -151,10 +151,10 @@ function DeviceRow({ bucket }: { bucket: DeviceBucket }) {
       <span className="w-10 shrink-0 text-right text-[13px] font-semibold tabular-nums text-white sm:w-12">
         {bucket.pct}%
       </span>
-      <span className="hidden w-28 shrink-0 text-right text-[12px] tabular-nums text-[#666] sm:block">
+      <span className="hidden w-28 shrink-0 text-right text-[12px] tabular-nums text-[#888] sm:block">
         {bucket.sessions} {bucket.sessions === 1 ? "session" : "sessions"}
       </span>
-      <span className="hidden w-20 shrink-0 text-right text-[12px] tabular-nums text-[#555] sm:block">
+      <span className="hidden w-20 shrink-0 text-right text-[12px] tabular-nums text-[#888] sm:block">
         {bucket.avgWidth === null ? "—" : `~${bucket.avgWidth}px`}
       </span>
     </div>
@@ -182,32 +182,32 @@ function MonitoredRow({ m }: { m: MonitoredComponent }) {
     <tr className={`${divider} first:border-t-0 align-top`}>
       <td className="py-2.5 pl-5 pr-4 min-w-[280px]">
         <div className="text-[13px] font-medium text-white">{m.name}</div>
-        <div className="mt-0.5 text-[11px] text-[#555]">
+        <div className="mt-0.5 text-[11px] text-[#888]">
           {m.sessions} {m.sessions === 1 ? "session" : "sessions"} · {m.pages}{" "}
           {m.pages === 1 ? "page" : "pages"}
         </div>
       </td>
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
-        {m.mounts > 0 ? m.mounts : <span className="text-[#444]">—</span>}
+        {m.mounts > 0 ? m.mounts : <span className="text-[#888]">—</span>}
       </td>
       <td className="py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums text-white">
-        {m.componentViews > 0 ? m.componentViews : <span className="font-normal text-[#444]">—</span>}
+        {m.componentViews > 0 ? m.componentViews : <span className="font-normal text-[#888]">—</span>}
       </td>
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
-        {m.avgViewMs !== null ? fmtMs(m.avgViewMs) : <span className="text-[#444]">—</span>}
+        {m.avgViewMs !== null ? fmtMs(m.avgViewMs) : <span className="text-[#888]">—</span>}
       </td>
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
-        {m.avgScrollDepth !== null ? `${m.avgScrollDepth}%` : <span className="text-[#444]">—</span>}
+        {m.avgScrollDepth !== null ? `${m.avgScrollDepth}%` : <span className="text-[#888]">—</span>}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#555]">
-        {m.heightPx !== null ? `${m.heightPx}px` : <span className="text-[#444]">—</span>}
+      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">
+        {m.heightPx !== null ? `${m.heightPx}px` : <span className="text-[#888]">—</span>}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{m.clicks > 0 ? m.clicks : <span className="text-[#444]">—</span>}</td>
+      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{m.clicks > 0 ? m.clicks : <span className="text-[#888]">—</span>}</td>
       <td className="py-2.5 px-4 text-right text-[13px] tabular-nums">
-        {m.hovers > 0 ? <span className="text-[#888]">{m.hovers}</span> : <span className="text-[#444]">—</span>}
+        {m.hovers > 0 ? <span className="text-[#888]">{m.hovers}</span> : <span className="text-[#888]">—</span>}
       </td>
       <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums">
-        {m.rageClicks > 0 ? <span className="text-red-400">{m.rageClicks}</span> : <span className="text-[#444]">—</span>}
+        {m.rageClicks > 0 ? <span className="text-red-400">{m.rageClicks}</span> : <span className="text-[#888]">—</span>}
       </td>
     </tr>
   );
@@ -251,9 +251,9 @@ function AnalyticsHeader({ pill }: { pill: ReactNode }) {
         <h1 className="text-[22px] font-semibold tracking-tight text-white">
           Analytics
         </h1>
-        <p className="mt-1 text-[13px] text-[#666]">
+        <p className="mt-1 text-[13px] text-[#888]">
           Stage 1 — Capture. Hover{" "}
-          <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#444] text-[8px] font-bold text-[#666]">
+          <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#444] text-[8px] font-bold text-[#888]">
             i
           </span>{" "}
           for calculation details.
@@ -269,7 +269,7 @@ function StatusPill({ ready }: { ready: boolean }) {
     <div className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
       ready
         ? "bg-emerald-950 text-emerald-400"
-        : "bg-[#1a1a1a] text-[#666]"
+        : "bg-[#1a1a1a] text-[#888]"
     }`}>
       {ready ? "● collecting" : "○ no store"}
     </div>
@@ -407,7 +407,7 @@ function DevicesCard({ devices }: { devices: DeviceBucket[] }) {
   return (
     <div className={card}>
       {devices.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <p className="px-5 py-8 text-center text-[13px] text-[#888]">
           No viewport data yet — browse the site then refresh.
         </p>
       ) : (
@@ -439,9 +439,9 @@ function MonitoredCard({ monitored }: { monitored: MonitoredComponent[] }) {
   return (
     <div className={card}>
       {monitored.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <p className="px-5 py-8 text-center text-[13px] text-[#888]">
           No monitored components yet — wrap elements with{" "}
-          <code className="font-mono text-[#777]">{"<PolishdMonitor name=\"…\">"}</code> to track them here.
+          <code className="font-mono text-[#888]">{"<PolishdMonitor name=\"…\">"}</code> to track them here.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -511,7 +511,7 @@ function FeaturesCard({ topUsed }: { topUsed: TopInteraction[] }) {
   return (
     <div className={card}>
       {topUsed.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <p className="px-5 py-8 text-center text-[13px] text-[#888]">
           No clicks captured yet — browse the site then refresh.
         </p>
       ) : (
@@ -553,7 +553,7 @@ function ElementsCard({ elements }: { elements: ElementStat[] }) {
   return (
     <div className={card}>
       {elements.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+        <p className="px-5 py-8 text-center text-[13px] text-[#888]">
           No interactions captured yet — browse the site then refresh.
         </p>
       ) : (
@@ -599,7 +599,7 @@ function ErrorRow({ e, first }: { e: RecentError; first: boolean }) {
           >
             {e.message}
           </div>
-          <div className="mt-0.5 text-[11px] text-[#555]">
+          <div className="mt-0.5 text-[11px] text-[#888]">
             {e.path}
             {others > 0 && (
               <span title={e.paths.slice(0, 10).join("\n")}>
@@ -734,10 +734,10 @@ function CardSkeleton({ rows = 4 }: { rows?: number }) {
           className="flex items-center justify-between gap-4 border-t border-[#2e2e2e] px-5 py-3.5 first:border-t-0"
         >
           <div
-            className="h-3 flex-1 rounded bg-[#141414]"
+            className="h-3 flex-1 rounded bg-[#1a1a1a]"
             style={{ maxWidth: `${70 - i * 12}%` }}
           />
-          <div className="h-3 w-12 shrink-0 rounded bg-[#141414]" />
+          <div className="h-3 w-12 shrink-0 rounded bg-[#1a1a1a]" />
         </div>
       ))}
     </div>
@@ -753,7 +753,7 @@ function TileGridSkeleton() {
       {Array.from({ length: 6 }, (_, i) => (
         <div key={i} className={`${card} px-4 py-4`}>
           <div className="h-6 w-14 rounded bg-[#1a1a1a]" />
-          <div className="mt-3 h-2.5 w-16 rounded bg-[#141414]" />
+          <div className="mt-3 h-2.5 w-16 rounded bg-[#1a1a1a]" />
         </div>
       ))}
     </div>
@@ -768,9 +768,9 @@ function SummarySkeleton() {
     >
       <div className="h-3 w-32 rounded bg-[#1a1a1a]" />
       <div className="mt-4 space-y-2">
-        <div className="h-3 w-full rounded bg-[#141414]" />
-        <div className="h-3 w-[92%] rounded bg-[#141414]" />
-        <div className="h-3 w-[68%] rounded bg-[#141414]" />
+        <div className="h-3 w-full rounded bg-[#1a1a1a]" />
+        <div className="h-3 w-[92%] rounded bg-[#1a1a1a]" />
+        <div className="h-3 w-[68%] rounded bg-[#1a1a1a]" />
       </div>
     </section>
   );
@@ -779,7 +779,7 @@ function SummarySkeleton() {
 function PillSkeleton() {
   return (
     <div
-      className="h-6 w-24 shrink-0 animate-pulse rounded-full bg-[#141414]"
+      className="h-6 w-24 shrink-0 animate-pulse rounded-full bg-[#1a1a1a]"
       aria-hidden="true"
     />
   );
@@ -1062,7 +1062,7 @@ function Unauthorized() {
     <main className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center text-white">
       <p className={label}>Polishd</p>
       <h1 className="mt-2 text-[20px] font-semibold tracking-tight">Unauthorized</h1>
-      <p className="mt-2 text-[13px] text-[#666]">
+      <p className="mt-2 text-[13px] text-[#888]">
         This dashboard is protected. Pass an <code className="font-mono">unauthorized</code> element to
         <code className="font-mono"> createPolishdPage()</code> to render your own sign-in UI here.
       </p>
@@ -1189,7 +1189,7 @@ function TokenUnlock({ error }: { error?: "invalid" | "rate" }) {
           autoFocus
           placeholder="Dashboard token"
           aria-label="Dashboard token"
-          className={`w-full rounded-lg border ${border} bg-[#0a0a0a] px-3 py-2 text-[13px] text-white placeholder:text-[#555] focus:border-[#555] focus:outline-none`}
+          className={`w-full rounded-lg border ${border} bg-[#0a0a0a] px-3 py-2 text-[13px] text-white placeholder:text-[#888] focus:border-[#555] focus:outline-none`}
         />
         {error && (
           <p role="alert" className="mt-2 text-[12px] text-red-400">
@@ -1205,7 +1205,7 @@ function TokenUnlock({ error }: { error?: "invalid" | "rate" }) {
           Unlock
         </button>
       </form>
-      <p className="mt-5 text-[12px] leading-relaxed text-[#555]">
+      <p className="mt-5 text-[12px] leading-relaxed text-[#888]">
         The token is the value of{" "}
         <code className="font-mono">POLISHD_DASHBOARD_TOKEN</code> in your deployment
         environment.
@@ -1231,7 +1231,7 @@ function SetupRequired() {
         <li>
           Set a token — no code needed:{" "}
           <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_TOKEN</code>
-          <span className="mt-0.5 block text-[12px] text-[#555]">
+          <span className="mt-0.5 block text-[12px] text-[#888]">
             Generate one with <code className="font-mono">openssl rand -hex 32</code>.
           </span>
         </li>
@@ -1244,7 +1244,7 @@ function SetupRequired() {
           <code className="font-mono text-[#aaa]">POLISHD_DASHBOARD_PUBLIC=true</code>
         </li>
       </ul>
-      <p className="mt-4 text-[12px] text-[#555]">
+      <p className="mt-4 text-[12px] text-[#888]">
         Local development is unaffected — this only applies when{" "}
         <code className="font-mono">NODE_ENV=production</code>.
       </p>

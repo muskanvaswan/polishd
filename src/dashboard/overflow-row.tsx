@@ -113,11 +113,12 @@ export default function OverflowRow({
         </div>
       </div>
       {fit !== null && fit.hidden > 0 && (
-        <div className="mt-4 border-t border-[#2e2e2e] px-4 py-2.5 sm:px-5">
+        <div className="mt-4 border-t border-[#2e2e2e]">
+          {/* Full-width, like ShowMore: the strip reads as one control. */}
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="text-[11px] font-medium text-[#888] transition-colors hover:text-white"
+            className="w-full px-4 py-2.5 text-left text-[11px] font-medium text-[#888] transition-colors hover:bg-[#111] hover:text-white sm:px-5"
           >
             {open ? "Show less ↑" : `Show ${fit.hidden} more ${label} ↓`}
           </button>

@@ -213,7 +213,10 @@ function StatTile({
   const body = (
     <>
       <div className={`text-[28px] font-semibold tabular-nums leading-none ${meta.tone}`}>
-        {value.toLocaleString()}
+        {/* A pinned locale: the tile is server-rendered, and the server's
+            default locale needn't group digits the way the viewer's does
+            (1,234 vs 1.234) — a hydration mismatch once a count passes 999. */}
+        {value.toLocaleString("en-US")}
       </div>
       <div className={`mt-2 flex items-center ${labelCls}`}>
         {meta.label}
@@ -230,7 +233,7 @@ function StatTile({
       type="button"
       data-component="metric-tile"
       onClick={onOpen}
-      aria-label={`${meta.label}: ${value.toLocaleString()} — open the chart over time`}
+      aria-label={`${meta.label}: ${value.toLocaleString("en-US")} — open the chart over time`}
       className={`${card} group px-4 py-4 text-left transition-colors hover:border-[#555] focus:border-[#555] focus:outline-none`}
     >
       {body}
@@ -338,8 +341,8 @@ function MetricPicker({
           aria-pressed={value === m.key}
           className={`${chip} border ${
             value === m.key
-              ? "border-[#555] bg-[#161616] text-white"
-              : "border-[#222] text-[#777] hover:border-[#3a3a3a] hover:text-[#ccc]"
+              ? "border-[#555] bg-[#1a1a1a] text-white"
+              : "border-[#222] text-[#888] hover:border-[#3a3a3a] hover:text-[#ccc]"
           }`}
         >
           <span
@@ -388,7 +391,7 @@ function MetricChart({
 
   if (points.length === 0) {
     return (
-      <p className={`${card} px-5 py-10 text-center text-[13px] text-[#555]`}>
+      <p className={`${card} px-5 py-10 text-center text-[13px] text-[#888]`}>
         No {GRAN_UNIT[gran][0]}-level data yet.
       </p>
     );
@@ -454,7 +457,7 @@ function MetricChart({
           {hovered && (
             <>
               <span className="text-[#888]">{hovered.title}</span>
-              <span className="mx-1.5 text-[#444]">·</span>
+              <span className="mx-1.5 text-[#888]">·</span>
               <span className="font-semibold tabular-nums text-white">
                 {plural(hovered[meta.key], meta.unit)}
               </span>
@@ -489,7 +492,7 @@ function MetricChart({
                 y1={yFor(t)}
                 x2={W - PAD_R}
                 y2={yFor(t)}
-                stroke="#1c1c1c"
+                stroke="#1a1a1a"
                 strokeWidth={1}
               />
               <text
@@ -497,7 +500,7 @@ function MetricChart({
                 y={yFor(t) + 3.5}
                 textAnchor="end"
                 fontSize={10}
-                fill="#666"
+                fill="#888"
                 className="tabular-nums"
               >
                 {t.toLocaleString()}
@@ -598,7 +601,7 @@ function ChartMeta({
         <Cell label={`Latest ${unit}`} value={latest.toLocaleString()} />
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-[#555]">
+      <p className="mt-3 text-[11px] leading-relaxed text-[#888]">
         {meta.additive && total < allTime
           ? `The tile counts all time (${allTime.toLocaleString()}); this chart covers the last ${plural(points.length, GRAN_UNIT[gran])} of activity. `
           : ""}

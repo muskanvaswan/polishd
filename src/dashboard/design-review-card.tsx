@@ -18,7 +18,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { createIssueFromDesignIssueAction, generateDesignReviewAction } from "../ai/actions";
-import type { PolishdDesignIssue, PolishdDesignReview } from "../ai/types";
+import type {
+  GenerateDesignReviewResult,
+  PolishdDesignIssue,
+  PolishdDesignReview,
+} from "../ai/types";
 import CardRail, { railCard } from "./card-rail";
 import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
@@ -80,7 +84,17 @@ export default function DesignReviewCard({
   const generate = (force: boolean) => {
     setError(null);
     startGenerate(async () => {
-      const res = await generateDesignReviewAction(force);
+      let res: GenerateDesignReviewResult;
+      try {
+        res = await generateDesignReviewAction(force);
+      } catch {
+        // The action threw rather than returning a result — an expired
+        // dashboard session, a function timeout. In production that arrives as
+        // Next's redacted "error occurred in the Server Components render", and
+        // uncaught inside a transition it takes the whole tab down.
+        setError("Couldn't reach the server — reload the page and try again.");
+        return;
+      }
       if (res.ok) {
         setReview(res.review);
         setStale(false);
@@ -141,7 +155,7 @@ export default function DesignReviewCard({
               githubConnected={githubConnected}
               onIssueFiled={onIssueFiled}
             />
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#888]">
               <span>
                 Generated {relTime(review.generatedAt)} · {review.provider}/{review.model}
               </span>
@@ -223,7 +237,7 @@ function StrengthsIssues({
                 <span>{iss.issue}</span>
               </div>
               <div className="mt-2 flex flex-col items-start gap-1">
-                <span className="rounded bg-[#161616] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
+                <span className="rounded bg-[#1a1a1a] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
                   <Annotated text={iss.evidence} />
                 </span>
                 {iss.suggestion && (

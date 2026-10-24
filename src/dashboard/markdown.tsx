@@ -48,7 +48,7 @@ function renderInline(nodes: MdInline[]): ReactNode {
         return <em key={i}>{renderInline(node.children)}</em>;
       case "del":
         return (
-          <del key={i} className="text-[#777]">
+          <del key={i} className="text-[#888]">
             {renderInline(node.children)}
           </del>
         );
@@ -93,7 +93,7 @@ function List({ list }: { list: MdList }) {
           {item.checked !== undefined && (
             <span
               aria-hidden
-              className={`mr-1.5 font-mono ${item.checked ? "text-emerald-500" : "text-[#555]"}`}
+              className={`mr-1.5 font-mono ${item.checked ? "text-emerald-500" : "text-[#888]"}`}
             >
               {item.checked ? "☑" : "☐"}
             </span>

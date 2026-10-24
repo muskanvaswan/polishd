@@ -152,9 +152,12 @@ export default function SummaryCard({
               githubConnected={settings.hasGithubToken && !!settings.githubRepo}
               onLossChange={onLossChange}
             />
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#888]">
               <span>
-                Generated {relTime(summary!.generatedAt)} · {summary!.provider}/{summary!.model}
+                {/* Server and hydration can straddle a minute ("4m" vs "5m ago"),
+                    same as the snapshot strip's timestamp. */}
+                Generated <span suppressHydrationWarning>{relTime(summary!.generatedAt)}</span> ·{" "}
+                {summary!.provider}/{summary!.model}
                 {cadence !== "manual" && ` · refreshes ${cadence}`}
               </span>
               {stale && (
@@ -236,9 +239,9 @@ function ProfileNudge({
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-2 border-t ${border} bg-[#080808] px-4 py-2.5 sm:px-5`}
+      className={`flex flex-wrap items-center justify-between gap-2 border-t ${border} bg-[#0a0a0a] px-4 py-2.5 sm:px-5`}
     >
-      <span className="text-[11px] text-[#666]">{message}</span>
+      <span className="text-[11px] text-[#888]">{message}</span>
       <TabLink
         tab="settings"
         className="text-[11px] text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
@@ -253,7 +256,7 @@ function ProfileNudge({
 
 /** The verdict buttons on a loss share their style with the shared microBtn. */
 const microLink =
-  "text-[10px] text-[#666] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
+  "text-[10px] text-[#888] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * One loss, and the two things you can do with it: file it as a bug, or ignore
@@ -310,12 +313,12 @@ function LossCard({
 
   if (ignored) {
     return (
-      <li className={`${railCard} text-[#666]`}>
+      <li className={`${railCard} text-[#888]`}>
         <div className="flex gap-2">
-          <span className="mt-px shrink-0 text-[#444]">✕</span>
+          <span className="mt-px shrink-0 text-[#888]">✕</span>
           <span className="line-through decoration-[#3a3a3a]">{loss.issue}</span>
         </div>
-        <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#777]">
+        <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]">
           Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
         </span>
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
@@ -376,7 +379,7 @@ function LossCard({
           </code>
         ) : (
           <span
-            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
+            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]"
             title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
           >
             not matched to source
@@ -446,7 +449,7 @@ function ReasonForm({
         maxLength={240}
         placeholder="Why isn't this a problem?"
         aria-label="Reason for ignoring this loss"
-        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#555] focus:border-[#555] focus:outline-none"
+        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#888] focus:border-[#555] focus:outline-none"
       />
       <button type="submit" disabled={pending} className={microBtn}>
         {pending ? "Saving…" : "Save"}

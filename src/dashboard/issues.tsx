@@ -73,7 +73,7 @@ export default function IssuesView({
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-white">Issues</h1>
-          <p className="mt-1 text-[13px] text-[#666]">
+          <p className="mt-1 text-[13px] text-[#888]">
             Bugs polishd filed from your analytics — each one traced back to the behavior that
             found it, and shown as your tracker has it now.
           </p>
@@ -83,7 +83,7 @@ export default function IssuesView({
             href={`https://github.com/${repo}/issues`}
             target="_blank"
             rel="noreferrer noopener"
-            className="shrink-0 whitespace-nowrap rounded-full bg-[#141414] px-3 py-1 font-mono text-[11px] text-[#888] transition-colors hover:text-white"
+            className="shrink-0 whitespace-nowrap rounded-full bg-[#1a1a1a] px-3 py-1 font-mono text-[11px] text-[#888] transition-colors hover:text-white"
           >
             {repo} ↗
           </a>
@@ -93,7 +93,7 @@ export default function IssuesView({
       {!connected ? (
         <div className={`${card} px-5 py-8 text-center`}>
           <p className="text-[13px] text-[#888]">No GitHub repository is connected.</p>
-          <p className="mx-auto mt-1.5 max-w-md text-[12px] leading-relaxed text-[#666]">
+          <p className="mx-auto mt-1.5 max-w-md text-[12px] leading-relaxed text-[#888]">
             Connect one in the settings and polishd can verify the problems it finds against
             your source and file them as issues — which is what this tab lists.
           </p>
@@ -119,7 +119,7 @@ export default function IssuesView({
             <div className={`mb-3 ${label}`}>Filed issues</div>
             <div className={card}>
               {issues.length === 0 ? (
-                <p className="px-5 py-8 text-center text-[13px] text-[#555]">
+                <p className="px-5 py-8 text-center text-[13px] text-[#888]">
                   Nothing filed yet. Problems the summary finds on the Analytics tab carry a
                   &ldquo;File bug&rdquo; button — anything filed from there, or automatically,
                   lands here.

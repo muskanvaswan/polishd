@@ -176,7 +176,7 @@ function ModelField({
           <button
             type="button"
             onClick={() => setModels(null)}
-            className="mt-1 text-[11px] text-[#555] hover:text-[#888]"
+            className="mt-1 text-[11px] text-[#888] transition-colors hover:text-white"
           >
             Type a different model id
           </button>
@@ -247,14 +247,14 @@ export default function SettingsView({
       <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-white">Settings</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
+          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#888]">
             The model Polishd calls, what it knows about your site, and where it files what it
             finds. One model serves both the analytics summary and the design review.
           </p>
         </div>
         <div
           className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-            settings.hasApiKey ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#666]"
+            settings.hasApiKey ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#888]"
           }`}
         >
           {settings.hasApiKey ? `● ${settings.provider}` : "○ no model"}
@@ -355,7 +355,7 @@ function OptionRow({
         />
         <span>
           <span className="block text-[13px] font-medium text-white">{title}</span>
-          <span className="mt-0.5 block text-[11px] leading-snug text-[#666]">{hint}</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-[#888]">{hint}</span>
         </span>
       </label>
       {children && <div className="mt-3 pl-6">{children}</div>}
@@ -385,7 +385,7 @@ function StepShell({
                   ? "bg-white text-black"
                   : i < step
                     ? "bg-[#1a1a1a] text-emerald-400"
-                    : "bg-[#1a1a1a] text-[#555]"
+                    : "bg-[#1a1a1a] text-[#888]"
               }`}
             >
               {i < step ? "✓ " : `${i + 1} · `}
@@ -519,7 +519,7 @@ function OnboardingWizard({
     });
 
   return (
-    <div className="bg-[#080808]">
+    <div className="bg-[#0a0a0a]">
       {error && (
         <div className="mx-4 mt-4 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400 sm:mx-5">
           {error}
@@ -568,7 +568,7 @@ function OnboardingWizard({
                 className={`${inputCls} mt-1.5`}
               />
               {prov && (
-                <span className="mt-1 block text-[11px] text-[#555]">
+                <span className="mt-1 block text-[11px] text-[#888]">
                   Get a key from{" "}
                   <a
                     href={prov.keyUrl}
@@ -606,7 +606,7 @@ function OnboardingWizard({
             <button
               type="button"
               onClick={onSkip}
-              className="text-[11px] text-[#555] hover:text-[#888]"
+              className="text-[11px] text-[#888] transition-colors hover:text-white"
             >
               Skip setup
             </button>
@@ -700,7 +700,7 @@ function OnboardingWizard({
                     autoComplete="off"
                     className={`${inputCls} mt-1.5`}
                   />
-                  <span className="mt-1 block text-[11px] text-[#555]">
+                  <span className="mt-1 block text-[11px] text-[#888]">
                     Create a{" "}
                     <a
                       href="https://github.com/settings/personal-access-tokens/new"
@@ -748,7 +748,7 @@ function OnboardingWizard({
               {willScan && (
                 <label className="block max-w-md">
                   <span className={labelCls}>Source folders</span>
-                  <span className="ml-1 text-[11px] text-[#555]">
+                  <span className="ml-1 text-[11px] text-[#888]">
                     — optional; defaults to src / app / components / pages / lib.
                   </span>
                   <input
@@ -836,12 +836,12 @@ function OnboardingWizard({
                 onClick={() => setCadence(c.value)}
                 className={`rounded-md border px-3 py-2.5 text-left transition-colors ${
                   cadence === c.value
-                    ? "border-white bg-[#141414]"
+                    ? "border-white bg-[#1a1a1a]"
                     : "border-[#2e2e2e] hover:border-[#555]"
                 }`}
               >
                 <span className="block text-[13px] font-medium text-white">{c.label}</span>
-                <span className="mt-0.5 block text-[11px] leading-snug text-[#666]">{c.hint}</span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-[#888]">{c.hint}</span>
               </button>
             ))}
           </div>
@@ -872,7 +872,7 @@ function Group({
     <section className={`mb-4 ${card} overflow-hidden`}>
       <div className={`border-b ${border} px-4 py-3 sm:px-5`}>
         <span className={labelCls}>{title}</span>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#666]">{hint}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-[#888]">{hint}</p>
       </div>
       <div className="px-4 py-4 sm:px-5">{children}</div>
     </section>
@@ -985,7 +985,7 @@ function SettingsForm({
               className={`${inputCls} mt-1.5`}
             />
             {prov && (
-              <span className="mt-1 block text-[11px] text-[#555]">
+              <span className="mt-1 block text-[11px] text-[#888]">
                 Get a key from{" "}
                 <a
                   href={prov.keyUrl}
@@ -1035,7 +1035,7 @@ function SettingsForm({
       >
         <label className="block">
           <span className={labelCls}>Site description</span>
-          <span className="ml-1 text-[11px] text-[#555]">
+          <span className="ml-1 text-[11px] text-[#888]">
             — what the site is, who it&apos;s for, key flows.
           </span>
           <textarea
@@ -1071,7 +1071,7 @@ function SettingsForm({
 
         <label className="mt-4 block">
           <span className={labelCls}>Instructions</span>
-          <span className="ml-1 text-[11px] text-[#555]">
+          <span className="ml-1 text-[11px] text-[#888]">
             — optional: tone, focus, what to call out.
           </span>
           <textarea
@@ -1101,7 +1101,7 @@ function SettingsForm({
 
           <label className="block">
             <span className={labelCls}>Access token</span>
-            <span className="ml-1 text-[11px] text-[#555]">
+            <span className="ml-1 text-[11px] text-[#888]">
               — Contents (read), Issues &amp; Pull requests (write).
             </span>
             <input
@@ -1128,7 +1128,7 @@ function SettingsForm({
             <span className="block text-[13px] text-white">
               Allow creating issues automatically
             </span>
-            <span className="mt-0.5 block text-[11px] leading-snug text-[#666]">
+            <span className="mt-0.5 block text-[11px] leading-snug text-[#888]">
               New problems are verified against the source, then filed on their own; never twice.
             </span>
           </span>
@@ -1149,7 +1149,7 @@ function SettingsForm({
         />
         <label className="mt-4 block">
           <span className={labelCls}>Source folders</span>
-          <span className="ml-1 text-[11px] text-[#555]">
+          <span className="ml-1 text-[11px] text-[#888]">
             — optional, comma-separated, relative to the project root. Defaults to src / app /
             components / pages / lib.
           </span>
@@ -1168,7 +1168,7 @@ function SettingsForm({
         </button>
         {saved && <span className="text-[12px] text-emerald-400">Saved</span>}
         {settings.fromEnv && (
-          <span className="text-[11px] text-[#555]">
+          <span className="text-[11px] text-[#888]">
             Defaults loaded from environment variables.
           </span>
         )}
@@ -1210,9 +1210,9 @@ function ProfileStrip({
   const canScan = settings.hasApiKey && hasSource && !pending;
 
   return (
-    <div className={`rounded-md border ${border} bg-[#080808] px-3 py-2.5`}>
+    <div className={`rounded-md border ${border} bg-[#0a0a0a] px-3 py-2.5`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#555]">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#888]">
           <span className={labelCls}>Project profile</span>
           {profile ? (
             <>

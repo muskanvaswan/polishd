@@ -188,7 +188,7 @@ export default function DashboardChrome({
           <aside className="shrink-0 lg:w-44">
             <div className="lg:sticky lg:top-8">
               <p className={labelCls}>Polishd</p>
-              <p className="mt-1 hidden text-[12px] leading-snug text-[#555] lg:block">
+              <p className="mt-1 hidden text-[12px] leading-snug text-[#888] lg:block">
                 What gets measured gets improved
               </p>
               <nav
@@ -210,7 +210,7 @@ export default function DashboardChrome({
                       busy={loading && isSelected}
                       className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] transition-colors ${
                         isSelected
-                          ? "border-[#2e2e2e] bg-[#141414] font-medium text-white"
+                          ? "border-[#2e2e2e] bg-[#1a1a1a] font-medium text-white"
                           : "border-transparent text-[#888] hover:bg-[#0f0f0f] hover:text-white"
                       }`}
                     >
@@ -253,17 +253,17 @@ export function TabSkeleton({ name }: { name: string }) {
       <div className="mb-8 flex items-start justify-between gap-3 border-b border-[#2e2e2e] pb-6">
         <div>
           <div className="h-[22px] w-40 rounded bg-[#1a1a1a]" />
-          <div className="mt-2.5 h-3 w-64 max-w-full rounded bg-[#141414]" />
+          <div className="mt-2.5 h-3 w-64 max-w-full rounded bg-[#1a1a1a]" />
         </div>
-        <div className="h-6 w-28 shrink-0 rounded-full bg-[#141414]" />
+        <div className="h-6 w-28 shrink-0 rounded-full bg-[#1a1a1a]" />
       </div>
 
       <div className={`mb-8 ${card} px-4 py-5 sm:px-5`}>
         <div className="h-3 w-32 rounded bg-[#1a1a1a]" />
         <div className="mt-4 space-y-2">
-          <div className="h-3 w-full rounded bg-[#141414]" />
-          <div className="h-3 w-[92%] rounded bg-[#141414]" />
-          <div className="h-3 w-[68%] rounded bg-[#141414]" />
+          <div className="h-3 w-full rounded bg-[#1a1a1a]" />
+          <div className="h-3 w-[92%] rounded bg-[#1a1a1a]" />
+          <div className="h-3 w-[68%] rounded bg-[#1a1a1a]" />
         </div>
       </div>
 
@@ -271,7 +271,7 @@ export function TabSkeleton({ name }: { name: string }) {
         {Array.from({ length: 6 }, (_, i) => (
           <div key={i} className={`${card} px-4 py-4`}>
             <div className="h-6 w-14 rounded bg-[#1a1a1a]" />
-            <div className="mt-3 h-2.5 w-16 rounded bg-[#141414]" />
+            <div className="mt-3 h-2.5 w-16 rounded bg-[#1a1a1a]" />
           </div>
         ))}
       </div>
@@ -283,10 +283,10 @@ export function TabSkeleton({ name }: { name: string }) {
             className="flex items-center justify-between gap-4 border-t border-[#2e2e2e] px-5 py-3.5 first:border-t-0"
           >
             <div
-              className="h-3 flex-1 rounded bg-[#141414]"
+              className="h-3 flex-1 rounded bg-[#1a1a1a]"
               style={{ maxWidth: `${70 - i * 12}%` }}
             />
-            <div className="h-3 w-12 shrink-0 rounded bg-[#141414]" />
+            <div className="h-3 w-12 shrink-0 rounded bg-[#1a1a1a]" />
           </div>
         ))}
       </div>

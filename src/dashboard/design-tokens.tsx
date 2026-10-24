@@ -52,7 +52,7 @@ export function ContrastToken({ ratio }: { ratio: number }) {
     ratio >= AA_BODY ? "text-[#ccc]" : ratio >= AA_LARGE ? "text-amber-400" : "text-red-400";
   return (
     <span
-      className={`inline-flex items-center rounded bg-[#161616] px-1 py-px align-middle text-[11px] font-medium tabular-nums ${tone}`}
+      className={`inline-flex items-center rounded bg-[#1a1a1a] px-1 py-px align-middle text-[11px] font-medium tabular-nums ${tone}`}
       title={`${ratio}:1 — WCAG AA wants ${AA_BODY}:1 for body text, ${AA_LARGE}:1 for large text`}
     >
       {contrastPercent(ratio)}% contrast
@@ -75,7 +75,7 @@ export function ContrastMeter({ ratio, required }: { ratio: number; required: nu
       aria-label={`Contrast ${pct}% of the scale, needs ${need}% — ${ratio}:1 against a ${required}:1 minimum`}
       title={`${ratio}:1 against the WCAG AA ${required}:1 minimum`}
     >
-      <span className="relative h-1.5 w-20 overflow-hidden rounded-full bg-[#1c1c1c]">
+      <span className="relative h-1.5 w-20 overflow-hidden rounded-full bg-[#1a1a1a]">
         <span
           className={`absolute inset-y-0 left-0 rounded-full ${passes ? "bg-emerald-500" : "bg-red-500"}`}
           style={{ width: `${pct}%` }}

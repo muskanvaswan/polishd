@@ -14,9 +14,9 @@
 export const border = "border-[#2e2e2e]";
 export const card = `border ${border} rounded-lg bg-[#0a0a0a]`;
 export const divider = `border-t ${border}`;
-export const labelCls = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#666]";
+export const labelCls = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#888]";
 export const inputCls =
-  "w-full rounded-md border border-[#2e2e2e] bg-[#111] px-3 py-2 text-[13px] text-white placeholder:text-[#555] focus:border-[#555] focus:outline-none";
+  "w-full rounded-md border border-[#2e2e2e] bg-[#111] px-3 py-2 text-[13px] text-white placeholder:text-[#888] focus:border-[#555] focus:outline-none";
 export const primaryBtn =
   "rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
 export const ghostBtn =
@@ -79,7 +79,7 @@ export function InfoTip({
   const vClass = below ? "top-full mt-2" : "bottom-full mb-2";
   return (
     <span className="group/tip relative ml-1 inline-flex translate-y-px cursor-help align-middle">
-      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#444] text-[9px] font-bold leading-none text-[#666]">
+      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#444] text-[10px] font-bold leading-none text-[#888]">
         i
       </span>
       <span

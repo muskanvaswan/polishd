@@ -101,7 +101,7 @@ function Picture({ preview }: { preview: ValuePreviewRef }) {
           className="h-full w-full object-contain"
         />
       ) : (
-        <span className="text-[11px] text-[#555]">
+        <span className="text-[11px] text-[#888]">
           {src === null ? "picture missing" : "loading picture…"}
         </span>
       )}
@@ -112,7 +112,7 @@ function Picture({ preview }: { preview: ValuePreviewRef }) {
 function PageList({ pages, lead }: { pages: string[]; lead: string }) {
   if (pages.length === 0) return null;
   return (
-    <p className="text-[11px] leading-relaxed text-[#777]">
+    <p className="text-[11px] leading-relaxed text-[#888]">
       {lead}{" "}
       {pages.slice(0, 3).map((p, i) => (
         <span key={p}>
@@ -140,7 +140,7 @@ function CardBody({
     return (
       <>
         <Picture preview={preview} />
-        <p className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-[#666]">
+        <p className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-[#888]">
           <span className="font-mono text-[12px] text-white">{preview.route}</span>
           <span>
             · {preview.device}, {preview.theme} · {relTime(preview.capturedAt)}

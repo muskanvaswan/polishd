@@ -58,7 +58,7 @@ function timeAgo(ms: number): string {
 function StatePill({ detail }: { detail: PolishdGithubIssue | null }) {
   if (!detail) {
     return (
-      <span className="shrink-0 rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#666]">
+      <span className="shrink-0 rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888]">
         ○ unreadable
       </span>
     );
@@ -163,24 +163,24 @@ function IssueRow({
             onClick={(e) => e.stopPropagation()}
             className="text-[14px] font-medium leading-snug text-white hover:text-[#8ab4f8]"
           >
-            <span className="mr-1.5 font-mono text-[12px] tabular-nums text-[#666]">
+            <span className="mr-1.5 font-mono text-[12px] tabular-nums text-[#888]">
               #{issue.number}
             </span>
             {title}
           </a>
 
-          <p className="mt-1.5 text-[11px] leading-snug text-[#666]">{metaLine(issue)}</p>
+          <p className="mt-1.5 text-[11px] leading-snug text-[#888]">{metaLine(issue)}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <StatePill detail={detail} />
-          <span className="text-[#555] transition-colors group-hover:text-[#999]">›</span>
+          <span className="text-[#888] transition-colors group-hover:text-[#999]">›</span>
         </div>
       </div>
 
       {/* What polishd knows and GitHub doesn't: where this came from. */}
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <Chip tone="text-[#aaa]">
-          <span className="text-[#666]">evidence</span>{" "}
+          <span className="text-[#888]">evidence</span>{" "}
           <span className="font-mono">{issue.evidence}</span>
         </Chip>
         {issue.verdict === "confirmed" && (
@@ -195,7 +195,7 @@ function IssueRow({
       </div>
 
       {!detail && (
-        <p className="mt-2.5 text-[12px] leading-relaxed text-[#777]">
+        <p className="mt-2.5 text-[12px] leading-relaxed text-[#888]">
           Polishd filed this issue{issue.filedAt ? ` on ${shortDate(issue.filedAt)}` : ""}, but
           GitHub won&apos;t return it now — it was deleted or transferred, or the access token
           no longer covers{repo ? ` ${repo}` : " the repository"}.
@@ -239,7 +239,7 @@ function FixPanel({
   return (
     <div className={`border-t ${border} px-4 py-4 sm:px-5`}>
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-[10px] uppercase tracking-[0.08em] text-[#666]">Suggested fix</div>
+        <div className="text-[10px] uppercase tracking-[0.08em] text-[#888]">Suggested fix</div>
         {suggestion && <BugTypeChip type={suggestion.bugType} />}
       </div>
 
@@ -255,7 +255,7 @@ function FixPanel({
 
           {suggestion.steps.length > 0 && (
             <div className="mt-4">
-              <div className="mb-2 text-[10px] uppercase tracking-[0.08em] text-[#666]">
+              <div className="mb-2 text-[10px] uppercase tracking-[0.08em] text-[#888]">
                 Implementation path
               </div>
               <ol>
@@ -294,7 +294,7 @@ function FixPanel({
 
           {suggestion.practices.length > 0 && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] text-[#666]">grounded in</span>
+              <span className="text-[10px] text-[#888]">grounded in</span>
               {suggestion.practices.map((p) => (
                 <Chip key={p} tone="text-[#aaa]">
                   {p}
@@ -313,14 +313,14 @@ function FixPanel({
             >
               {pending ? "Rethinking…" : "Regenerate"}
             </button>
-            <span className="text-[10px] text-[#555]">
+            <span className="text-[10px] text-[#888]">
               {suggestion.model} · {timeAgo(suggestion.generatedAt)}
             </span>
           </div>
         </>
       ) : canSuggest ? (
         <>
-          <p className="mb-3 text-[12px] leading-relaxed text-[#777]">
+          <p className="mb-3 text-[12px] leading-relaxed text-[#888]">
             Ask the configured model to classify this bug — interaction or design — and propose
             a fix grounded in the repository&apos;s source, with the files to change.
           </p>
@@ -336,7 +336,7 @@ function FixPanel({
           </button>
         </>
       ) : (
-        <p className="text-[12px] leading-relaxed text-[#777]">
+        <p className="text-[12px] leading-relaxed text-[#888]">
           Configure a model API key in the settings and polishd can propose a fix for this
           issue from your source code.
         </p>
@@ -352,7 +352,7 @@ function FixPanel({
 function MetaCell({ label: labelText, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className={`px-4 py-3 ${border} border-t`}>
-      <div className="text-[10px] uppercase tracking-[0.08em] text-[#666]">{labelText}</div>
+      <div className="text-[10px] uppercase tracking-[0.08em] text-[#888]">{labelText}</div>
       <div className={`mt-1 break-words text-[13px] text-white ${mono ? "font-mono text-[12px]" : ""}`}>
         {value}
       </div>
@@ -395,10 +395,16 @@ function IssueDrawer({
 
   return (
     <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
-      {/* backdrop */}
-      <div
+      {/* backdrop — a button, because clicking it closes the drawer. As a
+          plain div with a React onClick, the click capture can't see the
+          handler and logs every close as a dead click. Hidden from assistive
+          tech and the tab order; Escape and the ✕ button are the ways out. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
+        className={`absolute inset-0 cursor-default bg-black/60 transition-opacity duration-200 ${
           open ? "opacity-100" : "opacity-0"
         }`}
       />
@@ -486,17 +492,17 @@ function IssueDrawer({
 
               {/* the issue body, as the markdown it is */}
               <div className={`border-t ${border} px-4 py-4 sm:px-5`}>
-                <div className="mb-3 text-[10px] uppercase tracking-[0.08em] text-[#666]">
+                <div className="mb-3 text-[10px] uppercase tracking-[0.08em] text-[#888]">
                   Issue body
                 </div>
                 {detail ? (
                   detail.body.trim().length > 0 ? (
                     <Markdown text={detail.body} />
                   ) : (
-                    <p className="text-[12px] italic text-[#555]">This issue has no body.</p>
+                    <p className="text-[12px] italic text-[#888]">This issue has no body.</p>
                   )
                 ) : (
-                  <p className="text-[12px] leading-relaxed text-[#777]">
+                  <p className="text-[12px] leading-relaxed text-[#888]">
                     GitHub won&apos;t return this issue any more — it was deleted or
                     transferred, or the access token no longer covers
                     {repo ? ` ${repo}` : " the repository"}.

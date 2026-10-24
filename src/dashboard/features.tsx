@@ -28,18 +28,18 @@ function TopInteractionRow({ el }: { el: TopInteraction }) {
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-medium text-white">{el.label}</span>
           <span
-            className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
-              el.isComponent ? "bg-blue-950 text-blue-400" : "bg-[#1a1a1a] text-[#555]"
+            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+              el.isComponent ? "bg-blue-950 text-blue-400" : "bg-[#1a1a1a] text-[#888]"
             }`}
           >
             {el.isComponent ? "component" : "selector"}
           </span>
         </div>
         {el.sampleText && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#555]">"{el.sampleText}"</div>
+          <div className="mt-0.5 font-mono text-[11px] text-[#888]">"{el.sampleText}"</div>
         )}
         {el.isComponent && el.selector && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#444]">{el.selector}</div>
+          <div className="mt-0.5 font-mono text-[11px] text-[#888]">{el.selector}</div>
         )}
       </td>
       <td className="py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums text-white">
@@ -76,11 +76,13 @@ export default function TopFeaturesTable({
         </table>
       </div>
       {hidden > 0 && (
-        <div className={`${divider} px-5 py-2.5 text-center`}>
+        <div className={divider}>
+          {/* The button is the whole strip: with only its text clickable, a
+              click on the rest of the bar did nothing (a dead click). */}
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="text-[12px] font-medium text-[#888] transition-colors hover:text-white"
+            className="w-full px-5 py-2.5 text-center text-[12px] font-medium text-[#888] transition-colors hover:bg-[#111] hover:text-white"
           >
             {expanded ? "Show less" : `Show ${hidden} more`}
           </button>
