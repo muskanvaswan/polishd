@@ -15,6 +15,7 @@
  *   });
  */
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { after } from "next/server";
 import { Suspense, type ReactNode } from "react";
 
@@ -75,6 +76,7 @@ import type {
   PolishdSummary,
 } from "../ai/types";
 import DashboardChrome, { TabSkeleton, type PolishdDashboardTab } from "./chrome";
+import { POLISHD_THEME_COOKIE, themeFrom, type PolishdTheme } from "./theme";
 import { DesignPanel } from "./design";
 import InstallsView from "./installs";
 import IssuesView from "./issues";
@@ -1070,8 +1072,21 @@ function PolishdShell({ children }: { children: ReactNode }) {
  * Rendered whether or not the shell is used, since the stylesheet is scoped
  * either way.
  */
-function PolishdRoot({ children }: { children: ReactNode }) {
-  return <div className="polishd-root">{children}</div>;
+function PolishdRoot({ theme, children }: { theme: PolishdTheme; children: ReactNode }) {
+  return (
+    <div className="polishd-root" data-theme={theme}>
+      {children}
+    </div>
+  );
+}
+
+/** The owner's light/dark choice, from the cookie the sidebar toggle sets. */
+async function readPolishdTheme(): Promise<PolishdTheme> {
+  try {
+    return themeFrom((await cookies()).get(POLISHD_THEME_COOKIE)?.value);
+  } catch {
+    return "dark"; // Outside a request (a static render): the default.
+  }
 }
 
 /**
@@ -1270,8 +1285,8 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
   // Applied to the unauthorized screen as well: a sign-in prompt stranded
   // below a non-scrolling fold is the same bug with higher stakes.
-  const wrap = (node: ReactNode) => (
-    <PolishdRoot>
+  const wrap = (theme: PolishdTheme, node: ReactNode) => (
+    <PolishdRoot theme={theme}>
       {opts.shell === false ? node : <PolishdShell>{node}</PolishdShell>}
     </PolishdRoot>
   );
@@ -1282,20 +1297,22 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
   return async function PolishdPage(props: PolishdPageProps = {}) {
     const sp = props.searchParams ? await props.searchParams : {};
+    const theme = await readPolishdTheme();
 
-    if (policy.mode === "setup-required") return wrap(<SetupRequired />);
+    if (policy.mode === "setup-required") return wrap(theme, <SetupRequired />);
     if (policy.mode === "guarded") {
       const ok = await policy.authenticate(await polishdAuthContext());
       if (!ok) {
-        if (opts.unauthorized) return wrap(opts.unauthorized);
+        if (opts.unauthorized) return wrap(theme, opts.unauthorized);
         if (usingTokenAuth) {
           const raw = sp.polishd_unlock;
           const code = Array.isArray(raw) ? raw[0] : raw;
           return wrap(
+            theme,
             <TokenUnlock error={code === "rate" || code === "invalid" ? code : undefined} />,
           );
         }
-        return wrap(<Unauthorized />);
+        return wrap(theme, <Unauthorized />);
       }
     }
 
@@ -1366,8 +1383,14 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       );
 
     return wrap(
+      theme,
       <>
-        <DashboardChrome active={tab} showInstalls={showInstalls} showIssues={showIssues}>
+        <DashboardChrome
+          active={tab}
+          showInstalls={showInstalls}
+          showIssues={showIssues}
+          theme={theme}
+        >
           {body}
         </DashboardChrome>
         {telemetryUi}

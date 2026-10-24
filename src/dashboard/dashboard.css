@@ -184,7 +184,8 @@
        (≈2.5–3:1) never carries text, not even an em-dash or a separator dot:
        it's for rules, underlines, status dots, an icon beside its own label,
        and struck-out glyphs.
-       Dark is the default; the light set below follows the OS setting. */
+       Dark is the default; the light set below applies when the owner picks
+       it with the sidebar toggle. */
     --pd-canvas: #0a0a0a;
     --pd-sunken: #0d0d0d;
     --pd-surface: #121212;
@@ -221,37 +222,37 @@
     scrollbar-color: var(--pd-line-strong) transparent;
   }
 
-  /* Ink, light. Follows the viewer's OS setting — the dashboard is a page in
-     someone's app, and their system preference is the one signal it has.
+  /* Ink, light. Chosen with the sidebar toggle, which sets `data-theme` on
+     the root and remembers it in a cookie the server reads, so a reload
+     renders the chosen theme straight away. Dark otherwise, whatever the OS
+     says — the dashboard is a dark tool by default.
      Status hues are dark enough to clear 4.5:1 on their own 10–15% tint
      (badges, the filed-issue chip) over every light surface, not just on
      white: the 700 steps managed ≈4.0:1 there, so ok and warn take their
      800 steps and bad Tailwind's red-700. */
-  @media (prefers-color-scheme: light) {
-    .polishd-root {
-      --pd-canvas: #fafafa;
-      --pd-sunken: #f4f4f4;
-      --pd-surface: #ffffff;
-      --pd-raised: #f4f4f4;
-      --pd-overlay: #ffffff;
-      --pd-line: #e7e7e7;
-      --pd-line-strong: #d4d4d4;
-      --pd-fg: #0a0a0a;
-      --pd-fg-2: #404040;
-      --pd-fg-3: #666666;
-      --pd-fg-4: #a3a3a3;
-      --pd-accent: #0a0a0a;
-      --pd-accent-hover: #2a2a2a;
-      --pd-accent-fg: #ffffff;
-      --pd-ok: #166534;
-      --pd-warn: #92400e;
-      --pd-bad: #b91c1c;
-      --pd-info: #404040;
-      --pd-violet: #7d5f3e;
-      --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
-      --pd-shadow-pop: 0 0 0 1px rgb(0 0 0 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.18);
-      color-scheme: light;
-    }
+  .polishd-root[data-theme="light"] {
+    --pd-canvas: #fafafa;
+    --pd-sunken: #f4f4f4;
+    --pd-surface: #ffffff;
+    --pd-raised: #f4f4f4;
+    --pd-overlay: #ffffff;
+    --pd-line: #e7e7e7;
+    --pd-line-strong: #d4d4d4;
+    --pd-fg: #0a0a0a;
+    --pd-fg-2: #404040;
+    --pd-fg-3: #666666;
+    --pd-fg-4: #a3a3a3;
+    --pd-accent: #0a0a0a;
+    --pd-accent-hover: #2a2a2a;
+    --pd-accent-fg: #ffffff;
+    --pd-ok: #166534;
+    --pd-warn: #92400e;
+    --pd-bad: #b91c1c;
+    --pd-info: #404040;
+    --pd-violet: #7d5f3e;
+    --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --pd-shadow-pop: 0 0 0 1px rgb(0 0 0 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.18);
+    color-scheme: light;
   }
 
   .polishd-root ::selection {

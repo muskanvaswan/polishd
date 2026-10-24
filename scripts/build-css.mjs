@@ -72,8 +72,9 @@ function scopeSelector(selector) {
 
   // The hand-authored reset is written against the single class; rewrite its
   // leading scope so it gets the same specificity bump as everything else.
+  // `.polishd-root[data-theme="light"]` is the root too, not a descendant of it.
   if (trimmed === SCOPE_CLASS || trimmed.startsWith(`${SCOPE_CLASS} `) ||
-      trimmed.startsWith(`${SCOPE_CLASS}:`)) {
+      trimmed.startsWith(`${SCOPE_CLASS}:`) || trimmed.startsWith(`${SCOPE_CLASS}[`)) {
     return SCOPE + trimmed.slice(SCOPE_CLASS.length);
   }
 

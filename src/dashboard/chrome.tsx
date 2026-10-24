@@ -45,9 +45,13 @@ import {
   GlobeIcon,
   GridIcon,
   IssueIcon,
+  MoonIcon,
   SpinnerIcon,
+  SunIcon,
   card,
+  iconBtn,
 } from "./ui";
+import { POLISHD_THEME_COOKIE, type PolishdTheme } from "./theme";
 
 export type PolishdDashboardTab =
   | "overview"
@@ -143,9 +147,12 @@ export default function DashboardChrome({
   active,
   showInstalls = false,
   showIssues = false,
+  theme = "dark",
   children,
 }: {
   active: PolishdDashboardTab;
+  /** The theme the server rendered, from the owner's cookie. Dark by default. */
+  theme?: PolishdTheme;
   /** Render the Installs tab (only collectors of telemetry pass true). */
   showInstalls?: boolean;
   /** Render the Issues tab (only installs with GitHub connected pass true). */
@@ -191,13 +198,16 @@ export default function DashboardChrome({
           <aside className="shrink-0 lg:w-48">
             <div className="lg:sticky lg:top-10">
               <div className="lg:px-2.5">
-                <TabLink
-                  tab="overview"
-                  aria-label="Polishd — Overview"
-                  className="inline-flex rounded-md"
-                >
-                  <BrandWordmark height={44} />
-                </TabLink>
+                <div className="flex items-start justify-between gap-3">
+                  <TabLink
+                    tab="overview"
+                    aria-label="Polishd — Overview"
+                    className="inline-flex rounded-md"
+                  >
+                    <BrandWordmark height={44} />
+                  </TabLink>
+                  <ThemeToggle initial={theme} />
+                </div>
                 <p className="mt-2 text-[11.5px] leading-snug text-fg-3">
                   What gets measured gets improved
                 </p>
@@ -245,6 +255,46 @@ export default function DashboardChrome({
         </div>
       </div>
     </TabNavContext.Provider>
+  );
+}
+
+/**
+ * The light/dark switch. Flips `data-theme` on the scope root at once — the
+ * palette is all `--pd-*` variables, so nothing re-renders — and remembers the
+ * choice in a cookie scoped to the dashboard's own path, which the server
+ * reads to render the same theme on the next load (no flash of the other).
+ */
+function ThemeToggle({ initial }: { initial: PolishdTheme }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [theme, setTheme] = useState<PolishdTheme>(initial);
+
+  // A host rendering the chrome itself (PolishdDashboard) may not have read
+  // the cookie: the root's attribute is the truth once we're on the page.
+  useEffect(() => {
+    const current = ref.current?.closest(".polishd-root")?.getAttribute("data-theme");
+    if (current === "light" || current === "dark") setTheme(current);
+  }, []);
+
+  const next: PolishdTheme = theme === "dark" ? "light" : "dark";
+  const toggle = () => {
+    ref.current?.closest(".polishd-root")?.setAttribute("data-theme", next);
+    document.cookie =
+      `${POLISHD_THEME_COOKIE}=${next}; path=${location.pathname}; max-age=31536000; samesite=lax`;
+    setTheme(next);
+  };
+
+  return (
+    <button
+      ref={ref}
+      type="button"
+      data-component="theme-toggle"
+      onClick={toggle}
+      aria-label={`Switch to ${next} mode`}
+      title={`Switch to ${next} mode`}
+      className={iconBtn}
+    >
+      {theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />}
+    </button>
   );
 }
 
