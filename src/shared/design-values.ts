@@ -80,19 +80,23 @@ export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarg
 
 /**
  * Why a flagged value has no picture yet, so its card can say something
- * true. A snapshot only shoots the site's own pages: a value measured only on
- * Polishd's dashboard pseudo-pages (`/~polishd/<tab>`, what an install reading
- * dashboard telemetry measures) will never be pictured, and one measured on
- * pages the latest snapshot didn't shoot needs those pages captured — another
- * identical capture won't help. Nor will it for a value past the per-capture
- * cap on pictures (`targeted` false).
+ * true. A value measured only on Polishd's dashboard pseudo-pages
+ * (`/~polishd/<tab>`, what an install reading dashboard telemetry measures)
+ * is only pictured by a local capture, which can open the dashboard — a
+ * production capture never shoots it. One measured on pages the latest
+ * snapshot didn't shoot needs those pages captured, and another identical
+ * capture won't help; nor will it for a value past the per-capture cap on
+ * pictures (`targeted` false).
  */
 export function unpicturedReason(
   pages: string[],
   shotRoutes: string[] | null,
   targeted = true,
 ): "dashboard_only" | "not_targeted" | "not_shot" | "capture" {
-  if (pages.length > 0 && pages.every((p) => p.startsWith("/~"))) return "dashboard_only";
+  const shotHere = (p: string) => shotRoutes?.includes(p) ?? false;
+  if (pages.length > 0 && pages.every((p) => p.startsWith("/~")) && !pages.some(shotHere)) {
+    return "dashboard_only";
+  }
   if (!targeted) return "not_targeted";
   if (shotRoutes && pages.length > 0 && !pages.some((p) => shotRoutes.includes(p))) return "not_shot";
   return "capture";

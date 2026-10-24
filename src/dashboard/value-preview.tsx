@@ -166,7 +166,7 @@ function CardBody({
 function unpictured(pages: string[], state: Extract<ValuePreviewState, { kind: "none" }>): string {
   switch (unpicturedReason(pages, state.shotRoutes, state.targeted)) {
     case "dashboard_only":
-      return "Measured only on Polishd's own dashboard pages, which site snapshots don't shoot.";
+      return "Measured on Polishd's own dashboard pages, which only a capture in local development (next dev) can shoot.";
     case "not_targeted":
       return "Snapshots picture up to 64 flagged values, most-used first, and this one is past the limit.";
     case "not_shot":

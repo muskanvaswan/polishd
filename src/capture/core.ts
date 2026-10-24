@@ -175,14 +175,21 @@ export function requestAction(
     return "abort";
   }
   if (req.navigation && req.mainFrame && url.origin !== origin) return "stay";
-  if (
-    url.origin === origin &&
-    req.method === "POST" &&
-    (req.postData ?? "").startsWith('{"events":')
-  ) {
-    return "beacon";
-  }
+  if (req.method === "POST" && isPolishdBeacon(url.origin === origin, req.postData)) return "beacon";
   return "continue";
+}
+
+/**
+ * True for a batch Polishd itself would record: the site's own analytics
+ * (`{"events":…}`, posted to its ingest route) or dashboard telemetry
+ * (`{"sessionId":…,"events":…}`, posted to the telemetry collector — on
+ * another origin for every install but the collecting one). A capture that
+ * renders the dashboard must report neither.
+ */
+export function isPolishdBeacon(sameOrigin: boolean, postData: string | null): boolean {
+  const body = postData ?? "";
+  if (sameOrigin && body.startsWith('{"events":')) return true;
+  return /^\{"sessionId":"[^"]{0,200}","events":\[/.test(body);
 }
 
 // ── Framing ──────────────────────────────────────────────────────────────────

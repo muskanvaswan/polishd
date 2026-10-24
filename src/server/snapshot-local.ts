@@ -46,12 +46,21 @@ function state(): LocalBrowserState {
 }
 
 /**
+ * True when this process is a Vercel deployment. `VERCEL` alone isn't enough:
+ * `vercel env pull` copies it into `.env.local`, so `next dev` on a laptop
+ * can see it too — and that laptop has a browser and a writable disk.
+ */
+export function onVercelDeployment(): boolean {
+  return Boolean(process.env.VERCEL) && process.env.NODE_ENV !== "development";
+}
+
+/**
  * Why this server can't shoot locally, or null when it (probably) can. Only
  * Vercel is known for certain to have no browser; elsewhere the launch is the
  * test.
  */
 export function localCaptureUnavailable(): string | null {
-  return process.env.VERCEL
+  return onVercelDeployment()
     ? "This deployment has no browser of its own — snapshots here are shot by Polishd's screenshot service."
     : null;
 }

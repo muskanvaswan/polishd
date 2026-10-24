@@ -102,3 +102,19 @@ export function previewMisses(looked: string[], found: string[]): string[] {
   const pictured = new Set(found);
   return [...new Set(looked)].filter((key) => !pictured.has(key));
 }
+
+/**
+ * The dashboard tab a dashboard-telemetry page stands for: `/~polishd/design`
+ * is the dashboard's Design tab. An install that reads dashboard telemetry
+ * (Polishd's own site) measures these pages, and a local capture can shoot
+ * them, where the development dashboard is open.
+ */
+export function dashboardTabOf(route: string): string | null {
+  return /^\/~polishd\/([a-z0-9-]{1,40})$/.exec(route)?.[1] ?? null;
+}
+
+/** The path a local capture loads for `route`: dashboard pages map to their tab. */
+export function capturePathFor(route: string, dashboardRoute: string): string {
+  const tab = dashboardTabOf(route);
+  return tab ? `${dashboardRoute.replace(/\/+$/, "") || "/"}?tab=${tab}` : route;
+}

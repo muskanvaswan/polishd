@@ -63,9 +63,11 @@ test("only flagged values become targets, one-offs before off-grid spacing", () 
   assert.deepEqual(targets[3].pages, ["/", "/about"]);
 });
 
-test("a value measured only on dashboard pseudo-pages can never be pictured", () => {
+test("a value measured only on dashboard pseudo-pages waits for a local capture", () => {
   assert.equal(unpicturedReason(["/~polishd/design", "/~polishd/analytics"], ["/"]), "dashboard_only");
   assert.equal(unpicturedReason(["/~polishd/design"], null), "dashboard_only");
+  // Once a local capture has shot the tab, it's an ordinary value.
+  assert.equal(unpicturedReason(["/~polishd/design"], ["/", "/~polishd/design"]), "capture");
 });
 
 test("a value whose pages the latest snapshot didn't shoot says so", () => {

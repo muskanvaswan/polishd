@@ -63,6 +63,11 @@ calls straight from the owner's browser.
   it's harmless) and asks whether snapshots may use it. Allowing it starts
   the capture. The answer is kept per install. It can be reviewed later, and
   withdrawn with "Turn off".
+- **Local captures shoot Polishd's dashboard tabs** when the Design tab
+  measures them (an install reading dashboard telemetry, such as Polishd's
+  own site). Production captures never do. A `/~polishd/<tab>` page is shot
+  as the development dashboard's tab, and telemetry the captured dashboard
+  would send is answered locally, so it never counts as usage.
 - **Every off-grid padding gets pictured**, not just the 8 most used. A
   capture also hands each page's value searches out fairly, so values that
   never turn up no longer crowd out the rest of the list. Paddings came last,

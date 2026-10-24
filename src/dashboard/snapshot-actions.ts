@@ -31,7 +31,7 @@ import { resolveSettings } from "../ai/settings";
 import { parseCaptureBlock, type StoredCaptureBlock } from "../capture/protocol";
 import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
-import type { ShotSlot } from "../server/snapshot-files";
+import { dashboardTabOf, type ShotSlot } from "../server/snapshot-files";
 import { resolveSiteOrigin } from "../server/site-origin";
 import {
   MAX_SNAPSHOT_ROUTES,
@@ -75,30 +75,6 @@ export async function beginSnapshotCaptureAction(): Promise<
       };
     }
 
-    const data = await getDesignData();
-    const dashboardRoute = resolveDashboardRoute();
-    // Shoot what visitors have actually rendered, never the dashboard itself
-    // (nor the telemetry pseudo-paths the collector namespaces under /~polishd).
-    const scanned = data.pages
-      .map((p) => p.path)
-      .filter(
-        (p) => p.startsWith("/") && !p.startsWith("/~") && !isDashboardPath(p, dashboardRoute),
-      );
-    const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
-
-    // Stamp the snapshot with the same metrics fingerprint the AI review caches
-    // under, so "taken before/after this round of changes" is a hash comparison.
-    let fingerprint: string | null = null;
-    if (data.ready && data.pages.length > 0) {
-      const { settings } = await resolveSettings();
-      fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
-    }
-
-    // The one-off and off-grid values flagged right now get pictured in place,
-    // so hovering one on the Design tab shows the element that carries it.
-    const shot = new Set(routes);
-    const targets = designPreviewTargets(data).filter((t) => t.pages.some((p) => shot.has(p)));
-
     // The same decision the Design tab rendered with, re-made per call: the
     // service is only ever used once the owner has agreed to it.
     const { mode, storageIssue } = await snapshotAvailability(origin);
@@ -122,7 +98,40 @@ export async function beginSnapshotCaptureAction(): Promise<
               : "Site snapshots are off on this deployment (POLISHD_SNAPSHOT_SERVICE=off).",
       };
     }
-    const engine = mode.kind === "service" ? { kind: "service" as const, url: mode.url } : { kind: "local" as const };
+    const engine =
+      mode.kind === "service" ? { kind: "service" as const, url: mode.url } : { kind: "local" as const };
+
+    const data = await getDesignData();
+    const dashboardRoute = resolveDashboardRoute();
+    // Shoot what visitors have actually rendered, never the dashboard as a
+    // page of the site. The exception is an install that measures Polishd's
+    // own dashboard (it reads dashboard telemetry, labelled /~polishd/<tab>):
+    // a local capture shoots those tabs too, where the development dashboard
+    // is open. The hosted service never does — it would need the dashboard's
+    // credentials.
+    const scanned = data.pages
+      .map((p) => p.path)
+      .filter(
+        (p) =>
+          p.startsWith("/") &&
+          !isDashboardPath(p, dashboardRoute) &&
+          (!p.startsWith("/~") || (engine.kind === "local" && dashboardTabOf(p) !== null)),
+      );
+    const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
+
+    // Stamp the snapshot with the same metrics fingerprint the AI review caches
+    // under, so "taken before/after this round of changes" is a hash comparison.
+    let fingerprint: string | null = null;
+    if (data.ready && data.pages.length > 0) {
+      const { settings } = await resolveSettings();
+      fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
+    }
+
+    // The one-off and off-grid values flagged right now get pictured in place,
+    // so hovering one on the Design tab shows the element that carries it.
+    const shot = new Set(routes);
+    const targets = designPreviewTargets(data).filter((t) => t.pages.some((p) => shot.has(p)));
+
     return await beginSnapshot({ origin, routes, fingerprint, targets, engine });
   } catch (err) {
     return failed("Snapshot capture failed unexpectedly", err);

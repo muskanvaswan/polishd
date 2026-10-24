@@ -514,6 +514,17 @@ What the service does, plainly:
   `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever being called;
   snapshots are then only taken in local development.
 
+**Polishd's own dashboard pages.** An install that reads dashboard telemetry
+(`POLISHD_ANALYTICS_SOURCE=telemetry`, which is Polishd's own site) measures
+the dashboard's tabs, labelled `/~polishd/<tab>`. Production captures never
+shoot those, because the service would need your dashboard's credentials. A
+capture in local development does: your own Chrome opens each tab of the
+development dashboard (where it's open without a login). Run the site locally
+with the production environment (`vercel env pull`) and the pictures upload
+to the production Blob store, so the live Design tab shows them. Telemetry the
+captured dashboard would send is answered locally, so it never counts as
+usage.
+
 **Where the images go.** On disk under `.polishd/snapshots/` locally, and on
 a self-hosted server with a writable disk (`POLISHD_SNAPSHOT_DIR` overrides).
 **On Vercel**, connect a

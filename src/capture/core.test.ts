@@ -117,6 +117,15 @@ test("polishd's own beacons are answered locally", () => {
   assert.equal(post("https://collector.example/api/polishd", '{"events":[]}'), "continue");
 });
 
+test("dashboard telemetry from a captured dashboard is answered locally, wherever it's sent", () => {
+  const post = (url: string, postData: string) =>
+    requestAction(ORIGIN, { url, method: "POST", navigation: false, mainFrame: true, postData });
+  const batch = '{"sessionId":"s-123","events":[{"type":"page_view"}]}';
+  assert.equal(post("https://polishd.example/api/polishd-telemetry", batch), "beacon");
+  assert.equal(post("https://example.com/api/polishd-telemetry", batch), "beacon");
+  assert.equal(post("https://other.example/api", '{"sessionId":"s","cart":[]}'), "continue");
+});
+
 // ── Framing ──────────────────────────────────────────────────────────────────
 
 test("a small element gets a component's worth of context at 16:10", () => {
