@@ -10,21 +10,25 @@
  */
 
 export interface RageTracker {
-  /** Record a click; true exactly when it completes a rage burst. */
-  hit(selector: string | undefined, now: number): boolean;
+  /**
+   * Record a click on `target` — the element itself, compared by identity, so
+   * one that restyles as it's clicked stays one element. True exactly when the
+   * click completes a rage burst.
+   */
+  hit(target: object | null | undefined, now: number): boolean;
 }
 
 export function createRageTracker(count: number, windowMs: number): RageTracker {
-  let last = { selector: "", time: 0, count: 0 };
+  let last: { target: object | null; time: number; count: number } = { target: null, time: 0, count: 0 };
   return {
-    hit(selector, now) {
-      // Same selector clicked `count` times, each within `windowMs` of the last.
-      if (selector === last.selector && now - last.time < windowMs) {
+    hit(target, now) {
+      // Same element clicked `count` times, each within `windowMs` of the last.
+      if (target && target === last.target && now - last.time < windowMs) {
         last.count++;
         last.time = now;
         return last.count === count;
       }
-      last = { selector: selector ?? "", time: now, count: 1 };
+      last = { target: target ?? null, time: now, count: 1 };
       return false;
     },
   };

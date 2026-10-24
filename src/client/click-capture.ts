@@ -8,11 +8,18 @@
  * here.
  *
  *   click       on a control, or on anything after which the page responded
- *   rage_click  the same element hit `rageCount` times inside `rageWindowMs`,
- *               decided and emitted at the click itself (rage.ts)
+ *   rage_click  the same element (the same node, not just the same selector)
+ *               hit `rageCount` times inside `rageWindowMs`, decided and
+ *               emitted at the click itself (rage.ts)
  *   dead_click  on something that isn't a control, after which nothing
  *               happened for a second (click-outcome.ts) — with the control it
  *               narrowly missed, if any, in `meta.near`
+ *
+ * `selector` is the stable key every event carries. Rage and dead clicks also
+ * carry `meta.handle`, a path to find the element in the source by (target.ts
+ * `handleOf`) — and a near miss `meta.nearHandle`, the missed control's. A
+ * handle reads the whole document, so plain clicks, which are only counted,
+ * never pay for one.
  *
  * Clicks on text (reading, selecting) are neither and are not recorded.
  *
@@ -22,6 +29,7 @@
 import { createClickJudge, DEAD_CLICK_HOLD_MS, type JudgeEnv, type MutationLike, type NodeLike } from "./click-outcome";
 import {
   componentOf,
+  handleOf,
   hasTextSelection,
   isComponentSized,
   isInteractive,
@@ -50,7 +58,7 @@ export interface ClickCaptureEvent {
   selector?: string;
   component?: string;
   text?: string;
-  meta?: { near: string };
+  meta?: { near?: string; handle?: string; nearHandle?: string };
 }
 
 export interface ClickCaptureOptions {
@@ -85,6 +93,12 @@ const browserJudgeEnv = (): JudgeEnv => ({
   isComponentSized: (node) => {
     const el = elementOf(node);
     return !!el && isComponentSized(el);
+  },
+  isUnderPoint(node, point) {
+    const el = elementOf(node);
+    if (!el || !isComponentSized(el)) return false;
+    const r = el.getBoundingClientRect();
+    return point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
   },
   isOwn: (node) => !!elementOf(node)?.closest(OWN_UI_SELECTOR),
   observe(onRecords) {
@@ -134,7 +148,8 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
   const judge = createClickJudge(browserJudgeEnv(), { holdMs: DEAD_CLICK_HOLD_MS });
   const rage = createRageTracker(opts.rageCount, opts.rageWindowMs);
   const active = opts.active ?? (() => true);
-  let last: InteractionLike | null = null;
+  let last: { ts: number; component?: string; label?: string; selector?: string; el: Element } | null =
+    null;
   const listen = { capture: true, passive: true } as const;
 
   // Watch from the press, so a widget that acts on pointerdown still counts.
@@ -147,7 +162,15 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
       // Every press starts a new interaction, control or not: what happens
       // from here is this press's doing, not an earlier click's.
       judge.begin(target as unknown as NodeLike, "press");
-      if (!isInteractive(target)) judge.arm(target as unknown as NodeLike);
+      if (!isInteractive(target)) judge.arm(target as unknown as NodeLike, pointOf(ev));
+    }),
+    listen,
+  );
+  // Where the pointer goes after a click is hover, not the click's doing.
+  document.addEventListener(
+    "pointerover",
+    guarded((ev: PointerEvent) => {
+      if (ev.target) judge.hover(ev.target as unknown as NodeLike);
     }),
     listen,
   );
@@ -174,13 +197,24 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
       const text = labelOf(target);
       const now = Date.now();
       const path = opts.path();
-      last = { ts: now, component, label: text, selector };
+      last = { ts: now, component, label: text, selector, el: target };
 
-      // Rage is decided here and now, never held: the burst is the signal.
+      // Rage is decided here and now, never held: the burst is the signal. It
+      // counts hits on this node, so an element whose classes change as it's
+      // clicked (a like button gaining `liked`) is still one element.
       // Double/triple-clicking prose selects a word or paragraph — that burst
       // is intent to copy, not frustration.
-      if (rage.hit(selector, now) && !isSelectionGesture(target)) {
-        opts.emit({ type: "rage_click", ts: now, path, selector, component, text });
+      if (rage.hit(target, now) && !isSelectionGesture(target)) {
+        const handle = handleOf(target);
+        opts.emit({
+          type: "rage_click",
+          ts: now,
+          path,
+          selector,
+          component,
+          text,
+          ...(handle ? { meta: { handle } } : {}),
+        });
       }
 
       if (isInteractive(target)) {
@@ -200,33 +234,51 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
 
       // Not recognisably a control: judge it by what happens next. The near
       // miss is measured now, while the layout is the one the visitor saw.
+      const point = pointOf(ev);
       let miss: ReturnType<typeof nearMissOf> = null;
       try {
-        miss = nearMissOf(target, pointOf(ev), text);
+        miss = nearMissOf(target, point, text);
       } catch {
         /* no near miss rather than no event */
       }
-      judge.judge(target as unknown as NodeLike, (worked) => {
-        if (worked) {
-          opts.emit({ type: "click", ts: now, path, selector, component, text });
-          return;
-        }
-        opts.emit({
-          type: "dead_click",
-          ts: now,
-          path,
-          selector,
-          component,
-          text: miss ? miss.text : text,
-          ...(miss ? { meta: { near: miss.near.slice(0, MAX_NEAR_LEN) } } : {}),
-        });
-      });
+      judge.judge(
+        target as unknown as NodeLike,
+        (worked) => {
+          if (worked) {
+            opts.emit({ type: "click", ts: now, path, selector, component, text });
+            return;
+          }
+          // Dead: the DOM is as it was, so the handles read the layout clicked.
+          const meta: NonNullable<ClickCaptureEvent["meta"]> = {};
+          const handle = handleOf(target);
+          if (handle) meta.handle = handle;
+          if (miss) {
+            meta.near = miss.near.slice(0, MAX_NEAR_LEN);
+            const nearHandle = handleOf(miss.control);
+            if (nearHandle) meta.nearHandle = nearHandle;
+          }
+          opts.emit({
+            type: "dead_click",
+            ts: now,
+            path,
+            selector,
+            component,
+            text: miss ? miss.text : text,
+            ...(Object.keys(meta).length ? { meta } : {}),
+          });
+        },
+        point,
+      );
     }),
     listen,
   );
 
   return {
-    lastInteraction: () => last,
+    lastInteraction() {
+      if (!last) return null;
+      const { el, ...click } = last;
+      return { ...click, handle: () => handleOf(el) };
+    },
     settle: () => judge.settleAll(),
   };
 }

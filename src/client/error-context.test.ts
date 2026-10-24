@@ -116,6 +116,24 @@ test("afterMs is rounded to 100ms, so repeats of one error still group", () => {
   assert.deepEqual(delays, [1200, 1200, 1200]);
 });
 
+test("handle: the failing element's, else the attributed click's, computed only then", () => {
+  let computed = 0;
+  const withHandle = { ...click, handle: () => (computed++, 'form[data-component="settings"]>button.save') };
+  const reason = { message: "rejected" };
+  assert.equal(
+    errorContextMeta(reason, withHandle, click.ts + 100).handle,
+    'form[data-component="settings"]>button.save',
+  );
+  assert.equal(
+    errorContextMeta(reason, withHandle, click.ts + 100, { handle: "img.cover" }).handle,
+    "img.cover",
+    "a resource error names the element that failed",
+  );
+  computed = 0;
+  assert.equal(errorContextMeta(reason, withHandle, click.ts + 5000).handle, undefined);
+  assert.equal(computed, 0, "a click too long ago is never asked for a handle");
+});
+
 test("a click outside the window — or after the error — isn't attributed", () => {
   const late = click.ts + ERROR_INTERACTION_WINDOW_MS + 1;
   const reason = { message: "rejected" }; // a rejection reason with no stack

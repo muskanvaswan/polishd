@@ -42,7 +42,7 @@ import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
 import { POLISHD_VERSION } from "../version";
 import { startClickCapture } from "../client/click-capture";
-import { deviceCategory } from "../client/dom";
+import { deviceCategory, handleOf } from "../client/dom";
 import { scheduleDesignScan } from "../client/design-scan";
 import { errorContextMeta } from "../client/error-context";
 import { errorOrigin, startScriptProvenance } from "../client/script-provenance";
@@ -195,6 +195,7 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
             source,
             line,
             col: ev.colno || 0,
+            handle: handleOf(ev.target),
           }),
         },
       });

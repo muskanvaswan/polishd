@@ -76,18 +76,57 @@ const distinctiveClass = (el: Element): string | undefined => {
   return best;
 };
 
+/** The first class worth naming, in the order the markup lists them. */
+const firstPlainClass = (el: Element): string | undefined =>
+  (el.getAttribute("class") || "").split(/\s+/).find((c) => PLAIN_CLASS.test(c));
+
 /**
- * Compact, greppable selector path, at most four levels, ending at the target.
+ * Compact, stable selector path: at most four levels, tag plus first class,
+ * stopping at an id. The dashboard's element stats group by it and rage
+ * clicks used to compare it, so it depends only on the element's own markup,
+ * never on the rest of the document — a button toggling `liked` stays one
+ * selector, today and in last month's rows.
  *
- * Walks up from the target and stops at the nearest anchor: a
- * `data-component` (`section[data-component="hero"]`, the name the source
- * uses) or an id a person wrote (`div#settings`). Every other level is its tag
- * plus its most distinctive plain class, or the bare tag when it has none —
- * never an empty class. Stored selectors key the dashboard's element stats,
- * and the server reads their tag names back (`selectorTags`), so the tag always
- * leads each level.
+ * The first *plain* class, not the first class: a Tailwind variant
+ * (`lg:sticky`) or arbitrary value (`bg-[#111]`) is not a valid class
+ * selector, and a class attribute with nothing usable gives the bare tag
+ * rather than `a.`. Likewise generated ids (`:r1:`) are skipped, not anchored
+ * on. For a path a person can grep for, see {@link handleOf}.
  */
 export const selectorOf = (target: EventTarget | null): string | undefined => {
+  if (!isElement(target)) return undefined;
+  const parts: string[] = [];
+  let node: Element | null = target;
+  for (let depth = 0; node && depth < 4 && node.tagName !== "BODY"; depth++) {
+    const tag = node.tagName.toLowerCase();
+    if (node.id && PLAIN_ID.test(node.id)) {
+      parts.unshift(`${tag}#${node.id}`);
+      break;
+    }
+    const cls = firstPlainClass(node);
+    parts.unshift(cls ? `${tag}.${cls}` : tag);
+    node = node.parentElement;
+  }
+  return parts.join(">");
+};
+
+/** Cap on a handle, well inside ingest's 500-char per-value limit. */
+const MAX_HANDLE_LEN = 200;
+
+/**
+ * A path to find the element in the source by — `meta.handle` on dead and
+ * rage clicks, near misses and errors. At most four levels, it stops at the
+ * nearest `data-component` (`section[data-component="hero"]`, the name the
+ * source uses) or hand-written id, and names every other level by its most
+ * distinctive plain class: with Tailwind the first class is usually a generic
+ * utility (`text-white`, `absolute`) that names nothing.
+ *
+ * Because "most distinctive" depends on the rest of the document, a handle
+ * can differ between two clicks on the same element. That's why it is
+ * evidence, never a key: nothing groups or compares by it, and it's only
+ * computed for the events that get reported.
+ */
+export const handleOf = (target: EventTarget | null): string | undefined => {
   if (!isElement(target)) return undefined;
   const parts: string[] = [];
   let node: Element | null = target;
@@ -106,7 +145,8 @@ export const selectorOf = (target: EventTarget | null): string | undefined => {
     parts.unshift(cls ? `${tag}.${cls}` : tag);
     node = node.parentElement;
   }
-  return parts.join(">");
+  const handle = parts.join(">");
+  return handle.length > MAX_HANDLE_LEN ? handle.slice(-MAX_HANDLE_LEN) : handle;
 };
 
 export const labelOf = (target: EventTarget | null): string | undefined => {

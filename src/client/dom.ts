@@ -22,9 +22,9 @@ import {
   type Point,
 } from "./near-miss";
 import { hasReactClickHandler } from "./react-props";
-import { componentOf, labelOf as rawLabelOf, selectorOf } from "./target";
+import { componentOf, handleOf, labelOf as rawLabelOf, selectorOf } from "./target";
 
-export { componentOf, selectorOf };
+export { componentOf, handleOf, selectorOf };
 
 /**
  * An element's visible label, digit runs folded to `#` so a count in a label
@@ -33,21 +33,30 @@ export { componentOf, selectorOf };
 export const labelOf = (target: EventTarget | null): string | undefined =>
   normalizeLabel(rawLabelOf(target));
 
-/** Is this element itself a control? No ancestor walk — see `isInteractive`. */
-export const isControl = (node: Element): boolean => {
+/** Does the markup itself say this element is a control? */
+const isMarkupControl = (node: Element): boolean => {
   if (INTERACTIVE_TAGS.has(node.tagName.toLowerCase())) return true;
   const role = node.getAttribute("role");
   if (role && /button|link|menuitem|tab|checkbox|radio|switch/.test(role)) return true;
-  if (node.hasAttribute("onclick") || (node as HTMLElement).isContentEditable) return true;
-  // A React `onClick` leaves no trace in the DOM but its props (react-props.ts).
-  return hasReactClickHandler(node);
+  return node.hasAttribute("onclick") || !!(node as HTMLElement).isContentEditable;
 };
 
-/** The control at `el` or up to three levels above it, if any. */
+/** Is this element itself a control? No ancestor walk — see `controlOf`. */
+export const isControl = (node: Element): boolean =>
+  // A React `onClick` leaves no trace in the DOM but its props (react-props.ts).
+  isMarkupControl(node) || hasReactClickHandler(node);
+
+/**
+ * The control at `el` or up to three levels above it, if any. The markup
+ * rules walk all four levels; a React `onClick` only counts on `el` itself or
+ * its parent — one further up is as likely a container's guard or delegation
+ * (a modal panel stopping propagation), and a click deeper than that is left
+ * to the outcome check.
+ */
 export const controlOf = (el: Element | null): Element | null => {
   let node: Element | null = el;
   for (let depth = 0; node && depth < 4; depth++) {
-    if (isControl(node)) return node;
+    if (isMarkupControl(node) || (depth <= 1 && hasReactClickHandler(node))) return node;
     node = node.parentElement;
   }
   return null;
@@ -132,7 +141,7 @@ export const nearMissOf = (
   target: Element,
   point: Point | null,
   text: string | undefined,
-): { near: string; text: string | undefined } | null => {
+): { near: string; text: string | undefined; control: Element } | null => {
   const miss = findNearMiss<Element>(target, point, {
     isControl,
     controlOf,
@@ -144,7 +153,11 @@ export const nearMissOf = (
   if (!miss) return null;
   const near = controlLabel(miss.control);
   if (!near) return null;
-  return { near, text: miss.contained ? withoutLabel(text, labelOf(miss.control)) : text };
+  return {
+    near,
+    text: miss.contained ? withoutLabel(text, labelOf(miss.control)) : text,
+    control: miss.control,
+  };
 };
 
 /**

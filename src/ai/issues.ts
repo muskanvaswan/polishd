@@ -189,8 +189,8 @@ export function evidenceSearchTerms(evidence: string): string[] {
         .filter(
           (t) =>
             t.length >= 4 &&
-            // Tags and the `data-component` attribute name lead stored
-            // selectors (`section[data-component="hero"]>div.cta`) but match
+            // Tags and the `data-component` attribute name lead selectors and
+            // handles (`section[data-component="hero"]>div.cta`) but match
             // every file; the component name and classes after them don't.
             !/^(button|input|click|clicks|page|pages|http|https|with|from|that|div|span|data-component|section|main|article|header|footer|aside|form|label|svg|path|img)$/i.test(t),
         ),

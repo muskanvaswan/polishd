@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { hasReactClickHandler } from "./react-props.ts";
+import { hasReactClickHandler, isPropagationGuard } from "./react-props.ts";
 
 test("a backdrop with a React onClick is a click handler", () => {
   const backdrop = { tagName: "DIV", "__reactProps$k3x9q1": { onClick: () => {}, className: "x" } };
@@ -40,6 +40,39 @@ test("a node that throws when read is simply not a handler", () => {
     },
   });
   assert.equal(hasReactClickHandler(getter), false);
+});
+
+test("a modal panel's stopPropagation guard is not a click handler", () => {
+  const guards = [
+    (e: Event) => e.stopPropagation(),
+    function (e: Event) {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    // What a minifier makes of them.
+    new Function("t", "t.stopPropagation()"),
+    eval("(e)=>{e.stopPropagation();}"),
+  ];
+  for (const onClick of guards) {
+    assert.equal(isPropagationGuard(onClick), true, String(onClick));
+    assert.equal(hasReactClickHandler({ "__reactProps$a1": { onClick } }), false, String(onClick));
+  }
+});
+
+test("a handler that does anything besides stopping the event still counts", () => {
+  const onClose = () => {};
+  const handlers = [
+    (e: Event) => {
+      e.stopPropagation();
+      onClose();
+    },
+    () => onClose(),
+    (e: Event) => (e.stopPropagation(), onClose()),
+  ];
+  for (const onClick of handlers) {
+    assert.equal(isPropagationGuard(onClick), false, String(onClick));
+    assert.equal(hasReactClickHandler({ "__reactProps$a1": { onClick } }), true, String(onClick));
+  }
 });
 
 test("other React internals and plain nodes are not", () => {

@@ -2,23 +2,24 @@
  * Tests for judging a click by its outcome.
  *
  * Run with `npm test`. No DOM: the judge sees the browser only through
- * `JudgeEnv`, so the clock, the URL, focus and mutation delivery are all fakes
- * driven by hand. Two families of case matter. The false alarms that started
- * this — a backdrop that closes its drawer, a layer that dismisses itself on
- * press — must read as clicks. And the page's own activity — a ticking clock,
- * a carousel, a streaming feed, the next click — must never make a genuinely
- * dead click read as one.
+ * `JudgeEnv`, so the clock, the URL, focus, layout and mutation delivery are
+ * all fakes driven by hand. Two families of case matter. The false alarms that
+ * started this — a backdrop that closes its drawer, a layer that dismisses
+ * itself on press — must read as clicks. And the page's own activity — a
+ * carousel, a polling spinner, a chat stream, a hover card, the next click —
+ * must never make a genuinely dead click read as one.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  CHURN_BASELINE_MS,
+  BACKGROUND_MS,
   createClickJudge,
   type ClickJudge,
   type JudgeEnv,
   type MutationLike,
   type NodeLike,
+  type Point,
 } from "./click-outcome.ts";
 
 interface FakeNode extends NodeLike {
@@ -29,9 +30,11 @@ interface FakeNode extends NodeLike {
   role?: string;
   /** Part of polishd's own UI. */
   own: boolean;
+  /** Where it is on screen, if anywhere. */
+  rect?: { left: number; top: number; right: number; bottom: number };
 }
 
-/** Just enough selector matching for OVERLAY_SELECTOR: tag names and `[role="…"]`. */
+/** Just enough selector matching for the judge's selectors: tag names and `[role="…"]`. */
 const matchesSelector = (n: FakeNode, selector: string) =>
   selector.split(",").some((part) => {
     const role = /^\[role="([^"]+)"\]$/.exec(part);
@@ -41,16 +44,17 @@ const matchesSelector = (n: FakeNode, selector: string) =>
 const node = (
   nodeName: string,
   parentNode: FakeNode | null = null,
-  { big = false, role, own = false }: { big?: boolean; role?: string; own?: boolean } = {},
+  opts: { big?: boolean; role?: string; own?: boolean; rect?: FakeNode["rect"] } = {},
 ): FakeNode => {
   const self: FakeNode = {
     nodeName,
     nodeType: nodeName.startsWith("#") ? 3 : 1,
     parentNode,
     children: [],
-    big,
-    role,
-    own,
+    big: opts.big ?? false,
+    role: opts.role,
+    own: opts.own ?? false,
+    rect: opts.rect,
     contains(other: unknown) {
       for (let n = other as FakeNode | null; n; n = n.parentNode) if (n === self) return true;
       return false;
@@ -70,24 +74,27 @@ const node = (
   return self;
 };
 
-// A page: a full-screen drawer whose backdrop closes it, a card, a clock, a
-// carousel and a feed that change on their own, and the report's row whose
-// only control is a small button.
+// The page. Rects only where layout matters (the click point).
 const html = node("HTML", null, { big: true });
 const body = node("BODY", html, { big: true });
-const drawer = node("DIV", body, { big: true });
+const drawer = node("DIV", body, { big: true }); // fixed inset-0 wrapper
 const backdrop = node("DIV", drawer, { big: true });
-const card = node("DIV", body);
+const main = node("MAIN", body, { big: true });
+const card = node("DIV", main, { rect: { left: 0, top: 0, right: 300, bottom: 200 } });
 const cardText = node("#text", card);
-const clock = node("SPAN", body);
-const clockText = node("#text", clock);
-const carouselSlide = node("DIV", node("DIV", body));
-const feed = node("UL", body);
-const bar = node("DIV", body);
+const bar = node("DIV", main);
 const button = node("BUTTON", bar);
 const buttonText = node("#text", button);
-const list = node("UL", body);
-const panel = node("DIV", body);
+const table = node("TBODY", main);
+const row = node("TR", table);
+const cell = node("TD", row);
+const carousel = node("DIV", main);
+const slide = node("DIV", carousel);
+const slideImage = node("IMG", slide);
+const chat = node("UL", main);
+const panel = node("DIV", main);
+const toaster = node("SECTION", body);
+const spinnerBox = node("DIV", main, { rect: { left: 0, top: 0, right: 300, bottom: 200 } });
 
 /** A browser with a hand-cranked clock. */
 function fakeBrowser() {
@@ -96,16 +103,22 @@ function fakeBrowser() {
   const timers = new Map<number, { at: number; fn: () => void }>();
   let deliver: ((records: readonly MutationLike[]) => void) | null = null;
   const state = { href: "https://site.test/a", active: body as unknown };
+  const ownedBy = (n: FakeNode | null, test: (x: FakeNode) => boolean) => {
+    for (let x = n; x; x = x.parentNode) if (test(x)) return x;
+    return null;
+  };
 
   const env: JudgeEnv = {
     now: () => now,
     href: () => state.href,
     activeElement: () => state.active,
     isComponentSized: (n) => !(n as FakeNode).big,
-    isOwn(n) {
-      for (let x = n as FakeNode | null; x; x = x.parentNode) if (x.own) return true;
-      return false;
+    isUnderPoint(n, p: Point) {
+      const el = ownedBy(n as FakeNode, (x) => x.nodeType === 1);
+      const r = el?.rect;
+      return !!el && !el.big && !!r && p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
     },
+    isOwn: (n) => !!ownedBy(n as FakeNode, (x) => x.own),
     observe(onRecords) {
       deliver = onRecords;
     },
@@ -162,26 +175,52 @@ const attr = (target: FakeNode, attributeName: string): MutationLike => ({
 const text = (target: FakeNode): MutationLike => ({ type: "characterData", target });
 const el = (name = "DIV", opts?: Parameters<typeof node>[2]) => node(name, null, opts);
 
+const CENTER: Point = { x: 150, y: 100 };
+
 /** A click as the capture layer reports it: press, then click. A control is released, not judged. */
-const click = (judge: ClickJudge, target: FakeNode, done?: (worked: boolean) => void) => {
+const click = (
+  judge: ClickJudge,
+  target: FakeNode,
+  done?: (worked: boolean) => void,
+  point: Point | null = CENTER,
+) => {
   judge.begin(target, "press");
-  if (done) judge.arm(target);
+  if (done) judge.arm(target, point);
   judge.begin(target, "click");
-  if (done) judge.judge(target, done);
+  if (done) judge.judge(target, done, point);
   else judge.release();
 };
 
-/** Let the page tick on its own: `mutations` every second for `seconds`. */
-const runIdle = (
+/** The page changing on its own, with nobody interacting: `mutations` every `everyMs`. */
+const ambient = (
   b: ReturnType<typeof fakeBrowser>,
-  seconds: number,
+  forMs: number,
+  everyMs: number,
   mutations: () => MutationLike | MutationLike[],
 ) => {
-  for (let i = 0; i < seconds; i++) {
+  for (let t = 0; t < forMs; t += everyMs) {
     b.mutate(...[mutations()].flat());
-    b.advance(1000);
+    b.advance(everyMs);
   }
 };
+
+/** Judge one click on `target` after `setup`, deliver `during`, and return the verdict. */
+const verdictAfter = (
+  setup: (b: ReturnType<typeof fakeBrowser>, judge: ClickJudge) => void,
+  target: FakeNode,
+  during: MutationLike[],
+  point: Point | null = CENTER,
+): boolean | undefined => {
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  setup(b, judge);
+  const v = verdicts();
+  click(judge, target, v.done, point);
+  b.mutate(...during);
+  b.advance(1000);
+  return v.seen[0];
+};
+const idle = () => {};
 
 // ---- the basics ---------------------------------------------------------------
 
@@ -202,10 +241,23 @@ test("a full-screen backdrop that closes its drawer worked, at once", () => {
   const judge = createClickJudge(b.env);
   const v = verdicts();
   click(judge, backdrop, v.done);
-  b.mutate(attr(drawer, "aria-hidden")); // state, outside the (page-sized) target
+  b.mutate(attr(drawer, "aria-hidden")); // an ancestor's state
   assert.deepEqual(v.seen, [true]);
   b.advance(5000);
   assert.deepEqual(v.seen, [true], "settles exactly once");
+});
+
+test("…even when a button opened that drawer three seconds earlier", () => {
+  const worked = verdictAfter(
+    (b, judge) => {
+      click(judge, button); // the open button, a real control
+      b.mutate(attr(drawer, "aria-hidden"), attr(drawer, "class"));
+      b.advance(3000);
+    },
+    backdrop,
+    [attr(drawer, "aria-hidden")],
+  );
+  assert.equal(worked, true);
 });
 
 test("a URL change or a focus move during the hold counts as a response", () => {
@@ -230,204 +282,198 @@ test("the browser's own focus change on mousedown is not a response", () => {
   const v = verdicts();
   b.state.active = node("INPUT", body); // an input was focused…
   judge.begin(card, "press");
-  judge.arm(card);
+  judge.arm(card, CENTER);
   b.state.active = body; // …and pressing a plain div blurred it
   judge.begin(card, "click");
-  judge.judge(card, v.done);
+  judge.judge(card, v.done, CENTER);
   b.advance(1000);
   assert.deepEqual(v.seen, [false]);
 });
 
-test("what the press did counts for the click, even when the click lands elsewhere", () => {
+test("a layer that dismisses itself on press worked, though the click lands elsewhere", () => {
   const b = fakeBrowser();
   const judge = createClickJudge(b.env);
+  const overlay = node("DIV", body, { big: true });
   const v = verdicts();
-  // A layer that dismisses on pointerdown is gone before the click fires,
-  // and the click then lands on the body underneath.
-  judge.begin(backdrop, "press");
-  judge.arm(backdrop);
-  b.mutate(removed(body, el()));
+  judge.begin(overlay, "press");
+  judge.arm(overlay, CENTER);
+  b.mutate(removed(body, overlay)); // gone before the click fires…
   judge.begin(body, "click");
-  judge.judge(body, v.done);
+  judge.judge(body, v.done, CENTER); // …which lands on the body underneath
   assert.deepEqual(v.seen, [true]);
 });
 
-// ---- the page's own activity ----------------------------------------------------
+// ---- what's related to the click ------------------------------------------------
 
-test("a clock ticking elsewhere on the page never makes a dead click a click", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  // The clock re-renders as a new element every second, and its text too.
-  const tick = () => added(clock, el("SPAN"));
-  runIdle(b, 4, tick);
-  const v = verdicts();
-  click(judge, card, v.done);
-  b.mutate(tick(), text(clockText));
-  b.advance(500);
-  b.mutate(tick());
-  b.advance(500);
-  assert.deepEqual(v.seen, [false]);
-});
-
-test("an autoplaying carousel or a streaming feed doesn't either", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  // State attribute churn and structural churn, side by side.
-  runIdle(b, 3, () => [attr(carouselSlide, "data-state"), added(feed, el("LI"))]);
-  const v = verdicts();
-  click(judge, card, v.done);
-  b.mutate(attr(carouselSlide, "data-state"), attr(carouselSlide, "class"), added(feed, el("LI")));
-  b.advance(1000);
-  assert.deepEqual(v.seen, [false]);
-});
-
-test("a change made once at load doesn't make a node background", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  b.mutate(added(panel, el()), added(panel, el())); // streamed in, one burst
-  b.advance(1000);
-  const v = verdicts();
-  click(judge, card, v.done);
-  b.mutate(added(panel, el()));
-  assert.deepEqual(v.seen, [true]);
-});
-
-test("churn keeps being counted while the visitor clicks around", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  // A clock re-rendering every 300ms, and someone clicking real buttons every
-  // 400ms the whole time — the page is never idle.
-  for (let t = 0; t < 3000; t += 100) {
-    if (t % 300 === 0) b.mutate(added(clock, el("SPAN")));
-    if (t % 400 === 0) click(judge, button);
-    b.advance(100);
+test("related changes count: inside the target, on an ancestor, under the click point", () => {
+  const cases: Array<[string, FakeNode, MutationLike, boolean]> = [
+    ["class on the card", card, attr(card, "class"), true],
+    ["style on the card", card, attr(card, "style"), true],
+    ["text in the card", card, text(cardText), true],
+    ["content added to the card", card, added(card, el()), true],
+    ["a row expanding below the clicked cell", cell, added(table, el("TR")), true],
+    ["state on the row (an ancestor)", cell, attr(row, "aria-expanded"), true],
+    ["style on an ancestor", cell, attr(row, "style"), false],
+    ["a portal appended to the page", card, added(body, el()), false],
+    ["something removed from the page", card, removed(body, el()), true],
+    ["an image swapped under the click point", node("SPAN", main), added(spinnerBox, el("IMG")), true],
+    ["the same, away from the click point", node("SPAN", main), added(panel, el("IMG")), false],
+    ["details revealed beside the clicked cell", cell, added(node("TD", row), el()), true],
+    ["the same beside a target whose parent is the page", card, added(panel, el()), false],
+    ["state elsewhere", card, attr(panel, "aria-expanded"), false],
+    ["class elsewhere", card, attr(panel, "class"), false],
+    ["content elsewhere", card, added(panel, el()), false],
+    ["text elsewhere", card, text(node("#text", panel)), false],
+    ["a script, a style, a comment in the card", card, added(card, el("SCRIPT"), el("STYLE"), node("#comment")), false],
+  ];
+  for (const [name, target, mutation, expected] of cases) {
+    assert.equal(verdictAfter(idle, target, [mutation]), expected, name);
   }
-  const v = verdicts();
-  click(judge, card, v.done);
-  b.mutate(added(clock, el("SPAN")));
-  b.advance(300);
-  b.mutate(added(clock, el("SPAN")));
-  b.advance(700);
-  assert.deepEqual(v.seen, [false]);
 });
 
-test("a panel a button toggled twice is still a response the third time", () => {
+test("inside a page-sized target, only something closing counts", () => {
+  assert.equal(verdictAfter(idle, body, [text(node("#text", panel)), attr(card, "style")]), false);
+  assert.equal(verdictAfter(idle, body, [added(body, el())]), false, "a portal opening");
+  assert.equal(verdictAfter(idle, body, [removed(body, el())]), true, "a layer closing");
+});
+
+test("a dialog, menu or listbox opening anywhere counts", () => {
+  for (const role of ["dialog", "menu", "listbox"]) {
+    const portal = el();
+    node("DIV", portal, { role });
+    assert.equal(verdictAfter(idle, card, [added(body, portal)]), true, role);
+  }
+  assert.equal(verdictAfter(idle, card, [attr(node("DIALOG", body), "open")]), true, "<dialog open>");
+});
+
+test("a toast counts within 300ms in a quiet container, or under the click point", () => {
+  const toast = () => el("LI", { role: "status" });
   const b = fakeBrowser();
   const judge = createClickJudge(b.env);
-  click(judge, button);
-  b.mutate(attr(panel, "hidden"));
-  b.advance(1500);
-  click(judge, button);
-  b.mutate(attr(panel, "hidden"));
-  b.advance(1500);
+  const quick = verdicts();
+  click(judge, card, quick.done);
+  b.advance(200);
+  b.mutate(added(toaster, toast()));
+  assert.deepEqual(quick.seen, [true]);
+
+  const late = verdicts();
+  click(judge, card, late.done);
+  b.advance(400);
+  b.mutate(added(toaster, toast()));
+  b.advance(600);
+  assert.deepEqual(late.seen, [false], "too late, and not beside the click");
+
+  assert.equal(verdictAfter(idle, card, [added(card, toast())]), true, "inside the target");
+});
+
+test("polishd's own UI appearing or changing is never a response", () => {
+  const consent = el("DIV", { role: "dialog", own: true });
+  assert.equal(
+    verdictAfter(idle, card, [added(body, consent), attr(node("BUTTON", consent), "disabled"), removed(body, consent)]),
+    false,
+  );
+});
+
+// ---- the page's own activity (the reviewer's probes) ---------------------------------
+
+test("probe (a): a carousel rotating aria-hidden every 5s doesn't make a dead click a click", () => {
+  const worked = verdictAfter(
+    (b) => ambient(b, 12_000, 5000, () => attr(slide, "aria-hidden")),
+    slideImage, // a dead click on the slide's image; the slide is its ancestor
+    [attr(slide, "aria-hidden")],
+  );
+  assert.equal(worked, false);
+});
+
+test("probe (b): a polling spinner re-adding role=status every second doesn't either", () => {
+  const spin = () => added(spinnerBox, el("DIV", { role: "status" }));
+  // Beside the click (under the point) and elsewhere.
+  assert.equal(verdictAfter((b) => ambient(b, 4000, 1000, spin), card, [spin()]), false);
+  assert.equal(verdictAfter((b) => ambient(b, 4000, 1000, spin), node("SPAN", main), [spin()]), false);
+});
+
+test("probe (c): a chat stream appending during the hold doesn't either", () => {
+  const message = () => added(chat, el("LI"));
+  assert.equal(verdictAfter((b) => ambient(b, 8000, 4000, message), card, [message()]), false);
+  // Even its first message ever, and even for a click on the page itself.
+  assert.equal(verdictAfter(idle, card, [message()]), false);
+  assert.equal(verdictAfter(idle, body, [message()]), false);
+});
+
+test("probe (d): a hover card shown as the pointer moves on doesn't either", () => {
+  for (const role of [undefined, "dialog"]) {
+    const b = fakeBrowser();
+    const judge = createClickJudge(b.env);
+    const v = verdicts();
+    click(judge, card, v.done);
+    b.advance(150);
+    const trigger = node("A", main); // the pointer moves onto a link…
+    judge.hover(trigger);
+    b.mutate(attr(trigger, "data-state")); // …which restyles itself
+    b.advance(500); // and after the hover delay its card opens
+    const hoverCard = el();
+    node("DIV", hoverCard, { role });
+    b.mutate(added(body, hoverCard));
+    b.advance(400);
+    assert.deepEqual(v.seen, [false], `hover card (role ${role ?? "none"})`);
+  }
+});
+
+test("moving within the clicked element, or onto its container, isn't hover elsewhere", () => {
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
   const v = verdicts();
-  click(judge, card, v.done); // the third toggle, from a plain div
-  b.mutate(attr(panel, "hidden"));
+  click(judge, card, v.done);
+  judge.hover(cardText);
+  judge.hover(main);
+  b.advance(500);
+  b.mutate(added(card, el()));
   assert.deepEqual(v.seen, [true]);
 });
 
-test("what a judged click caused never counts as churn", () => {
+test("a click's own dialog still counts when the pointer moves on right away", () => {
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  const v = verdicts();
+  click(judge, card, v.done);
+  judge.hover(node("A", main));
+  b.advance(100);
+  const portal = el();
+  node("DIV", portal, { role: "dialog" });
+  b.mutate(added(body, portal));
+  assert.deepEqual(v.seen, [true]);
+});
+
+test("background is anything changed in the ten seconds before, however rarely", () => {
+  const once = (b: ReturnType<typeof fakeBrowser>) => {
+    b.mutate(attr(row, "aria-expanded")); // one change, nine seconds ago
+    b.advance(9000);
+  };
+  assert.equal(verdictAfter(once, cell, [attr(row, "aria-expanded")]), false);
+  const longAgo = (b: ReturnType<typeof fakeBrowser>) => {
+    b.mutate(attr(row, "aria-expanded"));
+    b.advance(BACKGROUND_MS + 1);
+  };
+  assert.equal(verdictAfter(longAgo, cell, [attr(row, "aria-expanded")]), true, "forgotten after ten");
+});
+
+test("background is per kind of change: a card's hover animation doesn't hide its expanding", () => {
+  const hoverAnimation = (b: ReturnType<typeof fakeBrowser>) => ambient(b, 3000, 100, () => attr(card, "style"));
+  assert.equal(verdictAfter(hoverAnimation, card, [attr(card, "aria-expanded")]), true);
+  assert.equal(verdictAfter(hoverAnimation, card, [attr(card, "style")]), false);
+});
+
+test("what a judged click caused never counts as background", () => {
   const b = fakeBrowser();
   const judge = createClickJudge(b.env);
   // A slideshow image with a plain listener: every click advances the slide.
   const seen: boolean[] = [];
   for (let i = 0; i < 5; i++) {
-    click(judge, card, (worked) => seen.push(worked));
-    b.mutate(added(list, el("LI")));
-    b.advance(600);
+    click(judge, slideImage, (worked) => seen.push(worked));
+    b.mutate(attr(slide, "data-index"));
+    b.advance(2000);
   }
   assert.deepEqual(seen, [true, true, true, true, true]);
-});
-
-test("churn is per kind of change: a panel's animation doesn't make its state background", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  runIdle(b, 4, () => attr(panel, "style")); // a JS animation on the panel
-  const v = verdicts();
-  click(judge, card, v.done);
-  b.mutate(attr(panel, "hidden")); // the click closes it
-  assert.deepEqual(v.seen, [true]);
-});
-
-test("churn older than the baseline is forgotten", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  runIdle(b, 3, () => added(feed, el("LI")));
-  b.advance(CHURN_BASELINE_MS + 1);
-  const v = verdicts();
-  click(judge, card, v.done);
-  b.mutate(added(feed, el("LI")));
-  assert.deepEqual(v.seen, [true]);
-});
-
-test("an overlay opening counts even inside a churning container", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  runIdle(b, 3, () => added(body, el("IMG"))); // a pixel appended now and then
-  const v = verdicts();
-  click(judge, card, v.done);
-  const portal = el("DIV");
-  node("DIV", portal, { role: "dialog" });
-  b.mutate(added(body, portal));
-  assert.deepEqual(v.seen, [true]);
-
-  const native = verdicts();
-  click(judge, card, native.done);
-  b.mutate(attr(node("DIALOG", body), "open"));
-  assert.deepEqual(native.seen, [true]);
-});
-
-test("polishd's own UI appearing or changing is never a response", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  const v = verdicts();
-  click(judge, card, v.done);
-  const consent = el("DIV", { role: "dialog", own: true });
-  b.mutate(added(body, consent), attr(node("BUTTON", consent), "disabled"), removed(body, consent));
-  b.advance(1000);
-  assert.deepEqual(v.seen, [false]);
-});
-
-// ---- what counts, where ---------------------------------------------------------
-
-test("inside a component-sized target, anything counts; elsewhere, only structure and state", () => {
-  const cases: Array<[string, MutationLike, boolean]> = [
-    ["class on the card", attr(card, "class"), true],
-    ["style on the card", attr(card, "style"), true],
-    ["text in the card", text(cardText), true],
-    ["text node swapped in the card", added(card, node("#text")), true],
-    ["class on the button's row (an ancestor)", attr(bar, "class"), true],
-    ["style on an ancestor", attr(bar, "style"), false],
-    ["element added elsewhere", added(list, el("LI")), true],
-    ["aria-expanded elsewhere", attr(panel, "aria-expanded"), true],
-    ["class elsewhere", attr(panel, "class"), false],
-    ["style elsewhere", attr(panel, "style"), false],
-    ["text elsewhere", text(clockText), false],
-    ["text node swapped elsewhere", added(clock, node("#text")), false],
-    ["a script, a style, a comment added", added(body, el("SCRIPT"), el("STYLE"), node("#comment")), false],
-  ];
-  for (const [name, mutation, expected] of cases) {
-    const b = fakeBrowser();
-    const judge = createClickJudge(b.env);
-    const v = verdicts();
-    const target = name.includes("ancestor") ? button : card;
-    // A plain span inside the button's row stands in when judging the row.
-    const subject = target === button ? node("SPAN", bar) : card;
-    click(judge, subject, v.done);
-    b.mutate(mutation);
-    b.advance(1000);
-    assert.deepEqual(v.seen, [expected], name);
-  }
-});
-
-test("inside a page-sized target, text and animation don't count", () => {
-  const b = fakeBrowser();
-  const judge = createClickJudge(b.env);
-  const v = verdicts();
-  click(judge, body, v.done); // a click on the page background
-  b.mutate(text(clockText), attr(card, "style"), attr(card, "class"));
-  b.advance(1000);
-  assert.deepEqual(v.seen, [false]);
 });
 
 // ---- the newest interaction takes the credit ----------------------------------------
@@ -439,7 +485,7 @@ test("a miss beside a button stays dead when the visitor then clicks the button"
   click(judge, bar, miss.done); // nothing happens…
   b.advance(400);
   click(judge, button); // …so the visitor clicks the button itself, which works:
-  b.mutate(text(buttonText), added(list, el("LI"), el("LI"))); // its label flips, the list opens
+  b.mutate(text(buttonText), added(bar, el("UL")), attr(bar, "data-open")); // its label flips, a list opens
   b.advance(600);
   assert.deepEqual(miss.seen, [false]);
 });
@@ -476,7 +522,7 @@ test("repeat clicks on the same element share the credit", () => {
   click(judge, card, first.done);
   b.advance(200);
   click(judge, card, second.done);
-  b.mutate(added(list, el("LI"))); // a slow handler answers — which click, can't tell
+  b.mutate(added(card, el())); // a slow handler answers — which click, can't tell
   assert.deepEqual([first.seen, second.seen], [[true], [true]]);
 });
 
@@ -493,8 +539,7 @@ test("typing, a keyboard click or a scroll is a newer interaction too", () => {
     } else {
       judge.interact();
     }
-    // Search results update, content is revealed on scroll.
-    b.mutate(added(list, el("LI")), attr(panel, "data-state"));
+    b.mutate(removed(body, el())); // a search overlay closing, a reveal on scroll
     b.advance(1000);
     assert.deepEqual(miss.seen, [false], next);
   }
@@ -505,11 +550,11 @@ test("a tap's touchmove jitter belongs to that tap", () => {
   const judge = createClickJudge(b.env);
   const v = verdicts();
   judge.begin(card, "press");
-  judge.arm(card);
+  judge.arm(card, CENTER);
   judge.interact(); // touchmove between press and click
   judge.begin(card, "click");
-  judge.judge(card, v.done);
-  b.mutate(added(list, el("LI")));
+  judge.judge(card, v.done, CENTER);
+  b.mutate(added(card, el()));
   assert.deepEqual(v.seen, [true]);
 });
 

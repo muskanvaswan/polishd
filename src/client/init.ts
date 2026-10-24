@@ -12,7 +12,7 @@ import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
 import { startClickCapture } from "./click-capture";
 import { scheduleDesignScan } from "./design-scan";
-import { componentOf, deviceCategory } from "./dom";
+import { componentOf, deviceCategory, handleOf } from "./dom";
 import { errorContextMeta } from "./error-context";
 import { errorOrigin, startScriptProvenance } from "./script-provenance";
 
@@ -250,6 +250,7 @@ export function initPolishd(options: InitOptions = {}): void {
           source,
           line,
           col: ev.colno || 0,
+          handle: handleOf(ev.target),
         }),
       },
     });

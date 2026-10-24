@@ -11,15 +11,25 @@ card) counted as dead on every press, even when the press worked.
 - **Judged by outcome.** A click on something that isn't recognisably a
   control is held for a second. It records as a dead click only if nothing
   happened: no DOM change, no navigation, no focus move. If the page
-  responded, it's an ordinary click. Elements with a React `onClick` count as
-  controls straight away.
-- **Background activity doesn't hide real dead clicks.** A change only counts
-  when the click plausibly caused it: inside the clicked component, an overlay
-  opening, or content or open/closed state changing elsewhere. Text, class and
-  style changes elsewhere never count. A node that kept changing before the
-  click (a ticking clock, an autoplaying carousel, a streaming feed) is
-  background and counts for nothing. The click, key press or scroll that comes
-  next takes the credit for what follows it. Polishd's own UI is ignored.
+  responded, it's an ordinary click. An element with a React `onClick` (on
+  the clicked element or its parent) counts as a control straight away,
+  except a handler that only stops propagation, like a modal panel's.
+- **Only changes related to the click count.** Changes inside the clicked
+  component, on its nearest ancestors, or beside it within a component-sized
+  parent count. So do changes on an element under the click point, the clicked
+  element being removed, and a dialog, menu or listbox opening. A toast counts only beside the click, or within 300ms
+  of it. Everything else on the page is ignored, wherever it changes.
+- **Background activity doesn't hide real dead clicks.** Anything that changed
+  in the ten seconds before the click is background, however rarely it
+  changes: a carousel rotating every five seconds, a spinner that polls, a chat
+  stream. What the pointer moves onto after the click is hover, not a
+  response, and neither is a hover card opening once it has moved on. The
+  click, key press or scroll that comes next takes the credit for what follows
+  it, and polishd's own UI is ignored. Changes a visitor's own clicks caused
+  never count as background, so a drawer a button opened can still be closed
+  by its backdrop.
+  The trade-off: a click whose only effect is far from it (a plain div that
+  toggles a panel somewhere else) now reads as dead.
 - **Near misses.** A dead click beside a control names it in `meta.near`: a
   full-width row whose button is only its text, or the gap next to a tab. The
   click no longer carries the button's text as its own label, so it reads as
@@ -33,13 +43,23 @@ card) counted as dead on every press, even when the press worked.
   (`frame`, `file:line:col`) and the click from the two seconds before it:
   `after` (its component, label or selector), `afterMs` (how long before,
   to the nearest 100ms) and `afterSelector`.
-- **Selectors you can find in the source.** A selector used to keep each
-  element's first class, which with Tailwind is usually a generic utility
-  (`main.text-white>section.mb-8>div.fixed`). It now keeps the most
-  distinctive class, skips variants (`lg:sticky`) and arbitrary values, never
-  ends in an empty class, and stops at the nearest `data-component` or id.
-  Element stats group by selector, so an element's history before this
-  release sits in a separate row.
+- **Selectors stay stable; handles find the element in the source.** The
+  `selector` every event carries is still each level's first class, so element
+  stats keep their history. It now skips Tailwind variants (`lg:sticky`),
+  arbitrary values and generated ids, and never ends in an empty class (`a.`).
+  Rage, dead and near-miss clicks and errors also carry `meta.handle`, a path
+  you can grep for: it stops at the nearest `data-component` or id, and names
+  each level by its most distinctive class rather than a generic utility. A
+  near miss adds `meta.nearHandle` for the control it missed.
+- **Rage clicks count hits on the same element**, not the same selector, so a
+  like button that gains `liked` as it's clicked still adds up to a burst.
+- **The dashboard reads the new context.** The errors list keeps one entry per
+  error however its context varies. Before, a frequent error whose throws
+  differed by `afterMs` filled the list and pushed the others off. Each error
+  carries its latest digest, frame and preceding click. Session journeys order
+  steps by when they happened, so a held dead click no longer shows up after
+  the page view that followed it. A near miss with no label of its own reads
+  as "beside “Show # more”" in journeys and element stats.
 - **Dashboard telemetry reports its version.** The once-per-session
   `install_state` event now includes the polishd `version`, and reports again
   when a tab reloads onto a newer one.

@@ -14,6 +14,9 @@
  *            `data-component`, else its label, else its selector — with
  *            `afterMs`, how long before the error it was, and `afterSelector`
  *            when `after` is a name rather than the selector itself.
+ *   handle   a greppable path to the element involved (target.ts
+ *            `handleOf`): the element that failed to load, else the one
+ *            clicked just before.
  *
  * `afterMs` is rounded to the nearest 100ms. The recent-errors query groups
  * rows by their whole `meta`, and an exact delay would make every occurrence
@@ -33,6 +36,7 @@ const MAX_DIGEST_LEN = 120;
 const MAX_FRAME_LEN = 200;
 const MAX_SELECTOR_LEN = 300;
 const MAX_AFTER_LEN = 120;
+const MAX_HANDLE_LEN = 200;
 
 /** The last click the capture layer saw. */
 export interface InteractionLike {
@@ -40,13 +44,17 @@ export interface InteractionLike {
   component?: string;
   label?: string;
   selector?: string;
+  /** Its handle, computed on demand — only an error needs one. */
+  handle?: () => string | undefined;
 }
 
-/** Where a throw happened when the error carries no stack. */
+/** Where a throw happened when the error carries no stack, and what failed. */
 export interface ErrorLocation {
   source?: string;
   line?: number;
   col?: number;
+  /** Handle of the element whose load failed, for a resource error. */
+  handle?: string;
 }
 
 /**
@@ -100,6 +108,7 @@ export interface ErrorContext {
   after?: string;
   afterMs?: number;
   afterSelector?: string;
+  handle?: string;
 }
 
 /**
@@ -134,6 +143,9 @@ export function errorContextMeta(
         meta.afterSelector = last.selector.slice(0, MAX_SELECTOR_LEN);
       }
     }
+
+    const handle = at.handle ?? (meta.after && last?.handle ? last.handle() : undefined);
+    if (handle) meta.handle = handle.slice(0, MAX_HANDLE_LEN);
   } catch {
     /* an exotic thrown value: report the error without its context */
   }

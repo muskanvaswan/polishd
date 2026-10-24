@@ -12,25 +12,50 @@
  * Reading it is a cheap first check; the outcome check in `click-outcome.ts`
  * still catches handlers this can't see (other frameworks, `addEventListener`).
  *
+ * Not every `onClick` makes a control. A modal's panel carries
+ * `onClick={(e) => e.stopPropagation()}` so clicks inside it don't reach the
+ * backdrop — a guard, not a response — so a handler whose whole body is
+ * `stopPropagation()`/`preventDefault()` doesn't count. And `controlOf` in
+ * dom.ts only looks for a handler on the clicked element and its parent: a
+ * handler further up is as likely to be a container's guard or delegation, so
+ * a click deeper than that is judged by its outcome instead.
+ *
  * Only the node's own keys are read — React sets the props directly on the
  * node, so nothing inherited can be one — and any throw (an exotic host
  * object, a getter) reads as "no handler": this runs inside the host's click
- * listener and must never break it. `controlOf` in dom.ts applies it to the
- * same four-level ancestor walk as every other interactivity rule.
+ * listener and must never break it.
  *
  * Import-free so `node --test` can load it directly.
  */
 
 const REACT_PROPS_PREFIX = "__reactProps$";
 
-/** True when `node` has a React `onClick` handler attached. */
+/**
+ * `(e) => e.stopPropagation()`, `function (e) { e.preventDefault(); e.stopPropagation(); }`
+ * and their minified forms: a handler that only stops the event.
+ */
+const GUARD_ONLY =
+  /^(?:async)?(?:function\w*)?\(?(\w+)?\)?(?:=>)?\{?(?:\1\.(?:stopPropagation|preventDefault|stopImmediatePropagation)\(\)[;,]?)+\}?;?$/;
+
+/** True for a handler that does nothing but stop the event. */
+export const isPropagationGuard = (handler: unknown): boolean => {
+  if (typeof handler !== "function") return false;
+  try {
+    const source = Function.prototype.toString.call(handler);
+    return source.length <= 200 && GUARD_ONLY.test(source.replace(/\s+/g, ""));
+  } catch {
+    return false;
+  }
+};
+
+/** True when `node` has a React `onClick` handler that does something. */
 export const hasReactClickHandler = (node: object | null | undefined): boolean => {
   if (!node) return false;
   try {
     for (const key of Object.keys(node)) {
       if (!key.startsWith(REACT_PROPS_PREFIX)) continue;
       const props = (node as Record<string, unknown>)[key] as { onClick?: unknown } | null;
-      return typeof props?.onClick === "function";
+      return typeof props?.onClick === "function" && !isPropagationGuard(props.onClick);
     }
   } catch {
     /* unreadable: treat as no handler */

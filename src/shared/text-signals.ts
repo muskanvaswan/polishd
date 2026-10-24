@@ -57,8 +57,8 @@ export const normalizeLabel = (label: string | undefined): string | undefined =>
 
 /**
  * Tag names of a stored selector path: "div.card>p.intro>span" → ["div","p","span"].
- * Each level leads with its tag, then a class (`.`), an id (`#`) or a
- * `data-component` anchor (`[`).
+ * Each level leads with its tag, then a class (`.`) or an id (`#`) — or, in a
+ * handle (`meta.handle`), a `data-component` anchor (`[`).
  */
 export const selectorTags = (selector: string): string[] =>
   selector
