@@ -21,7 +21,8 @@
  * reloads, until a capture gets through again. The tab is server-rendered,
  * so the section lives in two slots and a provider holds its state; moving
  * between them never loses a capture in flight. The provider also asks the
- * consent question, once, in a dialog.
+ * consent question, once, in a dialog — when Capture is first pressed in
+ * production, not before.
  */
 import {
   createContext,
@@ -32,6 +33,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 
 import type { SnapshotMode, StoredCaptureBlock } from "../capture/protocol";
 import type { PolishdSnapshot, PolishdSnapshotShot, SnapshotAvailability } from "../server/snapshots";
@@ -207,9 +209,16 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   const [capturing, setCapturing] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [live, setLive] = useState<LiveShot[]>([]);
-  const [consentOpen, setConsentOpen] = useState(initialAvailability.mode.kind === "consent");
+  // The dialog only ever opens from a click — Capture, or "Review and
+  // allow" — so it can't be answered before the page is interactive.
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState(false);
   const fresh = useRef(new Map<string, Map<string, string>>());
+  /** Set when Capture opened the dialog: allowing it carries straight on into the capture. */
+  const captureAfterConsent = useRef(false);
+  const captureRef = useRef<() => void>(() => {});
+  const router = useRouter();
 
   const capture = useCallback(() => {
     if (capturing) return;
@@ -231,10 +240,21 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
       onProgress: (done, total) => setProgress({ done, total }),
     })
       .then(async (outcome) => {
+        if (outcome.consentRequired) {
+          // The server is the judge (this page's idea of the mode may be
+          // stale): ask now, and capture once it's allowed.
+          captureAfterConsent.current = true;
+          setConsentError(null);
+          setConsentOpen(true);
+          return;
+        }
         if (outcome.snapshot) {
           const snapshot = outcome.snapshot;
           fresh.current.set(snapshot.id, arrived);
           setSnapshots((prev) => [snapshot, ...prev]);
+          // The tab's value cards are server-rendered from the snapshots;
+          // refresh them so the new pictures show without a reload.
+          router.refresh();
         }
         setError(outcome.error);
         if (outcome.block) {
@@ -257,30 +277,34 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
         setProgress(null);
         setLive([]);
       });
-  }, [capturing, block]);
+  }, [capturing, block, router]);
+  captureRef.current = capture;
 
   const decide = useCallback((allow: boolean) => {
     setDeciding(true);
+    setConsentError(null);
     setSnapshotServiceConsentAction(allow)
       .then((res) => {
-        if (res.ok) {
-          setAvailability({
-            mode: res.mode,
-            storageIssue: res.storageIssue,
-            serviceUrl: res.serviceUrl,
-            block: res.block,
-          });
-          setBlock(res.block);
-          setError(null);
-        } else {
-          setError(res.message);
+        if (!res.ok) {
+          // Keep the dialog open: closing it would look like the choice stuck.
+          setConsentError(res.message);
+          return;
         }
-      })
-      .catch(() => setError("Couldn't record the choice — try again."))
-      .finally(() => {
-        setDeciding(false);
+        setAvailability({
+          mode: res.mode,
+          storageIssue: res.storageIssue,
+          serviceUrl: res.serviceUrl,
+          block: res.block,
+        });
+        setBlock(res.block);
+        setError(null);
         setConsentOpen(false);
-      });
+        const go = allow && captureAfterConsent.current && res.mode.kind === "service";
+        captureAfterConsent.current = false;
+        if (go) captureRef.current();
+      })
+      .catch(() => setConsentError("Couldn't record the choice — try again."))
+      .finally(() => setDeciding(false));
   }, []);
 
   const state: SnapshotsState = {
@@ -293,7 +317,11 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
     live,
     fresh: fresh.current,
     capture,
-    openConsent: () => setConsentOpen(true),
+    openConsent: () => {
+      captureAfterConsent.current = false;
+      setConsentError(null);
+      setConsentOpen(true);
+    },
     turnOff: () => decide(false),
   };
 
@@ -302,7 +330,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
     <SnapshotsContext.Provider value={state}>
       {children}
       {consentOpen && host && (
-        <ConsentDialog host={host} busy={deciding} onDecide={decide} />
+        <ConsentDialog host={host} busy={deciding} error={consentError} onDecide={decide} />
       )}
     </SnapshotsContext.Provider>
   );
@@ -329,10 +357,12 @@ export function SnapshotsSlot({ position }: { position: "top" | "bottom" }) {
 function ConsentDialog({
   host,
   busy,
+  error,
   onDecide,
 }: {
   host: string;
   busy: boolean;
+  error: string | null;
   onDecide: (allow: boolean) => void;
 }) {
   const allowRef = useRef<HTMLButtonElement>(null);
@@ -380,9 +410,14 @@ function ConsentDialog({
           </li>
         </ul>
         <p className="mt-3 text-[12px] text-[#666]">
-          Nothing is sent until you press Capture. You can change this later from the Site
-          snapshots section.
+          Allowing it starts this capture. You can turn it off later from the Site snapshots
+          section.
         </p>
+        {error && (
+          <p role="alert" className="mt-3 text-[12px] text-red-400">
+            {error}
+          </p>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
@@ -473,16 +508,7 @@ function SnapshotsCard() {
     ? selected.shots.filter((s) => s.device === device && s.theme === effectiveTheme && !s.file)
     : [];
 
-  const captureButton = needsConsent ? (
-    <button
-      type="button"
-      data-component="design-snapshot-consent-open"
-      onClick={openConsent}
-      className={primaryBtn}
-    >
-      Allow screenshots…
-    </button>
-  ) : (
+  const captureButton = (
     <button
       type="button"
       data-component="design-snapshot-capture"
@@ -588,12 +614,6 @@ function SnapshotsCard() {
             {off.message}
           </div>
         )}
-        {needsConsent && (
-          <div className="mb-3 rounded-md border border-[#2e2e2e] bg-[#151515] px-3 py-2 text-[12px] leading-relaxed text-[#aaa]">
-            In production, snapshots are taken by Polishd&rsquo;s screenshot service — allow it to
-            start capturing.
-          </div>
-        )}
         {error && (
           <div className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">
             {error}
@@ -641,7 +661,7 @@ function SnapshotsCard() {
           </div>
         )}
 
-        {!selected && !capturing && !off && !needsConsent && (
+        {!selected && !capturing && !off && (
           <p className="text-[13px] leading-relaxed text-[#888]">
             No snapshots yet. Capture one to see every page of the site as it renders
             right now — the &ldquo;before&rdquo; to hold future design changes against.
@@ -705,6 +725,12 @@ function SnapshotsCard() {
           </>
         )}
 
+        {needsConsent && !capturing && (
+          <p className="mt-3 text-[11px] text-[#555]">
+            In production, captures use Polishd&rsquo;s screenshot service — you&rsquo;ll be asked
+            before the first one.
+          </p>
+        )}
         {mode.kind === "service" && !capturing && (
           <p className="mt-3 text-[11px] text-[#555]">
             Captures use Polishd&rsquo;s screenshot service — page paths and pixels pass through it;

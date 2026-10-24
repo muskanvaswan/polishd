@@ -31,10 +31,15 @@ calls straight from the owner's browser.
   store with a presigned URL your server signs for that one file (no webhook,
   so no `BLOB_WEBHOOK_PUBLIC_KEY`); elsewhere, streamed to disk in chunks.
   Images are now WebP, much smaller than the old PNGs.
-- **It asks first.** The first time the Design tab opens in production, a
+- **It asks first.** The first time Capture is pressed in production, a
   dialog explains the call (what the service sees, what it never gets, why
-  it's harmless) and asks whether snapshots may use it. The answer is kept per
-  install. It can be reviewed later, and withdrawn with "Turn off".
+  it's harmless) and asks whether snapshots may use it. Allowing it starts
+  the capture. The answer is kept per install. It can be reviewed later, and
+  withdrawn with "Turn off".
+- **Value cards update after a capture**, without a reload. A value measured
+  only on Polishd's own dashboard pages (an install reading dashboard
+  telemetry), or on pages the snapshot didn't shoot, now says so instead of
+  asking for another capture.
 - **Three modes.** Local development (`next dev`, or a dashboard on localhost
   or a private address) is shot by your own Chrome, through the same capture
   loop, with nothing to agree to. Production with a Blob store (or a writable

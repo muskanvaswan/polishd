@@ -81,3 +81,20 @@ export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarg
     .slice(0, MAX_PREVIEW_TARGETS)
     .map(({ ref, pages }) => ({ key: designValueKey(ref), ref, pages }));
 }
+
+/**
+ * Why a flagged value has no picture yet, so its card can say something
+ * true. A snapshot only shoots the site's own pages: a value measured only on
+ * Polishd's dashboard pseudo-pages (`/~polishd/<tab>`, what an install reading
+ * dashboard telemetry measures) will never be pictured, and one measured on
+ * pages the latest snapshot didn't shoot needs those pages captured — another
+ * identical capture won't help.
+ */
+export function unpicturedReason(
+  pages: string[],
+  shotRoutes: string[] | null,
+): "dashboard_only" | "not_shot" | "capture" {
+  if (pages.length > 0 && pages.every((p) => p.startsWith("/~"))) return "dashboard_only";
+  if (shotRoutes && pages.length > 0 && !pages.some((p) => shotRoutes.includes(p))) return "not_shot";
+  return "capture";
+}

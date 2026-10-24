@@ -63,7 +63,11 @@ function previewIndex(snapshots: PolishdSnapshot[]): PreviewFor {
     const preview = pictured.get(key);
     if (preview) return { kind: "pictured", preview };
     if (latest && missed.has(key)) return { kind: "missed", capturedAt: latest.capturedAt };
-    return { kind: "none", hasSnapshots: snapshots.length > 0 };
+    return {
+      kind: "none",
+      hasSnapshots: snapshots.length > 0,
+      shotRoutes: latest ? [...new Set(latest.shots.map((s) => s.route))] : null,
+    };
   };
 }
 

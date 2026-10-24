@@ -471,10 +471,11 @@ flagged value on the Design tab to see that picture and the page it's on.
    (`shots.polishd.muskanvaswan.xyz`, source in [`service/`](./service)) one
    at a time. The service loads that page on the site the dashboard is
    running on and sends back WebP images, which appear in the gallery as they
-   arrive and are then stored by your install. Before that happens, the
-   Design tab **asks you once, in a dialog**, whether snapshots may use the
-   service, and says what it does and doesn't see. The answer is kept per
-   install.
+   arrive and are then stored by your install. The first time you press
+   **Capture**, a dialog **asks you once** whether snapshots may use the
+   service, and says what it does and doesn't see. Allowing it starts the
+   capture. The answer is kept per install; until you've been asked, the
+   section stays where it is.
 3. **Production without a place for images or without your agreement**: the
    Site snapshots section moves to the **bottom of the Design tab, turned
    off**, and says why. The reasons are: no Blob store connected on Vercel,

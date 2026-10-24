@@ -449,9 +449,9 @@ needs nothing. Nothing else is needed either: no `next.config` changes and no
 browser in your deployment. In production the shots are taken by Polishd's
 screenshot service, which the dashboard calls from your browser. **Page URLs
 and pixels pass through that service.** It shoots only your site's public
-pages and stores nothing. The Design tab asks you once, in a dialog, before
-it's ever used; if you decline, or there's no Blob store, the section moves to
-the bottom of the tab, turned off, and says why. See the README's
+pages and stores nothing. The first time you press Capture, a dialog asks you
+once before it's ever used; if you decline, or there's no Blob store, the
+section moves to the bottom of the tab, turned off, and says why. See the README's
 [Site snapshots](../README.md#site-snapshots) for what the service does and
 doesn't do. If your site sets a Content-Security-Policy, add
 `https://shots.polishd.muskanvaswan.xyz` and `https://vercel.com` to

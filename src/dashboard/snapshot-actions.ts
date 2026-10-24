@@ -60,7 +60,9 @@ function failed(prefix: string, err: unknown): Failure {
 }
 
 /** Plan a capture: the routes, renderings and values to picture, and who shoots. */
-export async function beginSnapshotCaptureAction(): Promise<({ ok: true } & SnapshotPlan) | Failure> {
+export async function beginSnapshotCaptureAction(): Promise<
+  ({ ok: true } & SnapshotPlan) | (Failure & { consentRequired?: true })
+> {
   await requirePolishdAuth();
   try {
     const origin = await resolveSiteOrigin();
@@ -101,9 +103,12 @@ export async function beginSnapshotCaptureAction(): Promise<({ ok: true } & Snap
     // service is only ever used once the owner has agreed to it.
     const { mode, storageIssue } = await snapshotAvailability(origin);
     if (mode.kind === "consent") {
+      // Asked on the first capture, not before: the dashboard opens the
+      // consent dialog on this answer and captures once it's allowed.
       return {
         ok: false,
-        message: "Allow Polishd's screenshot service first — the Site snapshots section asks.",
+        consentRequired: true,
+        message: "Allow Polishd's screenshot service to capture.",
       };
     }
     if (mode.kind === "disabled") {

@@ -69,6 +69,8 @@ export interface CaptureOutcome {
   block: CaptureBlock | null;
   /** Anything else that went wrong. */
   error: string | null;
+  /** Nothing ran: the owner hasn't allowed the screenshot service yet. */
+  consentRequired?: true;
 }
 
 /** Cells in flight at once against the service; the local engine runs one at a time. */
@@ -217,7 +219,11 @@ async function storeImage(
  */
 export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureOutcome> {
   const begun = await beginSnapshotCaptureAction();
-  if (!begun.ok) return { snapshot: null, block: null, error: begun.message };
+  if (!begun.ok) {
+    return begun.consentRequired
+      ? { snapshot: null, block: null, error: null, consentRequired: true }
+      : { snapshot: null, block: null, error: begun.message };
+  }
   const plan: SnapshotPlan = begun;
   cb.onPlan(plan);
 
