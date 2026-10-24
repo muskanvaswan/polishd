@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### An Overview tab, with a fix prompt for your coding agent
+
+The dashboard now opens on an **Overview**: sessions, page views, views per
+session and the share on mobile; the AI summary and the design review, one
+above the other; and the newest site snapshot, when there is one. A bare
+`/polishd` lands here; `?tab=analytics` still goes straight to Analytics.
+
+- **Copy fix prompt** copies every problem both reviews found as one prompt
+  for the coding agent working in your repo, and each review's **Copy
+  prompt** copies just its half. Every problem comes with its evidence, the
+  source file it was matched to, the suggested fix and any GitHub issue filed
+  for it, plus instructions to verify against the code before changing it.
+- The review cards are the same ones the Analytics and Design tabs render, so
+  regenerate, ignore and file-bug all work here, and the prompt follows them:
+  it's built at the click from what the cards show.
+- The scheduled summary refresh (daily/weekly cadence) now also runs when the
+  Overview loads, not only the Analytics tab.
+- Dashboard telemetry labels a tab-less visit `/~polishd/overview` (it was
+  `/~polishd/analytics`).
+
 ### Tables no longer scroll on a white scrollbar
 
 The dashboard never told the browser it was dark, so any table wide enough to

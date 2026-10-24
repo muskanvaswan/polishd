@@ -24,9 +24,11 @@ export interface FileBugButtonProps {
   file: () => Promise<CreateIssueResult>;
   /** Telemetry name for the button (see the data-component note in summary.tsx). */
   dataComponent: string;
+  /** Told when this click files the issue — the Overview's prompt cites it. */
+  onFiled?: (filed: { url: string; number: number }) => void;
 }
 
-export function FileBugButton({ filed, file, dataComponent }: FileBugButtonProps) {
+export function FileBugButton({ filed, file, dataComponent, onFiled }: FileBugButtonProps) {
   const [created, setCreated] = useState(filed);
   const [failed, setFailed] = useState<{ notABug: boolean; message: string } | null>(null);
   const [pending, startFile] = useTransition();
@@ -59,8 +61,10 @@ export function FileBugButton({ filed, file, dataComponent }: FileBugButtonProps
     startFile(async () => {
       setFailed(null);
       const res = await file();
-      if (res.ok) setCreated({ url: res.url, number: res.number });
-      else setFailed({ notABug: res.error === "not-a-bug", message: res.message });
+      if (res.ok) {
+        setCreated({ url: res.url, number: res.number });
+        onFiled?.({ url: res.url, number: res.number });
+      } else setFailed({ notABug: res.error === "not-a-bug", message: res.message });
     });
 
   return (

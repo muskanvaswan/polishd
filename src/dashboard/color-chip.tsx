@@ -21,9 +21,9 @@ import { useEffect, useState, type ReactNode } from "react";
  * Clipboard API first, selection trick second. The dashboard is often opened
  * over plain http on a LAN address during development, where
  * `navigator.clipboard` is simply absent — `execCommand` is what still works
- * there, deprecated or not.
+ * there, deprecated or not. Exported for the Overview's prompt buttons.
  */
-async function copyText(text: string): Promise<boolean> {
+export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
