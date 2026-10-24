@@ -70,6 +70,10 @@ const SYSTEM_PROMPT =
 /**
  * Render the aggregated design data as a terse, model-readable brief.
  * Sections are omitted when empty so the prompt only carries real signal.
+ *
+ * Values carry uses (rendered elements) beside declarations (distinct class
+ * strings), so the model can tell one decision repeated down a table from
+ * drift across many — and hand-typed arbitrary values from theme tokens.
  */
 export function buildDesignDigest(data: PolishdDesignData, context?: string): string {
   const lines: string[] = [];
@@ -82,15 +86,58 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
       .join(", ")}${data.pages.length > 10 ? ", …" : ""}).`,
   );
 
+  // Declarations show only where every scan behind a value measured them;
+  // a value also measured by an older scan shows uses alone.
+  const whole = (v: { declarations?: number; legacyUses?: number }) =>
+    v.declarations !== undefined && !v.legacyUses;
+  const declared = [data.fonts, data.colors, data.radii, data.spacing].some((list) => list.some(whole));
+  const decl = (v: { declarations?: number; legacyUses?: number }) => (whole(v) ? `${v.declarations} decl` : "");
+  const hand = (v: { handTyped?: number }) => (v.handTyped ? `${v.handTyped} hand-typed` : "");
+  const usage = (v: { count: number; declarations?: number; handTyped?: number; legacyUses?: number }) =>
+    [`${v.count} uses`, decl(v), hand(v)].filter(Boolean).join(", ");
+  if (declared) {
+    lines.push(
+      'UNITS: "uses" counts rendered elements; "decl" counts distinct declarations — class strings, or an ' +
+        "unclassed element's tag path. A component rendered 40 times is 40 uses but 1 decl: judge how widespread " +
+        'a choice is by decl, not uses. "hand-typed" = a Tailwind arbitrary value (text-[#555], p-[13px]) rather than a theme token.',
+    );
+  }
+
+  const system = data.system;
+  if (system?.tailwind) {
+    // `px` is a literal 1px; the half steps scale with the root size.
+    const halfSteps = [1, ...[2, 6, 10, 14].map((n) => Math.round((n * system.remPx) / 16))];
+    lines.push(
+      `STYLING: Tailwind CSS. Its default spacing scale is on-grid, including the ${halfSteps.join(", ")}px steps.`,
+    );
+  }
+  if (system) {
+    const cats: [keyof typeof system.handTyped, string][] = [
+      ["color", "colors"],
+      ["fontSize", "font sizes"],
+      ["radius", "radii"],
+      ["spacing", "padding"],
+    ];
+    const parts = cats
+      .filter(([k]) => system.handTyped[k].declarations > 0)
+      .map(([k, label]) => {
+        const t = system.handTyped[k];
+        return `${label} ${Math.round((t.handTyped / t.declarations) * 100)}% (${t.handTyped}/${t.declarations})`;
+      });
+    if (parts.length && cats.some(([k]) => system.handTyped[k].handTyped > 0)) {
+      lines.push("HAND-TYPED (share of declarations): " + parts.join(", "));
+    }
+  }
+
   if (data.families.length) {
     lines.push("FONT FAMILIES: " + data.families.map((f) => `${f.family} (${f.count} uses)`).join(", "));
   }
 
   if (data.fonts.length) {
-    lines.push("TYPE STYLES (family size/weight — uses, tags):");
+    lines.push(`TYPE STYLES (family size/weight — uses${declared ? ", decl" : ""}, pages, tags):`);
     for (const f of data.fonts.slice(0, 20)) {
       lines.push(
-        `  - ${f.family} ${f.sizePx}px/${f.weight}: ${f.count} uses, ${f.pages.length} pages` +
+        `  - ${f.family} ${f.sizePx}px/${f.weight}: ${usage(f)}, ${f.pages.length} pages` +
           `${f.tags.length ? ` (${f.tags.join(",")})` : ""}${f.outlier ? " [one-off]" : ""}`,
       );
     }
@@ -103,7 +150,8 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
         .filter(([, n]) => n > 0)
         .map(([r]) => r)
         .join("/");
-      lines.push(`  - ${c.hex}: ${c.pct}% (${roles})${c.outlier ? " [one-off]" : ""}`);
+      const how = whole(c) ? ` — ${usage(c)}` : "";
+      lines.push(`  - ${c.hex}: ${c.pct}% (${roles})${how}${c.outlier ? " [one-off]" : ""}`);
     }
   }
 
@@ -115,20 +163,28 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
     }
   }
 
+  // `×uses/decl`, `!` when any declaration hand-typed it.
+  const tally = (v: { count: number; declarations?: number; handTyped?: number; legacyUses?: number }) =>
+    `×${v.count}${whole(v) ? `/${v.declarations}` : ""}${v.handTyped ? "!" : ""}`;
+  const marks = declared ? " (! = hand-typed)" : "";
+
   if (data.radii.length) {
     lines.push(
-      "CORNER RADII: " + data.radii.map((r) => `${r.value} ×${r.count}${r.outlier ? " [one-off]" : ""}`).join(", "),
+      `CORNER RADII (value ×uses${declared ? "/decl" : ""}): ` +
+        data.radii.map((r) => `${r.value} ${tally(r)}${r.outlier ? " [one-off]" : ""}`).join(", ") +
+        marks,
     );
   }
 
   if (data.spacing.length) {
+    const grid = system?.tailwind ? "the 4px grid and Tailwind's scale" : "the 4px grid";
     lines.push(
-      "PADDING VALUES (px ×uses): " +
+      `PADDING VALUES (px ×uses${declared ? "/decl" : ""}): ` +
         data.spacing
           .slice(0, 18)
-          .map((s) => `${s.px} ×${s.count}${s.offGrid ? "*" : ""}`)
+          .map((s) => `${s.px} ${tally(s)}${s.offGrid ? "*" : ""}`)
           .join(", ") +
-        "  (* = off the 4px grid)",
+        `  (* = off ${grid})${marks}`,
     );
   }
 

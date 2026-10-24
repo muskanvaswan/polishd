@@ -465,7 +465,19 @@ assembles the site-wide picture:
 The first layer of review is **deterministic** — rule-based checks, no model:
 too many font sizes to be a type scale, extra font families, near-duplicate
 colors (`#fefefe` living next to `#ffffff`), contrast failures with the exact
-ratio, one-off values that appear on a single page, padding off the 4px grid.
+ratio, one-off values that appear on a single page, padding off the 4px grid,
+and Tailwind arbitrary values (`text-[#555]`, `p-[13px]`) standing in for a
+theme.
+
+The checks count **decisions, not copies**. Each value carries both its uses
+(elements rendering it) and its declarations (the distinct class strings
+behind them), so a badge class repeated down a 38-row table is one decision
+and a shared button-class constant is one decision. A one-off is a value
+that's rare in what the page renders, on one page, and declared once; a
+value chosen in two places is a pattern. On a Tailwind site, its spacing scale's half steps
+(2px, 6px, 10px, 14px) count as on-grid. Loading skeletons, `aria-busy`
+regions and closed overlays are left out of the scan, which waits a few
+seconds for them to clear first.
 
 The second layer is the **Aesthetic review** card: the same model you
 configured in Settings reads the measured tokens and findings

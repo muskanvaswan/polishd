@@ -348,7 +348,46 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
     }
   };
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  // The scanner's transient states (design-declarations.ts `transientReason`):
+  // a skeleton or busy region, an unrendered branch, a closed overlay at
+  // opacity 0. Their values were never tallied, so they're never pictured.
+  // A pulse counts bare, or behind a variant that can hold at rest when the
+  // computed animation confirms it — never behind `hover:`. A skeleton class
+  // is `skeleton` as a whole segment.
+  const STANDING =
+    /^(?:sm|md|lg|xl|2xl|max-[\w[\]-]+|min-[\w[\]-]+|dark|light|print|portrait|landscape|motion-safe|motion-reduce|contrast-more|contrast-less|ltr|rtl|supports-[\w[\]()-]+|@[\w[\]-]*)$/;
+  const loading = (el: Element): boolean => {
+    if (el.getAttribute("aria-busy") === "true") return true;
+    return (el.getAttribute("class") ?? "").split(/\s+/).some((token) => {
+      const parts = token.split(":");
+      const u = (parts.pop() ?? "").replace(/^!|!$/g, "");
+      if (!parts.every((v) => STANDING.test(v))) return false;
+      if (/^skeleton(?:[-_]|$)/i.test(u) || /[-_]skeleton$/i.test(u) || /^(?:[A-Z][a-z0-9]*)+Skeleton(?:[-_]|$)/.test(u)) {
+        return true;
+      }
+      if (u !== "animate-pulse") return false;
+      return parts.length === 0 || /\bpulse\b/.test(getComputedStyle(el).animationName);
+    });
+  };
+  const transient = (el: Element): boolean => {
+    if (loading(el)) return true;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none") return true;
+    return (
+      parseFloat(cs.opacity) <= 0.01 &&
+      (el.getAttribute("aria-hidden") === "true" || el.getAttribute("inert") !== null || cs.position === "fixed")
+    );
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
+    // Cheap checks before any computed style: tags that never render, an
+    // icon's SVG internals, then transient states.
+    acceptNode: (node) => {
+      const el = node as Element;
+      if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+      if (el.namespaceURI === "http://www.w3.org/2000/svg" && el.localName !== "svg") return NodeFilter.FILTER_REJECT;
+      return transient(el) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+  });
   let sampled = 0;
   let visited = 0;
   // Looser bounds than the scanner's: this runs once per capture, and the
@@ -360,8 +399,6 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
   ) {
     visited++;
     const el = node as Element;
-    if (SKIP_TAGS.has(el.tagName)) continue;
-    if (el.closest("svg") && el.tagName !== "svg") continue;
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") continue;
     const rect = el.getBoundingClientRect();

@@ -82,6 +82,60 @@ card) counted as dead on every press, even when the press worked.
 All of this applies to both your site's capture and the dashboard's own
 telemetry, which now share one click-capture module.
 
+### The design review counts decisions, not copies
+
+The Design tab's metrics read repeated copies and framework-standard values
+as drift. A badge class rendered on 38 table rows counted as 38 uses of an
+off-grid 9px padding. Tailwind's own `1.5` and `2.5` steps (6px, 10px) were
+flagged off the 4px grid. Loading skeletons added near-duplicate greys to the
+palette. And the real systemic problem, every color hand-typed with no token
+layer, was never stated.
+
+- **Declarations beside uses.** The scan groups elements by class string (or,
+  for an unclassed element, its tag path). Each font, color, radius and
+  padding value now reports both uses and distinct declarations. Inherited
+  font and text color are credited to the ancestor that set them, so text
+  inside one `text-[#555]` wrapper counts as one declaration. One-offs still
+  have to be rare in uses, under the same per-category shares as before, and
+  now must also be declared exactly once. A rare value chosen in two places is a
+  pattern, not a stray, and repeated copies never promote anything into a
+  one-off. The off-grid share counts declarations too.
+- **Tailwind-aware grid.** When the class names are mostly Tailwind
+  utilities, values on its default spacing scale (1px, 2px, 6px, 10px, 14px,
+  scaled to the root font size) count as on-grid.
+- **Hand-typed values.** Arbitrary-value classes (`text-[#555]`,
+  `bg-[#111]`, `rounded-[2px]`, `p-[13px]`, `text-[11px]`) are counted per
+  category. When more than half of a category's declarations are hand-typed,
+  a new finding says so: *"91% of color declarations (20 of 22) are
+  hand-typed arbitrary values … — there is no color token layer."* A site on
+  theme tokens with a few deliberate arbitrary values stays quiet. So does a
+  site whose arbitrary values are built on tokens: `bg-[hsl(var(--card))]`
+  and `rounded-[calc(1rem-var(--inset))]` count as token references. The scan
+  measures the page at rest, so an arbitrary class counts only when its value
+  is what renders: `hover:text-[#fff]` never does, and `sm:p-[13px]` counts
+  only when the element renders 13px. Inline `style=""` values aren't
+  counted. At runtime `style={{ color: theme.fg }}` and
+  `style={{ color: "#555" }}` produce the same literal, so the DOM can't
+  tell a token from a hand-typed value there.
+- **Transient states left out.** Subtrees that are `aria-busy`, pulse at
+  rest (bare `animate-pulse`, or behind `motion-safe:`, a breakpoint or
+  `dark:` when the computed animation confirms it, never behind `hover:`),
+  carry a skeleton class (`skeleton`, `skeleton-line`,
+  `MuiSkeleton-root`, not `no-skeleton-here`), are `display: none`, or are
+  closed overlays at opacity 0 are skipped. The scan waits up to three 1.5s
+  beats for visible loading states to clear before measuring.
+- The AI review's digest carries all of this: uses and declarations per
+  value, a hand-typed share per category, and whether Tailwind's scale applies.
+- **Older installs keep working.** Scans from earlier package versions carry
+  no declarations or class-name readings. They aggregate as before: counts
+  kept, declarations unknown, the per-use one-off rule and the plain 4px
+  grid. This holds row by row: an old page's uses count as decisions beside
+  newer pages' declarations, so one page nobody has revisited since an
+  upgrade doesn't change how the rest is read. Malformed rows are skipped. The bigger payload still fits ingest's
+  32,000-character cap: the worst page the scan can describe is about 30KB,
+  and serializing drops the declaration ids first (to about 19KB), then the
+  least-used values, instead of dropping the scan.
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its
