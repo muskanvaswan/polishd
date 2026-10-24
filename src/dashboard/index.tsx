@@ -234,7 +234,7 @@ export interface PolishdAIBundle {
   profile: PolishdProjectProfile | null;
   /** Analytics component identifiers the profile doesn't cover. */
   gaps: string[];
-  /** Whether the source tree is on disk here (codebase scan possible). */
+  /** Whether the source tree is on disk here. A scan can also read the connected repo. */
   sourceAvailable: boolean;
 }
 

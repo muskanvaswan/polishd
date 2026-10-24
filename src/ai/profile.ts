@@ -1,8 +1,9 @@
 /**
  * Polishd — project profile (server only).
  *
- * The one-time setup step: scan the host app's source, ask the model to write
- * a compact "what this project is" brief — purpose, page map, every interactive
+ * The one-time setup step: scan the host app's source — from disk where it's
+ * there, otherwise from the connected GitHub repo — ask the model to write a
+ * compact "what this project is" brief — purpose, page map, every interactive
  * component and its identifier, plus the owner's stated audience and ideology —
  * and cache it in the store.
  *
@@ -11,13 +12,10 @@
  * (b) analytics mention a component the profile doesn't cover, in which case
  * the summary does a tiny targeted read of just the files naming it.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import type { PolishdDashboardData } from "../server/queries";
 import { getMeta, setMeta } from "../server/store";
 import { callModel } from "./providers";
-import { collectSource, type SourceScan } from "./scan";
+import { collectGithubSource, collectSource, sourceOnDisk, type SourceScan } from "./scan";
 import { resolveSettings } from "./settings";
 import type { PolishdProjectProfile, GenerateProfileResult } from "./types";
 
@@ -98,14 +96,33 @@ export async function generateProjectProfile(
   }
 
   const knownIds = data ? componentIdentifiers(data) : [];
-  const scan: SourceScan = collectSource(settings.sourceDirs, knownIds);
+  // Disk first: it's free, and in local dev it's the code being worked on.
+  // Where it isn't there — any serverless deploy — the repo is the source.
+  let scan: SourceScan = collectSource(settings.sourceDirs, knownIds);
+  let github: PolishdProjectProfile["github"];
   if (!scan.available) {
-    return {
-      ok: false,
-      error: "no-source",
-      message:
-        "No source tree found on disk — run the scan where the app's source is available (local dev or CI).",
-    };
+    const remote = await collectGithubSource(settings.sourceDirs, knownIds);
+    if (!remote.ok && remote.error === "not-connected") {
+      return {
+        ok: false,
+        error: "no-source",
+        message:
+          "There's no source on disk here to scan. Connect your GitHub repository and the scan reads it from there — or run it where the app's source is (local dev or CI).",
+      };
+    }
+    if (!remote.ok) return { ok: false, error: "github-error", message: remote.message };
+    if (!remote.scan.available) {
+      const where = remote.origin.root
+        ? `${remote.origin.repo} (in ${remote.origin.root}/)`
+        : remote.origin.repo;
+      return {
+        ok: false,
+        error: "no-source",
+        message: `Found no app source in ${where} — set Source folders to where your pages and components live.`,
+      };
+    }
+    scan = remote.scan;
+    github = remote.origin;
   }
 
   const parts: string[] = [];
@@ -115,7 +132,12 @@ export async function generateProjectProfile(
   if (knownIds.length)
     parts.push(`COMPONENT IDENTIFIERS SEEN IN ANALYTICS: ${knownIds.join(", ")}`);
   parts.push(
-    "SOURCE FILES" + (scan.truncated ? " (large app — excerpts were clipped to budget)" : "") + ":",
+    "SOURCE FILES" +
+      (github
+        ? ` (from GitHub: ${github.repo}, branch ${github.ref}${github.root ? `, app in ${github.root}/` : ""})`
+        : "") +
+      (scan.truncated ? " (large app — excerpts were clipped to budget)" : "") +
+      ":",
   );
   for (const f of scan.files) {
     parts.push(`--- ${f.path} ---\n${f.content}`);
@@ -163,6 +185,7 @@ export async function generateProjectProfile(
     coveredIdentifiers: [...new Set([...scan.identifiers, ...knownIds])].sort(),
     sourceFiles: scan.files.length,
     truncated: scan.truncated,
+    ...(github ? { github } : {}),
   };
   await setMeta(PROFILE_KEY, JSON.stringify(profile));
   return { ok: true, profile };
@@ -172,7 +195,10 @@ export async function generateProjectProfile(
 export async function loadProfileState(data: PolishdComponentSource): Promise<{
   profile: PolishdProjectProfile | null;
   gaps: string[];
-  /** Whether a scan could run here (source tree present on disk). */
+  /**
+   * Whether the source tree is on disk here. A scan can also run from the
+   * connected GitHub repo, which the client knows from the public settings.
+   */
   sourceAvailable: boolean;
 }> {
   const [profile, { settings }] = await Promise.all([
@@ -181,10 +207,6 @@ export async function loadProfileState(data: PolishdComponentSource): Promise<{
   ]);
   // Cheap availability probe — enough for the UI to enable/disable the button
   // without walking the whole tree.
-  const configured = settings.sourceDirs?.split(",").map((s) => s.trim()).filter(Boolean);
-  const roots = configured?.length
-    ? configured
-    : ["src", "app", "components", "pages", "lib"];
-  const sourceAvailable = roots.some((r) => existsSync(join(process.cwd(), r)));
+  const sourceAvailable = sourceOnDisk(settings.sourceDirs);
   return { profile, gaps: coverageGaps(data, profile), sourceAvailable };
 }
