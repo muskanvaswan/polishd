@@ -626,8 +626,11 @@ once; nothing is sent unless you say yes. What's shared when you do:
   fingerprinting, no URLs, page content, or user data from your site — your
   analytics never leave your database.
 - Once per session, whether a **model is connected** and which provider/model
-  it is — never the key, never any setting beyond those two names. This is how
-  the project learns which AI setups to test against.
+  it is — never the key, never any setting beyond those two names — and the
+  **polishd version** you run. This is how the project learns which AI setups
+  to test against, and which release an error came from.
+- JavaScript errors raised while the dashboard is open, with the dashboard
+  control clicked just before one, if any.
 
 Say no and it never asks again. Change your mind, or disable it fleet-wide,
 with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of

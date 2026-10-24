@@ -26,11 +26,12 @@
  *     first-party pages.
  *
  * What is captured: page views (tab switches), clicks (with the same
- * rage/dead classification as the host capture layer, via the shared DOM
- * helpers), scroll depth of the dashboard's own scroll container, JS errors
+ * rage/dead classification as the host capture layer, via the shared click
+ * capture), scroll depth of the dashboard's own scroll container, JS errors
  * raised while the dashboard is up, one design scan of the dashboard per tab
- * per session, one viewport sample per session, and session end. Everything
- * the full dashboard experience needs on the collecting side — and never
+ * per session, one viewport sample and one install-state snapshot (model
+ * connected, provider/model, package version) per session, and session end.
+ * Everything the full dashboard experience needs on the collecting side — and never
  * anything from the host site's own pages: capture suspends the moment the
  * URL leaves the dashboard's mount path.
  */
@@ -39,17 +40,11 @@ import { useEffect, useState, useTransition } from "react";
 
 import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
-import {
-  componentOf,
-  deviceCategory,
-  hasTextSelection,
-  isInteractive,
-  isSelectionGesture,
-  isTextTarget,
-  labelOf,
-  selectorOf,
-} from "../client/dom";
+import { POLISHD_VERSION } from "../version";
+import { startClickCapture } from "../client/click-capture";
+import { deviceCategory } from "../client/dom";
 import { scheduleDesignScan } from "../client/design-scan";
+import { errorContextMeta } from "../client/error-context";
 import { errorOrigin, startScriptProvenance } from "../client/script-provenance";
 import type { PolishdTelemetryInstallState } from "../server/telemetry";
 import { denyPolishdTelemetry, grantPolishdTelemetry } from "./telemetry-consent";
@@ -118,47 +113,31 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
     });
   };
 
-  const push = (
-    e: Omit<PolishdEvent, "ts" | "path"> & Partial<Pick<PolishdEvent, "ts" | "path">>,
-  ) => {
-    if (!onDashboard()) return;
+  type Pushed = Omit<PolishdEvent, "ts" | "path"> & Partial<Pick<PolishdEvent, "ts" | "path">>;
+
+  /** Queue an event already known to belong to the dashboard. */
+  const enqueue = (e: Pushed) => {
     queue.push({ ts: Date.now(), path: currentPath, ...e } as PolishdEvent);
     if (queue.length >= MAX_BATCH) flush();
   };
 
-  // ---- clicks (same classification as the host capture layer) --------------
+  const push = (e: Pushed) => {
+    if (onDashboard()) enqueue(e);
+  };
 
-  let lastClick = { selector: "", time: 0, count: 0 };
+  // ---- clicks (the host capture layer's classification, shared) ------------
 
-  document.addEventListener(
-    "click",
-    (ev) => {
-      const target = ev.target as Element | null;
-      if (!target || !onDashboard()) return;
-      const selector = selectorOf(target);
-      const component = componentOf(target);
-      const text = labelOf(target);
-      const now = Date.now();
-
-      if (selector === lastClick.selector && now - lastClick.time < RAGE_WINDOW_MS) {
-        lastClick.count++;
-        lastClick.time = now;
-        if (lastClick.count === RAGE_COUNT && !isSelectionGesture(target)) {
-          push({ type: "rage_click", selector, component, text });
-        }
-      } else {
-        lastClick = { selector: selector ?? "", time: now, count: 1 };
-      }
-
-      if (!isInteractive(target)) {
-        if (hasTextSelection() || isTextTarget(target)) return;
-        push({ type: "dead_click", selector, component, text });
-      } else {
-        push({ type: "click", selector, component, text });
-      }
-    },
-    { capture: true, passive: true },
-  );
+  // A click on something that isn't a control is judged by whether the page
+  // responds within a second, by which time it may have navigated off the
+  // dashboard. The click itself happened on it — `active` is checked at click
+  // time — so its event is queued directly, with its click-time tab path.
+  const clicks = startClickCapture({
+    rageCount: RAGE_COUNT,
+    rageWindowMs: RAGE_WINDOW_MS,
+    path: () => currentPath,
+    active: onDashboard,
+    emit: enqueue,
+  });
 
   // ---- scroll depth (of whatever actually scrolls) --------------------------
 
@@ -202,6 +181,7 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
       if (!onDashboard()) return;
       const message = String(ev.message);
       const source = ev.filename || "";
+      const line = ev.lineno || 0;
       const origin = errorOrigin(source, ev.error?.stack);
       if (origin === "extension" || isIgnorableError({ message, source })) return;
       push({
@@ -209,8 +189,13 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
         meta: {
           message: message.slice(0, 300),
           source,
-          line: ev.lineno || 0,
+          line,
           ...(origin === "site" ? {} : { origin }),
+          ...errorContextMeta(ev.error, clicks.lastInteraction(), Date.now(), {
+            source,
+            line,
+            col: ev.colno || 0,
+          }),
         },
       });
     },
@@ -228,6 +213,7 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
         message: message.slice(0, 300),
         kind: "unhandledrejection",
         ...(origin === "site" ? {} : { origin }),
+        ...errorContextMeta(reason, clicks.lastInteraction(), Date.now()),
       },
     });
   });
@@ -275,13 +261,18 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
 
   // ---- lifecycle -----------------------------------------------------------
 
+  // Clicks still being judged settle first: a page that hides or unloads
+  // right after a click (a new tab, a full navigation) did respond to it.
   addEventListener("pagehide", () => {
+    clicks.settle();
     flushScrollDepth();
     push({ type: "session_end" });
     flush(true);
   });
   addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flush(true);
+    if (document.visibilityState !== "hidden") return;
+    clicks.settle();
+    flush(true);
   });
   setInterval(() => flush(false), FLUSH_INTERVAL_MS);
 
@@ -293,12 +284,15 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
   // One install-state snapshot per session: whether a model is connected and
   // which provider/model — the product questions ("how many installs actually
   // configure AI?") that click events can't answer. Server-resolved, no key.
+  // It also names the package version, which is what places this session's
+  // errors in a release; an upgrade mid-session (same tab, reloaded) reports
+  // again so they aren't pinned on the old one.
   if (installState) {
     const STATE_KEY = "polishd_telemetry_state";
     let sent = false;
     try {
-      sent = sessionStorage.getItem(STATE_KEY) !== null;
-      if (!sent) sessionStorage.setItem(STATE_KEY, "1");
+      sent = sessionStorage.getItem(STATE_KEY) === POLISHD_VERSION;
+      if (!sent) sessionStorage.setItem(STATE_KEY, POLISHD_VERSION);
     } catch {
       /* storage blocked — a duplicate per page load is tolerable */
     }
@@ -309,6 +303,7 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
           hasModel: installState.hasModel,
           provider: installState.provider,
           model: installState.model,
+          version: POLISHD_VERSION,
         },
       });
     }
@@ -375,9 +370,9 @@ export function PolishdTelemetryConsent() {
       <p className="text-[13px] font-medium text-white">Help improve polishd?</p>
       <p className="mt-1.5 text-[12px] leading-relaxed text-[#888]">
         Share anonymous usage of <span className="text-[#aaa]">this dashboard</span> — clicks and
-        tab views inside it, plus which model provider you&apos;ve connected (never the key) —
-        reported under your site&apos;s domain. Never your site&apos;s analytics, never your
-        visitors&apos; data. Opt out any time with{" "}
+        tab views inside it, plus your polishd version and which model provider you&apos;ve
+        connected (never the key) — reported under your site&apos;s domain. Never your
+        site&apos;s analytics, never your visitors&apos; data. Opt out any time with{" "}
         <code className="font-mono text-[11px] text-[#aaa]">POLISHD_TELEMETRY=off</code>.
       </p>
       <div className="mt-3 flex gap-2">

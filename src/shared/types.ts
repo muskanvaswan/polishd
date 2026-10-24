@@ -15,7 +15,7 @@ export type PolishdEventType =
   | "page_view" // a route was viewed (initial load or soft navigation)
   | "click" // a normal click on an element
   | "rage_click" // 3+ rapid clicks on the same element (frustration; text-selection bursts excluded)
-  | "dead_click" // a click on a non-interactive, non-text element (confusion)
+  | "dead_click" // a click on a non-control, non-text element that drew no response within ~1s (confusion)
   | "scroll_depth" // max scroll reached on a page before leaving it (only pages tall enough to scroll)
   | "viewport" // device/viewport size sampled once at session start
   | "js_error" // an uncaught error or unhandled rejection
@@ -46,7 +46,10 @@ export interface PolishdEvent {
   selector?: string;
   /** `data-component` hint, walked up from the target. Key to synthesis. */
   component?: string;
-  /** Short, truncated element text — labels only, never user-typed content. */
+  /**
+   * Short, truncated element text — labels only, never user-typed content.
+   * Digit runs are folded to `#` on click events ("Show # more").
+   */
   text?: string;
   /**
    * Numeric payload whose meaning depends on `type`:
@@ -55,7 +58,14 @@ export interface PolishdEvent {
    * - viewport: viewport width in CSS pixels
    */
   value?: number;
-  /** Small, typed extras keyed by event type (e.g. vital name, error message). */
+  /**
+   * Small, typed extras keyed by event type (e.g. vital name, error message).
+   * - dead_click: `near`, the label of the control the click narrowly missed
+   * - js_error: `message`, `source`, `line`, `origin`, `kind`; plus `digest`
+   *   (Next's error digest), `frame` (top stack frame, `file:line:col`) and
+   *   `lastComponent`/`lastLabel`/`lastSelector` (the click ≤2s before it)
+   * - install_state: `hasModel`, `provider`, `model`, `version`
+   */
   meta?: Record<string, string | number | boolean | null>;
 }
 

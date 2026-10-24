@@ -77,6 +77,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\" \"service/lib/**/*.test.ts\"",
     "clean": "rm -rf dist",
+    "version": "node scripts/sync-version.mjs && git add src/version.ts",
     "prepublishOnly": "npm run clean && npm run build",
     "build:css": "node scripts/build-css.mjs"
   },

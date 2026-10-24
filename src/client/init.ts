@@ -10,18 +10,11 @@
 import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
 import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
+import { startClickCapture } from "./click-capture";
 import { scheduleDesignScan } from "./design-scan";
+import { componentOf, deviceCategory } from "./dom";
+import { errorContextMeta } from "./error-context";
 import { errorOrigin, startScriptProvenance } from "./script-provenance";
-import {
-  componentOf,
-  deviceCategory,
-  hasTextSelection,
-  isInteractive,
-  isSelectionGesture,
-  isTextTarget,
-  labelOf,
-  selectorOf,
-} from "./dom";
 
 type InitOptions = Partial<PolishdConfig>;
 
@@ -120,41 +113,18 @@ export function initPolishd(options: InitOptions = {}): void {
 
   // ---- click + rage + dead -------------------------------------------------
 
-  let lastClick = { selector: "", time: 0, count: 0 };
-
-  const onClick = (ev: MouseEvent) => {
-    const target = ev.target as Element | null;
-    if (!target) return;
-    const selector = selectorOf(target);
-    const component = componentOf(target);
-    const text = labelOf(target);
-    const now = Date.now();
-
-    // Rage: same selector clicked `count` times inside `windowMs`.
-    if (selector === lastClick.selector && now - lastClick.time < cfg.rageClick.windowMs) {
-      lastClick.count++;
-      lastClick.time = now;
-      if (lastClick.count === cfg.rageClick.count && !isSelectionGesture(target)) {
-        // Double/triple-clicking prose selects a word or paragraph — that
-        // burst is intent to copy, not frustration.
-        push({ type: "rage_click", selector, component, text });
-      }
-    } else {
-      lastClick = { selector: selector ?? "", time: now, count: 1 };
-    }
-
-    // Dead: click that hits nothing interactive (likely confusion).
-    if (!isInteractive(target)) {
-      // Two shapes of click are about the text, not a dead control: a
-      // drag-to-highlight firing its click on mouse-up, and a click landing on
-      // a text element (cursor placement, the start of a selection). Neither
-      // is confusion — don't log them as dead clicks.
-      if (hasTextSelection() || isTextTarget(target)) return;
-      push({ type: "dead_click", selector, component, text });
-    } else {
-      push({ type: "click", selector, component, text });
-    }
-  };
+  // Shared with the dashboard's telemetry emitter (see click-capture.ts). A
+  // click on something that isn't a control is held for a second and judged
+  // by whether the page responded, so its event can arrive after later ones;
+  // it carries its own click-time `ts` and `path`.
+  const clicks = startClickCapture({
+    rageCount: cfg.rageClick.count,
+    rageWindowMs: cfg.rageClick.windowMs,
+    path: () => currentPath,
+    // The dashboard's clicks are dropped by `push` anyway; skip judging them.
+    active: () => !isDashboardPath(currentPath, cfg.dashboardRoute),
+    emit: push,
+  });
 
   // ---- page views (incl. soft navigation) ----------------------------------
 
@@ -264,13 +234,24 @@ export function initPolishd(options: InitOptions = {}): void {
     });
   };
 
+  // Each error also carries Next's digest, its top stack frame and the click
+  // just before it, when there are any (see error-context.ts).
   const onError = (ev: ErrorEvent) => {
     const source = ev.filename || "";
+    const line = ev.lineno || 0;
     captureError(String(ev.message), errorOrigin(source, ev.error?.stack), {
       // `window` for a runtime throw (no component); the failing element for a
       // resource load.
       component: componentOf(ev.target),
-      meta: { source, line: ev.lineno || 0 },
+      meta: {
+        source,
+        line,
+        ...errorContextMeta(ev.error, clicks.lastInteraction(), Date.now(), {
+          source,
+          line,
+          col: ev.colno || 0,
+        }),
+      },
     });
   };
 
@@ -279,7 +260,10 @@ export function initPolishd(options: InitOptions = {}): void {
     // A rejection carries no filename, so the stack is the only thing that can
     // place the code that threw it.
     captureError(String(reason?.message ?? reason), errorOrigin(undefined, reason?.stack), {
-      meta: { kind: "unhandledrejection" },
+      meta: {
+        kind: "unhandledrejection",
+        ...errorContextMeta(reason, clicks.lastInteraction(), Date.now()),
+      },
     });
   };
 
@@ -320,7 +304,6 @@ export function initPolishd(options: InitOptions = {}): void {
 
   // ---- lifecycle -----------------------------------------------------------
 
-  document.addEventListener("click", onClick, { capture: true, passive: true });
   addEventListener("scroll", onScroll, { passive: true });
   addEventListener("error", onError, true);
   addEventListener("unhandledrejection", onRejection);
@@ -330,14 +313,19 @@ export function initPolishd(options: InitOptions = {}): void {
     if (location.pathname !== currentPath) emitPageView();
   });
 
-  // Final flush + session_end as the page goes away.
+  // Final flush + session_end as the page goes away. Clicks still being
+  // judged settle first: a page that hides or unloads right after a click
+  // (a new tab, a full navigation) did respond to it.
   addEventListener("pagehide", () => {
+    clicks.settle();
     if (maxScrollPct > 0) push({ type: "scroll_depth", value: maxScrollPct });
     push({ type: "session_end" });
     flush(true);
   });
   addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flush(true);
+    if (document.visibilityState !== "hidden") return;
+    clicks.settle();
+    flush(true);
   });
 
   observeVitals();

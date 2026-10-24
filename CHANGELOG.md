@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Dead clicks are judged by what happened, and errors say where they came from
+
+A dead click used to mean "a click on something that isn't a button or a
+link". Anything wired with a React `onClick` (a modal backdrop, a clickable
+card) counted as dead on every press, even when the press worked.
+
+- **Judged by outcome.** A click on something that isn't recognisably a
+  control is held for a second. It records as a dead click only if nothing
+  happened: no DOM change, no navigation, no focus move. If the page
+  responded, it's an ordinary click. Elements with a React `onClick` count as
+  controls straight away. Ambient activity doesn't hide real dead clicks: a
+  running animation, a ticking clock, or the button the visitor clicks next
+  doesn't make the earlier click count as working.
+- **Near misses.** A dead click beside a control names it in `meta.near`: a
+  full-width row whose button is only its text, or the gap next to a tab. The
+  click no longer carries the button's text as its own label, so it reads as
+  "clicks beside Show # more", not "Show # more doesn't respond".
+- **Counts in labels fold to `#`.** "Show 9 more" and "Show 12 more" are one
+  control now, not a row each. Ingest applies the same rule to clicks sent by
+  older clients.
+- **Errors are diagnosable.** Each `js_error` carries Next's `digest` when
+  there is one, which is the key to the full error in your server logs when
+  production redacts the message. It also carries the top stack frame
+  (`frame`, `file:line:col`) and the click from the two seconds before it
+  (`lastComponent`, `lastLabel`, `lastSelector`).
+- **Dashboard telemetry reports its version.** The once-per-session
+  `install_state` event now includes the polishd `version`, and reports again
+  when a tab reloads onto a newer one.
+
+All of this applies to both your site's capture and the dashboard's own
+telemetry, which now share one click-capture module.
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its

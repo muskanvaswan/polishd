@@ -45,6 +45,16 @@ export const INTERACTIVE_TAGS: ReadonlySet<string> = new Set([
  */
 export const PROSE_MIN_CHARS = 40;
 
+/**
+ * A captured label with its digit runs folded to `#`: "Show 9 more" and
+ * "Show 12 more" are one control, and counting them as two splits its clicks
+ * across as many rows as the count has values. Applied by the browser capture
+ * layers to every label they record, and by ingest to click labels sent by
+ * clients that predate it.
+ */
+export const normalizeLabel = (label: string | undefined): string | undefined =>
+  label === undefined ? undefined : label.replace(/\d+/g, "#");
+
 /** Tag names of a stored selector path: "div.card>p.intro>span" → ["div","p","span"]. */
 export const selectorTags = (selector: string): string[] =>
   selector
