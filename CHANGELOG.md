@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### AI findings sit in a scrolling row of cards
+
+The summary's **Losses** and the design review's **Breaking the system** were
+a column beside the wins, and every finding carries evidence, a source
+location and its own buttons, so half a dozen of them made the list longer than
+the rest of the card. The things you're meant to act on were the things you
+had to scroll past.
+
+- **Each finding is now a card in its own row** under the wins (or what's
+  working), scrolling sideways, so the AI card stays the same height however
+  many findings there are. Evidence sits at the top of each card and **File bug** /
+  **Ignore** at the bottom, lined up across the row.
+- The row shows a count, fades whichever edge has more, and gets arrow
+  buttons once it overflows. It snaps card by card and can be scrolled with
+  the keyboard. On a phone the next card peeks in from the edge.
+- Ignoring a loss, giving a reason and undoing it all happen inside the
+  card, as before.
+
 ### The codebase scan reads your GitHub repo, and comes after connecting it
 
 The one-time codebase scan only ever read source from disk, so on a deployed
