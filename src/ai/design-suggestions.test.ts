@@ -97,6 +97,16 @@ test("naming a praised value as the one to replace is withheld", () => {
     known,
   );
   assert.match(sizeAndWeight.withheld!, /replace 28px with 24px/);
+  // A property that isn't attached to the value — here split off by commas —
+  // is read as a change to the value (a documented residual).
+  const detached = checkSuggestion(
+    "Body text is cramped.",
+    "Bump 16px body copy, specifically its line-height, to 24px.",
+    ["Steady 16px body text on every page."],
+    known,
+  );
+  assert.match(detached.withheld!, /replace 16px with 24px/);
+
   // A property in a modifier belongs to something else, not the praised value.
   const modifier = checkSuggestion(
     "Heading sizes drift.",
@@ -139,6 +149,12 @@ test("a praised value that's only the subject of another change is left alone", 
     "Bump the line-height of 16px body text to 24px.",
     "Change the 16px body text's letter-spacing to 0.5px.",
     "Reduce the 28px hero heading margin to 16px.",
+    // Plural possessives, an "and" between plain words, a property placed before the value.
+    "Reduce the 28px headings' margin to 16px.",
+    "Reduce the 28px headings' top and bottom margin to 16px.",
+    "Reduce the margin under 28px headings to 16px.",
+    // A documented residual: only the first property is attached, so this reads as a weight change.
+    "Reduce the 28px heading weight and size to 24px.",
   ]) {
     const out = checkSuggestion("Body text could read better.", suggestion, strengths, known);
     assert.equal(out.withheld, undefined, suggestion);
@@ -272,6 +288,7 @@ test("a design issue's signature is its kind and its values, never its pages", (
     values: "15px 17px",
     sizes: [],
     role: null,
+    named: ["type"],
   });
   // Hex is normalized; page paths never enter it.
   assert.deepEqual(sig("A stray white.", "#FFF on /pricing"), {
@@ -279,12 +296,14 @@ test("a design issue's signature is its kind and its values, never its pages", (
     values: "#ffffff",
     sizes: [],
     role: null,
+    named: [],
   });
   assert.deepEqual(sig("Captions fail AA.", "#444 text on #0A0A0A at 11px (2.03:1)"), {
     category: "contrast",
     values: "#0a0a0a #444444",
     sizes: ["11px"],
     role: null,
+    named: [],
   });
   assert.equal(sig("Inconsistent icons.", "  Inconsistent   Icons ").values, "inconsistent icons");
 });
@@ -349,6 +368,19 @@ test("issues citing the same value for different things don't share a dismissal"
   assert.ok(!same(["Captions are tiny.", "11px captions"], ["Corners drift.", "11px radius"], both));
   const typeOnly: KnownDesignValues = { ...known, type: new Set([...known.type, "11px"]) };
   assert.ok(!same(["Captions are tiny.", "11px captions"], ["Corners drift.", "11px radius"], typeOnly));
+  // …and when 11px is measured only as a radius, "captions" still names type.
+  const radiusOnly: KnownDesignValues = { ...known, radius: new Set([...known.radius, "11px"]) };
+  assert.equal(sig("Captions are tiny.", "11px captions", radiusOnly).category, "type");
+  assert.ok(!hides(["Captions are tiny.", "11px captions"], ["Corners drift.", "11px radius"], radiusOnly));
+  assert.ok(!hides(["Corners drift.", "11px radius"], ["Small labels.", "11px labels"], radiusOnly));
+  // Explicit wording on both sides vetoes a match even when both land in the
+  // same category: here one names type and spacing, too many to pick from,
+  // so the data calls it a radius, like the other — but the other names a radius.
+  assert.ok(
+    !same(["Body padding is tight.", "11px body padding"], ["Corners drift.", "11px corner radius"], radiusOnly),
+  );
+  // Wording on only one side is no veto.
+  assert.ok(same(["Two small values.", "11px"], ["Corners drift.", "11px corner radius"], radiusOnly));
 
   // The same pair failing at different sizes: two failures.
   assert.ok(!hides(["Captions fail contrast.", "#888888 on #0a0a0a at 11px"], ["Body text fails contrast.", "#888888 on #0a0a0a at 16px"]));

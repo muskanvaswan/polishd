@@ -50,9 +50,10 @@ Design review issues now have the **Ignore** control the summary's losses
 have: an ignored issue leaves every later review, its reason is replayed into
 the review prompt, and the cached review is marked stale. The model rewords
 design evidence on every regenerate, so a dismissed issue is recognised by
-what it's about and the values it cites, never its wording or the pages it
-mentions: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A"
-are the same issue. Two colors joined by "on" are a contrast pair, colors
+what it's about and the values it cites, never the pages it mentions, with
+wording read only to name a category outright, break a tie or rule a match
+out: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A" are the
+same issue. Two colors joined by "on" are a contrast pair, colors
 alone a palette issue, and px values are whatever the wording names outright
 (radius, padding, font size), or else whichever part of the measured design
 holds them, so an 11px caption and an 11px radius stay apart. Where it's

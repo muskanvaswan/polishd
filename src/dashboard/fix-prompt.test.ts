@@ -15,6 +15,7 @@ import { test } from "node:test";
 import type { PolishdDesignReview, PolishdSummary } from "../ai/types";
 import {
   buildFixPrompt,
+  findingKey,
   fixableCounts,
   fixPromptFindings,
   type FixPromptInput,
@@ -385,4 +386,20 @@ test("the prompt ends by asking for a verdict block Polishd can read back", () =
   );
   assert.deepEqual(fixPromptFindings(input, "design").map((f) => f.id), ["D1"]);
   assert.match(buildFixPrompt(input, "design")!, /one entry for each of D1:\n/);
+});
+
+test("two design issues citing identical evidence have different dashboard identities", () => {
+  const captions = { issue: "Captions fail AA contrast.", evidence: "#888888 on #0a0a0a" };
+  const placeholders = { issue: "Placeholder text fails AA contrast.", evidence: "#888888 on #0a0a0a" };
+  assert.notEqual(findingKey(captions), findingKey(placeholders));
+  // The card's copy and the prompt's (trimmed) copy of one issue agree.
+  assert.equal(findingKey({ issue: " Captions fail AA contrast. ", evidence: "#888888 on #0a0a0a " }), findingKey(captions));
+
+  // So ignoring one leaves the other in the next prompt.
+  const ignored = new Set([findingKey(captions)]);
+  const left: FixPromptInput = {
+    ...input,
+    review: { ...review, issues: [captions, placeholders].filter((i) => !ignored.has(findingKey(i))) },
+  };
+  assert.deepEqual(fixPromptFindings(left, "design").map((f) => f.issue), ["Placeholder text fails AA contrast."]);
 });

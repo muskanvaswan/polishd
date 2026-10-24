@@ -287,16 +287,32 @@ const PROPERTY_WORDS: [DesignValueKind | null, RegExp][] = [
   ],
 ];
 
-/** "the line-height of [the] 16px…": a property, then "of", then the value. */
-const ATTACHED_BEFORE = /^\s+of\s+(?:(?:the|a|an|its|their|this|that|all)\s+)?(?:[\w-]+\s+){0,2}$/i;
 /**
- * "16px body text's letter-spacing", "28px heading margin": the value, a few
- * plain words naming the element, then the property. A preposition or a
- * conjunction in between ("22px headings with a border") means the property
- * belongs to something else.
+ * "the line-height of [the] 16px…", "the margin under 28px headings": a
+ * property, a preposition placing it on the element, then the value.
  */
-const ATTACHED_AFTER =
-  /^(?:\s+(?!(?:with|without|on|in|for|to|into|onto|at|and|or|by|from|under|over|than|plus|via|inside|beside|near)\b)[\w-]+(?:['’]s)?){0,3}\s+$/i;
+const ATTACHED_BEFORE =
+  /^\s+(?:of|under|beneath|below|above|over|around|beside|between|after|before|on|in|for|inside|within|near|next to)\s+(?:(?:the|a|an|its|their|this|that|these|those|all)\s+)?(?:[\w-]+\s+){0,2}$/i;
+
+/** Words that hand a property to something other than the value before them. */
+const DETACHING = new Set(
+  "with without on in for to into onto at by from under over than plus via inside beside near".split(" "),
+);
+
+/**
+ * "16px body text's letter-spacing", "28px headings' top and bottom margin":
+ * the value, a few plain words naming the element (possessives and an
+ * "and"/"or" between them allowed), then the property. A preposition in
+ * between ("22px headings with a border") hands the property to something
+ * else, and only the first property after the value is attached to it: in
+ * "28px heading weight and size", the size belongs to the weight's list.
+ */
+function attachedAfter(gap: string): boolean {
+  if (!/^(?:\s+[\w-]+(?:['’]s?)?){0,4}\s+$/i.test(gap)) return false;
+  const tokens = gap.trim().split(/\s+/).filter(Boolean).map((t) => t.toLowerCase().replace(/['’]s?$/, ""));
+  if (tokens.some((t) => DETACHING.has(t))) return false;
+  return !PROPERTY_WORDS.some(([, re]) => new RegExp(re.source, "i").test(gap));
+}
 
 /**
  * Whether a change to the praised value `m` is to some other property of it.
@@ -314,7 +330,7 @@ function changesOtherProperty(text: string, m: ValueMention, kind: DesignValueKi
       const attached =
         at + w[0].length <= m.start
           ? ATTACHED_BEFORE.test(text.slice(at + w[0].length, m.start))
-          : at >= m.end && ATTACHED_AFTER.test(text.slice(m.end, at));
+          : at >= m.end && attachedAfter(text.slice(m.end, at));
       if (!attached) continue;
       if (own !== null && own === kind) return false;
       other = true;
@@ -482,9 +498,13 @@ export function checkSuggestion(
 //   - "Swap 22px for 24px" with no kind named anywhere and 24px measured only
 //     as padding is kept: nothing says the 24px is a type size.
 //   - A property word is only read when it's attached to the praised value
-//     (adjacent, or "the X of …"); phrasing that separates them further
-//     ("…and, for the 16px body text, raise the line-height to 24px") is
-//     read as a change to the value and withheld.
+//     (a few plain words after it, or "the X of/under/for …" before it).
+//     Phrasing that separates them further ("Bump 16px body copy,
+//     specifically its line-height, to 24px") is read as a change to the
+//     value and withheld.
+//   - Only the first property after the value is attached, so "Reduce the
+//     28px heading weight and size to 24px" reads as a weight change and is
+//     kept, though the size changes too.
 //   - A dismissal resurfaces when a regenerate adds or drops what tells
 //     issues apart: an explicit category word, or a color's role (a role on
 //     one side and none on the other is a non-match). A contrast pair's
@@ -519,12 +539,20 @@ const EXPLICIT_CATEGORY: [DesignIssueCategory, RegExp][] = [
   ["contrast", /\b(contrast|wcag)\b/i],
   ["radius", /\b(radius|radii|corners?|rounded|rounding)\b/i],
   ["spacing", /\b(padding|paddings|spacing|gaps?|margins?|gutters?)\b/i],
-  ["type", /\b(fonts?|font-sizes?|typograph\w*|type(?:\s+(?:sizes?|scale|styles?))?|text sizes?)\b/i],
+  [
+    "type",
+    /\b(fonts?|font-sizes?|typograph\w*|type(?:\s+(?:sizes?|scale|styles?))?|text(?:\s+sizes?)?|captions?|labels?|body|headings?|headlines?|headers?|titles?|subtitles?)\b/i,
+  ],
 ];
+
+/** Every category a sentence names outright, among `allowed`. */
+function namedCategories(text: string, allowed: DesignIssueCategory[]): DesignIssueCategory[] {
+  return EXPLICIT_CATEGORY.filter(([c, re]) => allowed.includes(c) && re.test(text)).map(([c]) => c);
+}
 
 /** The one category a sentence names outright, among `allowed`, or null. */
 function explicitCategory(text: string, allowed: DesignIssueCategory[]): DesignIssueCategory | null {
-  const named = EXPLICIT_CATEGORY.filter(([c, re]) => allowed.includes(c) && re.test(text)).map(([c]) => c);
+  const named = namedCategories(text, allowed);
   return named.length === 1 ? named[0] : null;
 }
 
@@ -552,6 +580,12 @@ export interface DesignIssueSignature {
   sizes: string[];
   /** The role a palette issue's color plays, when its evidence or wording says. */
   role: string | null;
+  /**
+   * Every category a px issue's evidence or wording names outright. Two
+   * issues that both name categories, none of them shared, are different
+   * issues, whatever the data says the values are.
+   */
+  named: DesignIssueCategory[];
 }
 
 /**
@@ -584,16 +618,23 @@ export function designIssueSignature(
     const named = explicitCategory(evidence, ["contrast"]) ?? explicitCategory(issue, ["contrast"]);
     const contrast = named === "contrast" || (colors.length >= 2 && (PAIR.test(evidence) || RATIO.test(evidence)));
     return contrast
-      ? { category: "contrast", values: colors.join(" "), sizes: px, role: null }
-      : { category: "palette", values: colors.join(" "), sizes: [], role: roleOf(evidence) ?? roleOf(issue) };
+      ? { category: "contrast", values: colors.join(" "), sizes: px, role: null, named: [] }
+      : { category: "palette", values: colors.join(" "), sizes: [], role: roleOf(evidence) ?? roleOf(issue), named: [] };
   }
   if (px.length > 0) {
     const allowed: DesignIssueCategory[] = ["type", "radius", "spacing"];
     const category =
       explicitCategory(evidence, allowed) ?? explicitCategory(issue, allowed) ?? pxCategory(px, issue, evidence, known);
-    return { category, values: px.join(" "), sizes: [], role: null };
+    const named = [...new Set([...namedCategories(evidence, allowed), ...namedCategories(issue, allowed)])].sort();
+    return { category, values: px.join(" "), sizes: [], role: null, named };
   }
-  return { category: "other", values: evidence.replace(/\s+/g, " ").trim().toLowerCase(), sizes: [], role: null };
+  return {
+    category: "other",
+    values: evidence.replace(/\s+/g, " ").trim().toLowerCase(),
+    sizes: [],
+    role: null,
+    named: [],
+  };
 }
 
 /**
@@ -605,6 +646,8 @@ export function designIssueSignature(
  */
 export function sameDesignIssue(a: DesignIssueSignature, b: DesignIssueSignature): boolean {
   if (a.category !== b.category || a.values !== b.values || a.role !== b.role) return false;
+  // Explicit wording on both sides, naming different categories, vetoes the match.
+  if (a.named.length && b.named.length && !a.named.some((c) => b.named.includes(c))) return false;
   return a.sizes.length === 0 || b.sizes.length === 0 || a.sizes.join(" ") === b.sizes.join(" ");
 }
 
