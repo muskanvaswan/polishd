@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 
 import { createIssueFromDesignIssueAction, generateDesignReviewAction } from "../ai/actions";
 import type { PolishdDesignIssue, PolishdDesignReview } from "../ai/types";
+import CardRail, { railCard } from "./card-rail";
 import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
 import { FileBugButton } from "./file-bug-button";
@@ -187,9 +188,9 @@ function StrengthsIssues({
   const hasIssues = !!issues?.length;
   if (!hasStrengths && !hasIssues) return null;
   return (
-    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+    <>
       {hasStrengths && (
-        <div>
+        <div className="mt-4">
           <div className={`${labelCls} mb-2 text-emerald-500`}>Working</div>
           <ul className="space-y-1.5">
             {strengths!.map((s, i) => (
@@ -204,49 +205,42 @@ function StrengthsIssues({
         </div>
       )}
       {hasIssues && (
-        <div>
-          <div className={`${labelCls} mb-2 text-amber-400`}>Breaking the system</div>
-          <ul className="space-y-2.5">
-            {issues!.map((iss: PolishdDesignIssue, i) => (
-              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
+        <CardRail label="Breaking the system" tone="text-amber-400" count={issues!.length}>
+          {issues!.map((iss: PolishdDesignIssue, i) => (
+            <li key={i} className={`${railCard} text-[#bbb]`}>
+              <div className="flex gap-2">
                 <span className="mt-px shrink-0 text-amber-400">✕</span>
-                <span>
-                  {iss.issue}
-                  <span className="mt-1.5 flex flex-col items-start gap-1">
-                    <span className="rounded bg-[#161616] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
-                      <Annotated text={iss.evidence} />
-                    </span>
-                    {iss.suggestion && (
-                      <span className="rounded bg-[#101c14] px-2 py-1 text-[12px] leading-relaxed text-emerald-400">
-                        → <Annotated text={iss.suggestion} />
-                      </span>
-                    )}
-                    {(githubConnected || !!iss.issueUrl) && (
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <FileBugButton
-                          dataComponent="design-file-bug"
-                          filed={
-                            iss.issueUrl
-                              ? { url: iss.issueUrl, number: iss.issueNumber ?? 0 }
-                              : null
-                          }
-                          file={() =>
-                            createIssueFromDesignIssueAction({
-                              issue: iss.issue,
-                              evidence: iss.evidence,
-                              suggestion: iss.suggestion,
-                            })
-                          }
-                        />
-                      </span>
-                    )}
-                  </span>
+                <span>{iss.issue}</span>
+              </div>
+              <div className="mt-2 flex flex-col items-start gap-1">
+                <span className="rounded bg-[#161616] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
+                  <Annotated text={iss.evidence} />
                 </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+                {iss.suggestion && (
+                  <span className="rounded bg-[#101c14] px-2 py-1 text-[12px] leading-relaxed text-emerald-400">
+                    → <Annotated text={iss.suggestion} />
+                  </span>
+                )}
+              </div>
+              {(githubConnected || !!iss.issueUrl) && (
+                <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+                  <FileBugButton
+                    dataComponent="design-file-bug"
+                    filed={iss.issueUrl ? { url: iss.issueUrl, number: iss.issueNumber ?? 0 } : null}
+                    file={() =>
+                      createIssueFromDesignIssueAction({
+                        issue: iss.issue,
+                        evidence: iss.evidence,
+                        suggestion: iss.suggestion,
+                      })
+                    }
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </CardRail>
       )}
-    </div>
+    </>
   );
 }
