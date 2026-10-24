@@ -5,22 +5,56 @@
  * typography actually in use, the color palette as rendered, the radius and
  * spacing scales — a brand guideline reverse-engineered from the built site.
  *
- * The second half is deterministic review: rule-based checks against widely
- * accepted UI practice (a bounded type scale, one or two families, a palette
- * without near-duplicates, WCAG contrast, spacing on a grid). These produce
+ * The merged data then gets a deterministic review (design-flags.ts):
+ * rule-based checks against widely accepted UI practice (a bounded type
+ * scale, one or two families, a palette without near-duplicates, WCAG
+ * contrast, spacing on a grid, values drawn from a theme). These produce
  * `flags` — no model involved — and both the metrics and the flags feed the
  * AI design review in ai/design.ts.
+ *
+ * Every value carries two counts: uses (elements rendering it) and
+ * declarations (the distinct class strings behind them), so a component
+ * repeated forty times reads as the one decision it is. One-off status is
+ * judged on declarations (shared/design-values.ts), and so is the share of
+ * spacing off the grid; uses still say how much of the UI a value covers.
  */
+import {
+  isOffGrid,
+  isOneOff,
+  mergeDeclarations,
+  ONE_OFF_RULES,
+  sectionTotals,
+  type DeclarationPart,
+} from "../shared/design-values";
 import type {
   DesignColorTuple,
+  DesignDeclTail,
   PolishdDesignScanPayload,
 } from "../shared/types";
+import { buildDesignFlags } from "./design-flags";
 import { polishdEventsSource } from "./queries";
 import { parseMeta, query, storeReady } from "./store";
 
+export { buildDesignFlags };
+
 // ── Aggregated shapes (what the Design tab renders) ──────────────────────────
 
-export interface DesignFontUsage {
+/**
+ * How a value was decided. Both are absent when any page's scan predates
+ * declaration counting.
+ */
+export interface DesignDeclarations {
+  /**
+   * Distinct declarations rendering the value site-wide: class strings, or
+   * for an unclassed element its tag path. A component rendered on every row
+   * is one declaration.
+   */
+  declarations?: number;
+  /** Of those, declarations that hand-typed it as an arbitrary value (`text-[#555]`). */
+  handTyped?: number;
+}
+
+export interface DesignFontUsage extends DesignDeclarations {
   family: string;
   sizePx: number;
   weight: number;
@@ -37,7 +71,7 @@ export interface DesignFontUsage {
 
 export type DesignColorRole = "text" | "background" | "border";
 
-export interface DesignColorUsage {
+export interface DesignColorUsage extends DesignDeclarations {
   hex: string;
   /** Total tallies across roles. */
   count: number;
@@ -62,7 +96,7 @@ export interface DesignContrastPair {
   pages: string[];
 }
 
-export interface DesignRadiusUsage {
+export interface DesignRadiusUsage extends DesignDeclarations {
   /** "8px", "9999px (full)" style label. */
   value: string;
   count: number;
@@ -70,12 +104,20 @@ export interface DesignRadiusUsage {
   outlier: boolean;
 }
 
-export interface DesignSpacingUsage {
+export interface DesignSpacingUsage extends DesignDeclarations {
   px: number;
   count: number;
   pages: string[];
-  /** True when the value sits off the site's dominant spacing grid. */
+  /**
+   * True when the value sits off the 4px grid — and, on a Tailwind site, off
+   * Tailwind's default spacing scale too.
+   */
   offGrid: boolean;
+  /**
+   * True when the value passes the one-off test the other sections badge.
+   * The Design tab marks padding by grid instead; the brand kit leaves these out.
+   */
+  outlier: boolean;
 }
 
 export type DesignFlagSection = "typography" | "color" | "contrast" | "radius" | "spacing";
@@ -84,6 +126,23 @@ export interface DesignFlag {
   section: DesignFlagSection;
   severity: "warn" | "info";
   message: string;
+}
+
+/** A category a class string can hand-type as an arbitrary value. */
+export type DesignHandTypedCategory = "color" | "fontSize" | "radius" | "spacing";
+
+/** What the class names say about how the site is styled. */
+export interface DesignSystemSignals {
+  /** Tailwind utilities run through the class names, so its spacing scale is on-grid. */
+  tailwind: boolean;
+  /** Root font size, px — Tailwind's scale is in rem. */
+  remPx: number;
+  /**
+   * Per category, declarations measured and how many hand-typed an arbitrary
+   * value rather than drawing on a theme token. Zero declarations when no
+   * scan measured them.
+   */
+  handTyped: Record<DesignHandTypedCategory, { declarations: number; handTyped: number }>;
 }
 
 export interface DesignPageScan {
@@ -104,6 +163,8 @@ export interface PolishdDesignData {
   radii: DesignRadiusUsage[];
   spacing: DesignSpacingUsage[];
   flags: DesignFlag[];
+  /** Absent on data shaped before class names were read. */
+  system?: DesignSystemSignals;
 }
 
 export const EMPTY_DESIGN_DATA: PolishdDesignData = {
@@ -146,14 +207,6 @@ export function contrastRatio(a: string, b: string): number | null {
   return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
 }
 
-/** Euclidean RGB distance — crude but plenty to catch #fefefe vs #ffffff. */
-function colorDistance(a: string, b: string): number | null {
-  const ra = rgbOf(a);
-  const rb = rgbOf(b);
-  if (!ra || !rb) return null;
-  return Math.sqrt((ra[0] - rb[0]) ** 2 + (ra[1] - rb[1]) ** 2 + (ra[2] - rb[2]) ** 2);
-}
-
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
 function toNum(v: unknown): number {
@@ -164,6 +217,31 @@ function toNum(v: unknown): number {
   }
   return 0;
 }
+
+/** A tuple's declaration tail as a merge part; an old scan's tuple has none. */
+function declPart(tail: Partial<DesignDeclTail>): DeclarationPart {
+  const [declarations, handTyped, ids] = tail;
+  return { declarations, handTyped, ids };
+}
+
+/** Declaration and hand-typed totals across a section's values. */
+function handTypedTotals(values: DesignDeclarations[]): { declarations: number; handTyped: number } {
+  let declarations = 0;
+  let handTyped = 0;
+  for (const v of values) {
+    declarations += v.declarations ?? 0;
+    handTyped += v.handTyped ?? 0;
+  }
+  return { declarations, handTyped };
+}
+
+/**
+ * Tailwind runs through the class names when a good share of the distinct
+ * class strings carry its utilities — enough that a stray `p-2` from some
+ * other library doesn't count.
+ */
+const TAILWIND_MIN_CLASSES = 8;
+const TAILWIND_MIN_SHARE = 0.3;
 
 interface PageScanRow {
   path: string;
@@ -209,43 +287,62 @@ export async function getDesignData(): Promise<PolishdDesignData> {
   // fonts: family|size|weight → merged usage
   const fonts = new Map<
     string,
-    { family: string; sizePx: number; weight: number; count: number; sample: string; tags: Set<string>; pages: Set<string> }
+    {
+      family: string;
+      sizePx: number;
+      weight: number;
+      count: number;
+      sample: string;
+      tags: Set<string>;
+      pages: Set<string>;
+      decls: DeclarationPart[];
+    }
   >();
   // colors: hex → role tallies
   const colors = new Map<
     string,
-    { count: number; roles: Record<DesignColorRole, number>; pages: Set<string> }
+    { count: number; roles: Record<DesignColorRole, number>; pages: Set<string>; decls: DeclarationPart[] }
   >();
   const pairs = new Map<
     string,
     { fg: string; bg: string; count: number; minSizePx: number; pages: Set<string> }
   >();
-  const radii = new Map<string, { count: number; pages: Set<string> }>();
-  const spacing = new Map<number, { count: number; pages: Set<string> }>();
+  const radii = new Map<string, { count: number; pages: Set<string>; decls: DeclarationPart[] }>();
+  const spacing = new Map<number, { count: number; pages: Set<string>; decls: DeclarationPart[] }>();
+  let twClasses = 0;
+  let classes = 0;
+  const rems = new Map<number, number>();
 
-  const addColor = (hex: string, role: DesignColorRole, count: number, page: string) => {
+  const addColor = (hex: string, role: DesignColorRole, count: number, page: string, decl: DeclarationPart) => {
     // Palette ignores alpha variants' suffix so #ffffff and #ffffffcc merge
     // visually apart — keep them distinct only when fully opaque differs.
     let c = colors.get(hex);
-    if (!c) colors.set(hex, (c = { count: 0, roles: { text: 0, background: 0, border: 0 }, pages: new Set() }));
+    if (!c) {
+      colors.set(hex, (c = { count: 0, roles: { text: 0, background: 0, border: 0 }, pages: new Set(), decls: [] }));
+    }
     c.count += count;
     c.roles[role] += count;
     c.pages.add(page);
+    c.decls.push(decl);
   };
 
   for (const scan of scans) {
     const p = scan.payload;
     const page = scan.path;
 
-    for (const [family, sizePx, weight, count, sample, tags] of p.fonts) {
+    for (const [family, sizePx, weight, count, sample, tags, ...tail] of p.fonts) {
       if (typeof family !== "string" || !Number.isFinite(sizePx) || !Number.isFinite(count)) continue;
       const key = `${family}|${sizePx}|${weight}`;
       let f = fonts.get(key);
       if (!f) {
-        fonts.set(key, (f = { family, sizePx, weight, count: 0, sample: "", tags: new Set(), pages: new Set() }));
+        fonts.set(
+          key,
+          (f = { family, sizePx, weight, count: 0, sample: "", tags: new Set(), pages: new Set(), decls: [] }),
+        );
       }
       f.count += count;
       f.pages.add(page);
+      f.decls.push(declPart(tail));
       if (!f.sample && typeof sample === "string") f.sample = sample;
       if (typeof tags === "string") {
         for (const t of tags.split(",")) if (t && f.tags.size < 6) f.tags.add(t);
@@ -258,9 +355,9 @@ export async function getDesignData(): Promise<PolishdDesignData> {
       [p.border ?? [], "border"],
     ];
     for (const [list, role] of roleLists) {
-      for (const [hex, count] of list) {
+      for (const [hex, count, ...tail] of list) {
         if (typeof hex !== "string" || !hex.startsWith("#")) continue;
-        addColor(hex.toLowerCase(), role, toNum(count), page);
+        addColor(hex.toLowerCase(), role, toNum(count), page, declPart(tail));
       }
     }
 
@@ -274,44 +371,59 @@ export async function getDesignData(): Promise<PolishdDesignData> {
       pr.pages.add(page);
     }
 
-    for (const [value, count] of p.radii ?? []) {
+    for (const [value, count, ...tail] of p.radii ?? []) {
       if (typeof value !== "string") continue;
       let rd = radii.get(value);
-      if (!rd) radii.set(value, (rd = { count: 0, pages: new Set() }));
+      if (!rd) radii.set(value, (rd = { count: 0, pages: new Set(), decls: [] }));
       rd.count += toNum(count);
       rd.pages.add(page);
+      rd.decls.push(declPart(tail));
     }
 
-    for (const [px, count] of p.pad ?? []) {
+    for (const [px, count, ...tail] of p.pad ?? []) {
       if (!Number.isFinite(px)) continue;
       let sp = spacing.get(px);
-      if (!sp) spacing.set(px, (sp = { count: 0, pages: new Set() }));
+      if (!sp) spacing.set(px, (sp = { count: 0, pages: new Set(), decls: [] }));
       sp.count += toNum(count);
       sp.pages.add(page);
+      sp.decls.push(declPart(tail));
     }
+
+    if (Array.isArray(p.tw)) {
+      twClasses += toNum(p.tw[0]);
+      classes += toNum(p.tw[1]);
+    }
+    const rem = toNum(p.rem);
+    if (rem > 0) rems.set(rem, (rems.get(rem) ?? 0) + 1);
   }
 
   // ── Shape + outlier marking ────────────────────────────────────────────────
 
-  const totalFontTally = [...fonts.values()].reduce((s, f) => s + f.count, 0);
+  const tailwind = twClasses >= TAILWIND_MIN_CLASSES && twClasses / Math.max(classes, 1) >= TAILWIND_MIN_SHARE;
+  // The root size most pages render at; Tailwind's scale is measured in it.
+  const remPx = [...rems.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 16;
+
   // With only a handful of measured elements, everything is statistically a
   // one-off — the badge means nothing until there's enough signal to compare
-  // against, so outlier marking waits for a minimum sample per section.
-  const fontSignal = totalFontTally >= 60;
-  const fontList: DesignFontUsage[] = [...fonts.values()]
+  // against, so outlier marking waits for a minimum sample per section
+  // (ONE_OFF_RULES). Past that, a one-off is a value decided once, on one
+  // page, that the page doesn't lean on — the kind of stray 17px that makes a
+  // type scale incoherent.
+  const fontShaped = [...fonts.values()].map((f) => ({ ...f, ...mergeDeclarations(f.decls), pages: [...f.pages] }));
+  const fontTotals = sectionTotals(fontShaped);
+  const fontList: DesignFontUsage[] = fontShaped
     .sort((a, b) => b.count - a.count)
     .map((f) => ({
       family: f.family,
       sizePx: f.sizePx,
       weight: f.weight,
       count: f.count,
+      declarations: f.declarations,
+      handTyped: f.handTyped,
       sample: f.sample || null,
       tags: [...f.tags],
-      pages: [...f.pages],
-      // A combination carrying under ~1.5% of all text, on one page only, is a
-      // one-off — the kind of stray 17px that makes a type scale incoherent.
-      outlier:
-        fontSignal && f.count <= Math.max(2, totalFontTally * 0.015) && f.pages.size === 1,
+      pages: f.pages,
+      outlier: isOneOff(f, fontTotals, ONE_OFF_RULES.font),
     }));
 
   const familyTally = new Map<string, number>();
@@ -320,19 +432,25 @@ export async function getDesignData(): Promise<PolishdDesignData> {
     .map(([family, count]) => ({ family, count }))
     .sort((a, b) => b.count - a.count);
 
-  const totalColorTally = [...colors.values()].reduce((s, c) => s + c.count, 0);
-  const colorSignal = totalColorTally >= 120;
-  const colorList: DesignColorUsage[] = [...colors.entries()]
-    .sort((a, b) => b[1].count - a[1].count)
-    .map(([hex, c]) => ({
-      hex,
+  const colorShaped = [...colors.entries()].map(([hex, c]) => ({
+    hex,
+    ...c,
+    ...mergeDeclarations(c.decls),
+    pages: [...c.pages],
+  }));
+  const colorTotals = sectionTotals(colorShaped);
+  const colorList: DesignColorUsage[] = colorShaped
+    .sort((a, b) => b.count - a.count)
+    .map((c) => ({
+      hex: c.hex,
       count: c.count,
+      declarations: c.declarations,
+      handTyped: c.handTyped,
       roles: c.roles,
-      pages: [...c.pages],
-      pct: totalColorTally > 0 ? Math.round((c.count / totalColorTally) * 1000) / 10 : 0,
-      outlier: colorSignal && c.count <= Math.max(2, totalColorTally * 0.005) && c.pages.size === 1,
-    }))
-    .slice(0, 64);
+      pages: c.pages,
+      pct: colorTotals.count > 0 ? Math.round((c.count / colorTotals.count) * 1000) / 10 : 0,
+      outlier: isOneOff(c, colorTotals, ONE_OFF_RULES.color),
+    }));
 
   const contrast: DesignContrastPair[] = [...pairs.values()]
     .map((pr) => {
@@ -356,185 +474,57 @@ export async function getDesignData(): Promise<PolishdDesignData> {
     .filter((p): p is DesignContrastPair => p !== null)
     .sort((a, b) => Number(a.passes) - Number(b.passes) || a.ratio - b.ratio);
 
-  const totalRadiusTally = [...radii.values()].reduce((s, r) => s + r.count, 0);
-  const radiusSignal = totalRadiusTally >= 20;
-  const radiusList: DesignRadiusUsage[] = [...radii.entries()]
-    .sort((a, b) => b[1].count - a[1].count)
-    .map(([value, r]) => ({
-      value,
-      count: r.count,
-      pages: [...r.pages],
-      outlier:
-        radiusSignal &&
-        value !== "full" &&
-        r.count <= Math.max(2, totalRadiusTally * 0.02) &&
-        r.pages.size === 1,
+  const radiusShaped = [...radii.entries()].map(([value, r]) => ({
+    value,
+    count: r.count,
+    ...mergeDeclarations(r.decls),
+    pages: [...r.pages],
+  }));
+  const radiusTotals = sectionTotals(radiusShaped);
+  const radiusList: DesignRadiusUsage[] = radiusShaped
+    .sort((a, b) => b.count - a.count)
+    .map((r) => ({
+      ...r,
+      outlier: r.value !== "full" && isOneOff(r, radiusTotals, ONE_OFF_RULES.radius),
     }));
 
-  // Dominant grid: 4px unless the site's own values say 8px.
-  const spacingEntries = [...spacing.entries()].sort((a, b) => b[1].count - a[1].count);
-  const spacingList: DesignSpacingUsage[] = spacingEntries.map(([px, s]) => ({
+  // The grid is 4px — plus, on a Tailwind site, Tailwind's own half steps.
+  const spacingShaped = [...spacing.entries()].map(([px, s]) => ({
     px,
     count: s.count,
+    ...mergeDeclarations(s.decls),
     pages: [...s.pages],
-    offGrid: px % 4 !== 0,
   }));
+  const spacingTotals = sectionTotals(spacingShaped);
+  const spacingList: DesignSpacingUsage[] = spacingShaped
+    .sort((a, b) => b.count - a.count)
+    .map((s) => ({
+      ...s,
+      offGrid: isOffGrid(s.px, { tailwind, remPx }),
+      outlier: isOneOff(s, spacingTotals, ONE_OFF_RULES.spacing),
+    }));
 
   const data: PolishdDesignData = {
     ready: true,
     pages: scans.map((s) => ({ path: s.path, scannedAt: s.ts, elements: s.payload.el })),
     fonts: fontList,
     families,
-    colors: colorList,
+    colors: colorList.slice(0, 64),
     contrast,
     radii: radiusList,
     spacing: spacingList,
     flags: [],
+    system: {
+      tailwind,
+      remPx,
+      handTyped: {
+        color: handTypedTotals(colorList),
+        fontSize: handTypedTotals(fontList),
+        radius: handTypedTotals(radiusList),
+        spacing: handTypedTotals(spacingList),
+      },
+    },
   };
   data.flags = buildDesignFlags(data);
   return data;
-}
-
-// ── Deterministic review ─────────────────────────────────────────────────────
-
-/** Cohesion thresholds, drawn from common design-system practice. */
-const LIMITS = {
-  fontSizes: 8, // a considered type scale is 5–8 steps
-  fontFamilies: 2, // one for UI, maybe one display/mono
-  fontWeights: 4,
-  colors: 24, // full palette incl. neutrals
-  radii: 4, // distinct corner radii (excluding 0/full)
-  spacingValues: 14,
-};
-
-/**
- * Rule-based checks over the aggregated data. Pure function of its input so
- * it's easy to test and the AI layer can quote the same findings verbatim.
- */
-export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
-  const flags: DesignFlag[] = [];
-  if (data.pages.length === 0) return flags;
-
-  // Typography ---------------------------------------------------------------
-  const sizes = [...new Set(data.fonts.map((f) => f.sizePx))].sort((a, b) => a - b);
-  if (sizes.length > LIMITS.fontSizes) {
-    flags.push({
-      section: "typography",
-      severity: "warn",
-      message:
-        `${sizes.length} distinct font sizes in use (${sizes.slice(0, 12).map((s) => `${s}px`).join(", ")}${sizes.length > 12 ? ", …" : ""}). ` +
-        `Cohesive interfaces usually hold to a 5–8 step type scale; sizes 1–2px apart read as accidental.`,
-    });
-  }
-  if (data.families.length > LIMITS.fontFamilies) {
-    // A mono family for code is normal; flag only when even ignoring one
-    // there are still too many.
-    const nonMono = data.families.filter((f) => !/mono|courier|consolas|menlo/i.test(f.family));
-    if (nonMono.length > LIMITS.fontFamilies) {
-      flags.push({
-        section: "typography",
-        severity: "warn",
-        message:
-          `${data.families.length} font families detected (${data.families.map((f) => f.family).join(", ")}). ` +
-          `Most coherent brands use one or two, plus a monospace for code.`,
-      });
-    }
-  }
-  const weights = [...new Set(data.fonts.map((f) => f.weight))].sort((a, b) => a - b);
-  if (weights.length > LIMITS.fontWeights) {
-    flags.push({
-      section: "typography",
-      severity: "info",
-      message: `${weights.length} font weights in use (${weights.join(", ")}) — hierarchies usually need 3–4.`,
-    });
-  }
-  const tiny = data.fonts.filter((f) => f.sizePx < 11 && f.count >= 3);
-  if (tiny.length > 0) {
-    flags.push({
-      section: "typography",
-      severity: "warn",
-      message: `Text below 11px found (${[...new Set(tiny.map((t) => `${t.sizePx}px`))].join(", ")}) — hard to read on most screens.`,
-    });
-  }
-  const oneOffs = data.fonts.filter((f) => f.outlier);
-  if (oneOffs.length >= 3) {
-    flags.push({
-      section: "typography",
-      severity: "info",
-      message: `${oneOffs.length} one-off type styles appear on a single page each — candidates to fold into the scale.`,
-    });
-  }
-
-  // Color ----------------------------------------------------------------------
-  const opaque = data.colors.filter((c) => c.hex.length === 7);
-  if (opaque.length > LIMITS.colors) {
-    flags.push({
-      section: "color",
-      severity: "warn",
-      message: `${opaque.length} distinct colors rendered site-wide — palettes past ~${LIMITS.colors} usually mean drifted one-off values rather than a system.`,
-    });
-  }
-  // Near-duplicates among the meaningfully used colors.
-  const used = opaque.filter((c) => c.count >= 3).slice(0, 32);
-  const dupes: string[] = [];
-  for (let i = 0; i < used.length; i++) {
-    for (let j = i + 1; j < used.length; j++) {
-      const d = colorDistance(used[i].hex, used[j].hex);
-      if (d !== null && d > 0 && d < 10) dupes.push(`${used[i].hex} ≈ ${used[j].hex}`);
-    }
-  }
-  if (dupes.length > 0) {
-    flags.push({
-      section: "color",
-      severity: "warn",
-      message: `Near-duplicate colors: ${dupes.slice(0, 4).join("; ")}${dupes.length > 4 ? ` (+${dupes.length - 4} more)` : ""} — likely meant to be the same token.`,
-    });
-  }
-
-  // Contrast -------------------------------------------------------------------
-  const failing = data.contrast.filter((p) => !p.passes && p.count >= 2);
-  for (const p of failing.slice(0, 5)) {
-    flags.push({
-      section: "contrast",
-      severity: "warn",
-      message:
-        `${p.fg} text on ${p.bg} is ${p.ratio}:1 at ${p.minSizePx}px — below the WCAG AA ${p.required}:1 minimum` +
-        ` (seen on ${p.pages.slice(0, 2).join(", ")}${p.pages.length > 2 ? ", …" : ""}).`,
-    });
-  }
-
-  // Radius ----------------------------------------------------------------------
-  const distinctRadii = data.radii.filter((r) => r.value !== "full" && !r.value.includes("mixed"));
-  if (distinctRadii.length > LIMITS.radii) {
-    flags.push({
-      section: "radius",
-      severity: "warn",
-      message:
-        `${distinctRadii.length} distinct corner radii (${distinctRadii.slice(0, 8).map((r) => r.value).join(", ")}${distinctRadii.length > 8 ? ", …" : ""}) — ` +
-        `most systems settle on 2–4 (e.g. small, medium, full).`,
-    });
-  }
-
-  // Spacing ----------------------------------------------------------------------
-  const totalPad = data.spacing.reduce((s, v) => s + v.count, 0);
-  const offGrid = data.spacing.filter((v) => v.offGrid);
-  const offGridShare = totalPad > 0 ? offGrid.reduce((s, v) => s + v.count, 0) / totalPad : 0;
-  if (offGridShare > 0.25 && offGrid.length >= 3) {
-    flags.push({
-      section: "spacing",
-      severity: "info",
-      message:
-        `${Math.round(offGridShare * 100)}% of padding values sit off a 4px grid (${offGrid.slice(0, 6).map((v) => `${v.px}px`).join(", ")}${offGrid.length > 6 ? ", …" : ""}) — ` +
-        `consistent rhythm usually comes from a 4px or 8px base unit.`,
-    });
-  }
-  if (data.spacing.length > LIMITS.spacingValues) {
-    flags.push({
-      section: "spacing",
-      severity: "info",
-      message: `${data.spacing.length} distinct padding values in use — a spacing scale of 6–10 steps covers most interfaces.`,
-    });
-  }
-
-  return flags;
 }

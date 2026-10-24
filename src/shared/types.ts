@@ -120,17 +120,25 @@ export const CLIENT_EVENT_TYPES: ReadonlySet<PolishdEventType> = new Set<Polishd
 // tally-based JSON string stored in `meta.payload` (tuples, not objects, to
 // keep one page under a few KB). Shared here so the client that writes it and
 // the server that aggregates it can never drift.
+//
+// The value tuples end in an optional declaration triple — distinct
+// declarations (class strings, or an unclassed element's tag path) that
+// rendered the value, how many of those hand-typed it as an arbitrary value,
+// and up to a few declaration ids, space-separated, `!`-prefixed when
+// hand-typed. Scans from before declarations were measured stop at the count.
 
-/** [family, sizePx, weight, count, sampleText, tagList] */
-export type DesignFontTuple = [string, number, number, number, string, string];
-/** [hex, count] */
-export type DesignColorTuple = [string, number];
+/** [declarations, handTyped, declarationIds] — see above. */
+export type DesignDeclTail = [declarations?: number, handTyped?: number, ids?: string];
+/** [family, sizePx, weight, count, sampleText, tagList, ...DesignDeclTail] */
+export type DesignFontTuple = [string, number, number, number, string, string, ...DesignDeclTail];
+/** [hex, count, ...DesignDeclTail] */
+export type DesignColorTuple = [string, number, ...DesignDeclTail];
 /** [fgHex, bgHex, count, minSizePx, boldAtMinSize(0|1)] */
 export type DesignPairTuple = [string, string, number, number, 0 | 1];
-/** [radiusValue, count] — e.g. ["8px", 14] or ["9999px", 3] */
-export type DesignRadiusTuple = [string, number];
-/** [paddingPx, count] */
-export type DesignPadTuple = [number, number];
+/** [radiusValue, count, ...DesignDeclTail] — e.g. ["8px", 14] or ["full", 3] */
+export type DesignRadiusTuple = [string, number, ...DesignDeclTail];
+/** [paddingPx, count, ...DesignDeclTail] */
+export type DesignPadTuple = [number, number, ...DesignDeclTail];
 
 export interface PolishdDesignScanPayload {
   /** Payload schema version. */
@@ -151,4 +159,8 @@ export interface PolishdDesignScanPayload {
   radii: DesignRadiusTuple[];
   /** Padding tallies (per side, boxy/interactive elements only). */
   pad: DesignPadTuple[];
+  /** [class strings carrying Tailwind utilities, class strings seen]. */
+  tw?: [number, number];
+  /** Root font size, px — the rem a framework's spacing scale is measured in. */
+  rem?: number;
 }

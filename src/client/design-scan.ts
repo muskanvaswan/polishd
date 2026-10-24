@@ -12,15 +12,34 @@
  * never per-element rows. Scanning runs once per session per path, after the
  * page has settled, and only when the tab is visible (a background prerender
  * has no layout worth measuring).
+ *
+ * Each value is tallied twice over: the elements rendering it (uses), and the
+ * declarations behind them (design-declarations.ts) — so a badge repeated
+ * down a table reads as one decision. Loading skeletons, busy regions and
+ * closed overlays are left out: they are states the page passes through,
+ * not its design.
  */
 import type {
   DesignColorTuple,
+  DesignDeclTail,
   DesignFontTuple,
   DesignPadTuple,
   DesignPairTuple,
   DesignRadiusTuple,
   PolishdDesignScanPayload,
 } from "../shared/types";
+import {
+  declarationId,
+  declarationSignature,
+  inheritedDeclarer,
+  normalizedClass,
+  readClassString,
+  TRANSIENT_SELECTOR,
+  transientReason,
+  type ArbitraryProp,
+  type ClassReading,
+  type ElementLike,
+} from "./design-declarations";
 
 /** Hard bound on elements measured, so a huge DOM can't stall the main thread. */
 const MAX_ELEMENTS = 1500;
@@ -28,6 +47,8 @@ const MAX_ELEMENTS = 1500;
 const CAPS = { fonts: 60, colors: 48, pairs: 60, radii: 24, pad: 40 };
 /** Keep the serialized payload under ingest's acceptance cap with headroom. */
 const MAX_PAYLOAD_CHARS = 28_000;
+/** Declaration ids sent per value — enough to dedupe the rare ones across pages. */
+const DECL_IDS = 5;
 
 /** Tags that never carry visual design signal. */
 const SKIP_TAGS = new Set([
@@ -93,21 +114,48 @@ function ownText(el: Element): string {
   return out.replace(/\s+/g, " ").trim().slice(0, 48);
 }
 
+/** Declaration id → whether that declaration hand-typed the value. */
+type Decls = Map<string, boolean>;
+
+function addDecl(decls: Decls, id: string, handTyped: boolean) {
+  decls.set(id, handTyped || decls.get(id) === true);
+}
+
+function declTail(decls: Decls): DesignDeclTail {
+  let hand = 0;
+  const ids: string[] = [];
+  for (const [id, h] of decls) {
+    if (h) hand++;
+    if (ids.length < DECL_IDS) ids.push(h ? `!${id}` : id);
+  }
+  return [decls.size, hand, ids.join(" ")];
+}
+
 interface FontAcc {
   count: number;
   sample: string;
   tags: Set<string>;
+  decls: Decls;
 }
 
 class Tally {
-  map = new Map<string, number>();
-  add(key: string, n = 1) {
-    this.map.set(key, (this.map.get(key) ?? 0) + n);
+  map = new Map<string, { count: number; decls: Decls }>();
+  add(key: string, decl: string, handTyped: boolean) {
+    let v = this.map.get(key);
+    if (!v) this.map.set(key, (v = { count: 0, decls: new Map() }));
+    v.count++;
+    addDecl(v.decls, decl, handTyped);
   }
-  top(cap: number): [string, number][] {
-    return [...this.map.entries()].sort((a, b) => b[1] - a[1]).slice(0, cap);
+  top(cap: number): [string, number, ...DesignDeclTail][] {
+    return [...this.map.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, cap)
+      .map(([key, v]) => [key, v.count, ...declTail(v.decls)]);
   }
 }
+
+/** The padding side each computed value belongs to, in the order they're read. */
+const PAD_SIDES: ArbitraryProp[] = ["padTop", "padRight", "padBottom", "padLeft"];
 
 /**
  * Walk the page and reduce it to design tallies. Pure DOM reads — call it when
@@ -150,7 +198,44 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     return found;
   };
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+  // Declarations: who decided each value, and whether they hand-typed it.
+  const signatures = new Map<ElementLike, string>();
+  const declOf = (el: ElementLike): string => {
+    let id = signatures.get(el);
+    if (id === undefined) signatures.set(el, (id = declarationId(declarationSignature(el))));
+    return id;
+  };
+  // Class strings seen, and whether each reads as Tailwind — the reading is
+  // per string, so a class repeated down a table is parsed once.
+  const readings = new Map<string, ClassReading>();
+  const readingOf = (el: ElementLike): ClassReading | null => {
+    const cls = normalizedClass(el);
+    if (!cls) return null;
+    let r = readings.get(cls);
+    if (!r) readings.set(cls, (r = readClassString(cls)));
+    return r;
+  };
+  const handTyped = (el: ElementLike, prop: ArbitraryProp) => readingOf(el)?.arbitrary.has(prop) ?? false;
+  // Inherited values are declared where the run of equal values starts.
+  const styleOf = (el: ElementLike) => getComputedStyle(el as Element);
+  const fontKeyOf = (el: ElementLike) => {
+    const cs = styleOf(el);
+    return `${primaryFamily(cs.fontFamily)}|${cs.fontSize}|${cs.fontWeight}`;
+  };
+  const fontSizeOf = (el: ElementLike) => styleOf(el).fontSize;
+  const colorOf = (el: ElementLike) => styleOf(el).color;
+  const fontDeclarers = new Map<ElementLike, ElementLike>();
+  const sizeDeclarers = new Map<ElementLike, ElementLike>();
+  const colorDeclarers = new Map<ElementLike, ElementLike>();
+
+  // Transient subtrees are rejected whole, so a skeleton's children never
+  // reach the tallies — or the walk's budget.
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (node) => {
+      const el = node as Element;
+      return transientReason(el, getComputedStyle(el)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+  });
   let sampled = 0;
   let visited = 0;
 
@@ -165,6 +250,7 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     sampled++;
+    readingOf(el);
 
     const ownBg = normalizeColor(cs.backgroundColor);
     const hasBorder =
@@ -183,17 +269,23 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
       if (family && size > 0) {
         const key = `${family}|${size}|${weight}`;
         let acc = fonts.get(key);
-        if (!acc) fonts.set(key, (acc = { count: 0, sample: "", tags: new Set() }));
+        if (!acc) fonts.set(key, (acc = { count: 0, sample: "", tags: new Set(), decls: new Map() }));
         acc.count++;
         if (acc.tags.size < 4) acc.tags.add(el.tagName.toLowerCase());
         if (!acc.sample || (acc.sample.length < 12 && ownText(el).length > acc.sample.length)) {
           acc.sample = ownText(el);
         }
+        addDecl(
+          acc.decls,
+          declOf(inheritedDeclarer(el, fontKeyOf, fontDeclarers)),
+          handTyped(inheritedDeclarer(el, fontSizeOf, sizeDeclarers), "fontSize"),
+        );
       }
 
       const fg = normalizeColor(cs.color);
       if (fg) {
-        text.add(fg.slice(0, 7));
+        const declarer = inheritedDeclarer(el, colorOf, colorDeclarers);
+        text.add(fg.slice(0, 7), declOf(declarer), handTyped(declarer, "color"));
         const behind = effectiveBg(el);
         if (behind && fg.length === 7 && fg !== behind) {
           const pkey = `${fg}|${behind}`;
@@ -211,10 +303,10 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
       }
     }
 
-    if (ownBg) bg.add(ownBg);
+    if (ownBg) bg.add(ownBg, declOf(el), handTyped(el, "background"));
     if (hasBorder) {
       const bc = normalizeColor(cs.borderTopColor);
-      if (bc) border.add(bc);
+      if (bc) border.add(bc, declOf(el), handTyped(el, "border"));
     }
 
     // Radius is only a design token where you can see it.
@@ -234,13 +326,13 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
               : uniform
                 ? `${Math.round(px)}px`
                 : `${Math.round(px)}px (mixed)`;
-        radii.add(label);
+        radii.add(label, declOf(el), handTyped(el, "radius"));
       }
 
-      for (const side of [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft]) {
+      [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].forEach((side, i) => {
         const v = Math.round(parseFloat(side));
-        if (v > 0) pad.add(String(v));
-      }
+        if (v > 0) pad.add(String(v), declOf(el), handTyped(el, PAD_SIDES[i]));
+      });
     }
   }
 
@@ -251,7 +343,15 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     .slice(0, CAPS.fonts)
     .map(([key, acc]) => {
       const [family, size, weight] = key.split("|");
-      return [family, Number(size), Number(weight), acc.count, acc.sample, [...acc.tags].join(",")];
+      return [
+        family,
+        Number(size),
+        Number(weight),
+        acc.count,
+        acc.sample,
+        [...acc.tags].join(","),
+        ...declTail(acc.decls),
+      ];
     });
 
   const colorTuples = (t: Tally): DesignColorTuple[] => t.top(CAPS.colors);
@@ -265,7 +365,10 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
   const radiusTuples: DesignRadiusTuple[] = radii.top(CAPS.radii);
   const padTuples: DesignPadTuple[] = pad
     .top(CAPS.pad)
-    .map(([px, count]): DesignPadTuple => [Number(px), count]);
+    .map(([px, ...rest]): DesignPadTuple => [Number(px), ...rest]);
+
+  let tailwind = 0;
+  for (const r of readings.values()) if (r.tailwind) tailwind++;
 
   return {
     v: 1,
@@ -277,28 +380,61 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     pairs: pairTuples,
     radii: radiusTuples,
     pad: padTuples,
+    tw: [tailwind, readings.size],
+    rem: Math.round((parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) * 10) / 10,
   };
 }
 
-/** Serialize, shrinking the longest lists if a pathological page overflows. */
+/**
+ * Serialize, shrinking a pathological page until it fits: first the
+ * declaration ids go (the counts stay), then the longest lists shorten.
+ */
 export function serializeDesignScan(payload: PolishdDesignScanPayload): string {
   let out = JSON.stringify(payload);
   if (out.length <= MAX_PAYLOAD_CHARS) return out;
-  const shrunk: PolishdDesignScanPayload = {
+  const noIds = <T extends unknown[]>(rows: T[], at: number): T[] =>
+    rows.map((r) => (r.length > at ? ([...r.slice(0, at), ""] as unknown as T) : r));
+  const lean: PolishdDesignScanPayload = {
     ...payload,
-    fonts: payload.fonts.slice(0, 30),
-    text: payload.text.slice(0, 24),
-    bg: payload.bg.slice(0, 24),
-    border: payload.border.slice(0, 16),
-    pairs: payload.pairs.slice(0, 30),
-    radii: payload.radii.slice(0, 16),
-    pad: payload.pad.slice(0, 24),
+    fonts: noIds(payload.fonts, 8),
+    text: noIds(payload.text, 4),
+    bg: noIds(payload.bg, 4),
+    border: noIds(payload.border, 4),
+    radii: noIds(payload.radii, 4),
+    pad: noIds(payload.pad, 4),
+  };
+  out = JSON.stringify(lean);
+  if (out.length <= MAX_PAYLOAD_CHARS) return out;
+  const shrunk: PolishdDesignScanPayload = {
+    ...lean,
+    fonts: lean.fonts.slice(0, 30),
+    text: lean.text.slice(0, 24),
+    bg: lean.bg.slice(0, 24),
+    border: lean.border.slice(0, 16),
+    pairs: lean.pairs.slice(0, 30),
+    radii: lean.radii.slice(0, 16),
+    pad: lean.pad.slice(0, 24),
   };
   out = JSON.stringify(shrunk);
   return out.length <= MAX_PAYLOAD_CHARS ? out : "";
 }
 
 const SCANNED_PREFIX = "polishd_ds:";
+/** Waits for visible loading states to clear before scanning around them. */
+const TRANSIENT_WAITS = 3;
+const TRANSIENT_WAIT_MS = 1500;
+
+/** Whether a skeleton or busy region is on screen right now. */
+function loadingVisible(): boolean {
+  try {
+    for (const el of document.querySelectorAll(TRANSIENT_SELECTOR)) {
+      if (el.getClientRects().length > 0) return true;
+    }
+  } catch {
+    /* a selector this browser can't parse — scan without waiting */
+  }
+  return false;
+}
 
 export interface DesignScanOptions {
   delayMs?: number;
@@ -321,7 +457,9 @@ export interface DesignScanOptions {
  * Scan `path` once per session, after the page settles, and hand the payload
  * to `emit`. Skips silently when the tab is hidden at fire time (layout of a
  * backgrounded prerender isn't the design anyone sees) — a later visit to the
- * same path in this session will still be un-scanned and retry.
+ * same path in this session will still be un-scanned and retry. While a
+ * Suspense skeleton or busy region is still on screen it waits a few beats
+ * for the real content, then scans around whatever is still loading.
  */
 export function scheduleDesignScan(
   path: string,
@@ -333,6 +471,8 @@ export function scheduleDesignScan(
   const delayMs = opts.delayMs ?? 1500;
 
   let done = false;
+  let waits = 0;
+  let waiting = false;
   try {
     if (sessionStorage.getItem(SCANNED_PREFIX + path)) return;
   } catch {
@@ -340,10 +480,22 @@ export function scheduleDesignScan(
   }
 
   const run = () => {
-    if (done) return;
-    done = true;
+    if (done || waiting) return;
     // The page navigated on while we waited — that path's own scan will fire.
-    if (opts.stillCurrent ? !opts.stillCurrent() : location.pathname !== path) return;
+    if (opts.stillCurrent ? !opts.stillCurrent() : location.pathname !== path) {
+      done = true;
+      return;
+    }
+    if (waits < TRANSIENT_WAITS && loadingVisible()) {
+      waits++;
+      waiting = true;
+      setTimeout(() => {
+        waiting = false;
+        idle();
+      }, TRANSIENT_WAIT_MS);
+      return;
+    }
+    done = true;
     if (document.visibilityState === "hidden") return;
     // The dashboard styles itself; measuring it would report Polishd's design
     // as the site's. The path check upstream normally catches this, but it

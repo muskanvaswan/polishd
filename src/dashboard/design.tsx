@@ -125,6 +125,16 @@ function OutlierBadge({ text = "one-off" }: { text?: string }) {
 }
 
 /**
+ * How a value was decided: "1 declaration", "5 declarations · 2 hand-typed".
+ * Empty for data scanned before declarations were measured.
+ */
+function declLabel(v: { declarations?: number; handTyped?: number }): string {
+  if (v.declarations === undefined) return "";
+  const n = `${v.declarations.toLocaleString()} ${v.declarations === 1 ? "declaration" : "declarations"}`;
+  return v.handTyped ? `${n} · ${v.handTyped.toLocaleString()} hand-typed` : n;
+}
+
+/**
  * The deterministic findings for one section, combined into a single note
  * rather than a stack of alert boxes — the container takes the strongest
  * severity, each finding is one line inside it.
@@ -215,7 +225,8 @@ function FontRow({
         <span className="text-[#aaa]">
           {f.sizePx}px / {f.weight}
         </span>
-        · {f.count.toLocaleString()} uses · {f.pages.length}{" "}
+        · {f.count.toLocaleString()} uses
+        {f.declarations !== undefined && <> · {declLabel(f)}</>} · {f.pages.length}{" "}
         {f.pages.length === 1 ? "page" : "pages"}
         {f.tags.length > 0 && <span className="text-[#444]">· {f.tags.join(", ")}</span>}
         {f.outlier && <OutlierBadge />}
@@ -314,7 +325,9 @@ function ColorChip({ c, previews }: { c: PolishdDesignData["colors"][number]; pr
   return (
     <span
       className={chip}
-      title={`${c.hex} · ${c.pct}% · ${roleLabel(c.roles)} · ${c.pages.length} page(s)`}
+      title={[c.hex, `${c.pct}%`, roleLabel(c.roles), declLabel(c), `${c.pages.length} page(s)`]
+        .filter(Boolean)
+        .join(" · ")}
     >
       {body}
     </span>
@@ -463,7 +476,10 @@ function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; pr
         <span className="font-mono">{r.value}</span>
         {r.outlier && <OutlierBadge />}
       </div>
-      <span className="text-[10px] tabular-nums text-[#555]">×{r.count.toLocaleString()}</span>
+      <span className="text-[10px] tabular-nums text-[#555]" title={declLabel(r) || undefined}>
+        ×{r.count.toLocaleString()}
+        {r.declarations !== undefined && ` · ${r.declarations.toLocaleString()} decl`}
+      </span>
     </Flaggable>
   );
 }
@@ -520,7 +536,10 @@ function SpacingRow({
           style={{ width: `${Math.max((s.px / max) * 100, 2)}%` }}
         />
       </div>
-      <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-[#555]">
+      <span
+        className="w-16 shrink-0 text-right text-[11px] tabular-nums text-[#555]"
+        title={declLabel(s) ? `${s.count.toLocaleString()} uses · ${declLabel(s)}` : undefined}
+      >
         ×{s.count.toLocaleString()}
       </span>
       <span className="w-14 shrink-0 text-[10px] text-amber-400">

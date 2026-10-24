@@ -348,7 +348,23 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
     }
   };
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  // The scanner's transient states (design-declarations.ts `transientReason`):
+  // a skeleton or busy region, an unrendered branch, a closed overlay at
+  // opacity 0. Their values were never tallied, so they're never pictured.
+  const transient = (el: Element): boolean => {
+    if (el.getAttribute("aria-busy") === "true") return true;
+    const cls = el.getAttribute("class");
+    if (cls && cls.split(/\s+/).some((t) => /(?:^|:)animate-pulse$/.test(t) || /skeleton/i.test(t))) return true;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none") return true;
+    return (
+      parseFloat(cs.opacity) <= 0.01 &&
+      (el.getAttribute("aria-hidden") === "true" || el.getAttribute("inert") !== null || cs.position === "fixed")
+    );
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (node) => (transient(node as Element) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
   let sampled = 0;
   let visited = 0;
   // Looser bounds than the scanner's: this runs once per capture, and the
