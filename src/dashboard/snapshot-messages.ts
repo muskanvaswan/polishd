@@ -1,15 +1,21 @@
 /**
- * Polishd — what the dashboard says when a capture can't go the usual way.
+ * Polishd — what the Site snapshots section says when it can't capture.
  *
- * The capture runs in the owner's browser and calls Polishd's screenshot
- * service directly, so the ways it fails are the browser's: the site's CSP
- * refuses the request, the service is down, it's rate-limiting, or it can't
- * reach the site because the site isn't public (localhost, an intranet, a
- * preview behind Vercel's login). Each gets a message that names the cause
- * and the fix. Pure — no DOM, no React — so the test file pins the wording's
- * branches.
+ * In production the section only captures through Polishd's screenshot
+ * service, and only with somewhere to store the images and the owner's
+ * agreement; otherwise it moves to the bottom of the Design tab, turned off,
+ * and says why. Some reasons are known when the tab renders (no Blob store,
+ * the service declined); the rest only when a capture runs, because they're
+ * the browser's: the site's CSP refuses the call, the service is down or
+ * rate-limiting, or it can't reach the site (an intranet, a preview behind
+ * Vercel's login). Each gets a sentence naming the cause and the fix. Pure —
+ * no DOM, no React — so the test file pins the wording's branches.
  */
-import type { RateLimitScope, ServiceErrorBody } from "../capture/protocol";
+import type {
+  RateLimitScope,
+  ServiceErrorBody,
+  SnapshotDisabledReason,
+} from "../capture/protocol";
 
 export type ServiceFailure =
   /** The site's Content-Security-Policy blocked the request. */
@@ -65,29 +71,22 @@ export interface FailureContext {
   origin: string;
   /** The service's own origin, for the CSP fix. */
   serviceOrigin: string;
-  /** True when this server's own browser took over after the failure. */
-  fellBack: boolean;
 }
 
 /** The sentence the dashboard shows for a failure. */
 export function serviceFailureMessage(failure: ServiceFailure, ctx: FailureContext): string {
   const host = hostOf(ctx.origin);
-  const instead = ctx.fellBack ? " These shots were taken by this server's own browser instead." : "";
   switch (failure.kind) {
     case "csp":
       return (
         `Your site's Content-Security-Policy blocked the dashboard from calling Polishd's ` +
         `screenshot service. Add ${ctx.serviceOrigin} to connect-src (and https://vercel.com, ` +
-        `for storing images in Vercel Blob), then redeploy.${instead}`
+        `for storing images in Vercel Blob), then redeploy.`
       );
     case "unreachable":
-      return `Polishd's screenshot service didn't respond — it may be down, or this network can't reach it.${
-        instead || " Try again in a few minutes."
-      }`;
+      return "Polishd's screenshot service didn't respond — it may be down, or this network can't reach it. Try again in a few minutes.";
     case "down":
-      return `Polishd's screenshot service answered with an error (HTTP ${failure.status}).${
-        instead || " Try again in a few minutes."
-      }`;
+      return `Polishd's screenshot service answered with an error (HTTP ${failure.status}). Try again in a few minutes.`;
     case "rate_limited": {
       const who =
         failure.scope === "origin"
@@ -100,11 +99,9 @@ export function serviceFailureMessage(failure: ServiceFailure, ctx: FailureConte
     case "not_public":
       return (
         `Polishd's screenshot service can't reach ${host} — it only shoots sites the public ` +
-        `internet can see${failure.message ? ` (${failure.message.replace(/\.$/, "")})` : ""}.${
-          instead ||
-          " Open the dashboard on the site's public domain and capture again, or run it locally" +
-            " with `next dev`, where a browser on your machine takes the shots."
-        }`
+        `internet can see${failure.message ? ` (${failure.message.replace(/\.$/, "")})` : ""}. ` +
+        "Open the dashboard on the site's public domain, or run it locally with `next dev`, " +
+        "where a browser on your machine takes the shots."
       );
     case "rejected":
       return `Polishd's screenshot service rejected the request${
@@ -122,11 +119,23 @@ export function protectedMessage(origin: string): string {
   );
 }
 
-/** Shown, as a note rather than an error, when the local engine is used from the start. */
-export function localEngineNote(origin: string, reason: "not_public" | "configured"): string {
-  return reason === "configured"
-    ? "Shot by this server's own browser (POLISHD_SNAPSHOT_SERVICE=off), so page URLs and pixels never leave it."
-    : `${hostOf(origin)} isn't reachable from the internet, so these were shot by a browser on this machine rather than Polishd's screenshot service.`;
+/** Why the section is off before any capture runs. */
+export function disabledMessage(reason: SnapshotDisabledReason, storageIssue: string | null): string {
+  switch (reason) {
+    case "no_storage":
+      return storageIssue ?? "Snapshot images have nowhere to be stored on this deployment.";
+    case "declined":
+      return (
+        "Site snapshots are off because Polishd's screenshot service wasn't allowed. In production " +
+        "it's the only way pages are shot — your server runs no browser. Review it below to turn " +
+        "snapshots on; local development (`next dev`) shoots with your own browser and needs nothing."
+      );
+    case "turned_off":
+      return (
+        "Site snapshots are off on this deployment: POLISHD_SNAPSHOT_SERVICE=off keeps captures on " +
+        "this server's own browser, which production doesn't have. Capture in local development instead."
+      );
+  }
 }
 
 /** Shown when the browser's upload to Vercel Blob fails. */

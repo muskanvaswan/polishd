@@ -342,31 +342,71 @@ export function looksPublicOrigin(origin: string): boolean {
 }
 
 /** Which engine shoots a capture: the hosted service, or a browser on the site's own server. */
-export type SnapshotEngine =
-  | { kind: "service"; url: string }
-  | { kind: "local"; reason: "not_public" | "configured" };
+export type SnapshotEngine = { kind: "service"; url: string } | { kind: "local" };
+
+/** The owner's answer to "may snapshots use Polishd's screenshot service?" — null until asked. */
+export type SnapshotConsent = "accepted" | "declined" | null;
+
+/** Why capture is off on a deployment, known before any capture runs. */
+export type SnapshotDisabledReason = "no_storage" | "declined" | "turned_off";
 
 /**
- * Pick the engine for a dashboard on `origin`. Public sites go to the hosted
- * service; anything the internet can't see is shot locally. `override` is
- * `POLISHD_SNAPSHOT_SERVICE`: a service URL (self-hosting, or a local run of
- * service/), or `off` to keep every capture on this server — for owners who'd
- * rather page URLs and pixels never left it.
+ * What the Site snapshots section can do on this dashboard:
+ *
+ * - `local`     — `next dev`, or a dashboard opened on localhost or a private
+ *                 address: a browser on this machine shoots, nothing leaves it,
+ *                 nothing to consent to.
+ * - `consent`   — production, with somewhere to store images, but the owner
+ *                 hasn't been asked about the screenshot service yet.
+ * - `service`   — production, storage ready, the owner agreed: the service shoots.
+ * - `disabled`  — production without one of those: the section is off, and says why.
  */
-export function chooseSnapshotEngine(origin: string, override?: string): SnapshotEngine {
+export type SnapshotMode =
+  | { kind: "local"; reason: "development" | "not_public" }
+  | { kind: "consent"; url: string }
+  | { kind: "service"; url: string }
+  | { kind: "disabled"; reason: SnapshotDisabledReason };
+
+export interface SnapshotModeInput {
+  /** The origin the dashboard is open on. */
+  origin: string;
+  /** True under `next dev`. */
+  development: boolean;
+  /**
+   * `POLISHD_SNAPSHOT_SERVICE`: `off` keeps every capture on this machine
+   * (and so turns capture off on a public deployment); a URL points at
+   * another deployment of the service and is used even in development, which
+   * is how the service path is tested locally.
+   */
+  override?: string;
+  /** Whether images have somewhere to go: a Blob store, or a writable disk off Vercel. */
+  storageReady: boolean;
+  consent: SnapshotConsent;
+}
+
+function serviceOverride(override: string | undefined): string | null {
   const o = override?.trim();
-  if (o === "off" || o === "local") return { kind: "local", reason: "configured" };
-  if (o) {
-    try {
-      const u = new URL(o);
-      if (u.protocol === "https:" || u.protocol === "http:") {
-        return { kind: "service", url: o.replace(/\/+$/, "") };
-      }
-    } catch {
-      // Not a URL — fall through to the default.
-    }
+  if (!o) return null;
+  try {
+    const u = new URL(o);
+    return u.protocol === "https:" || u.protocol === "http:" ? o.replace(/\/+$/, "") : null;
+  } catch {
+    return null;
   }
-  return looksPublicOrigin(origin)
-    ? { kind: "service", url: SNAPSHOT_SERVICE_URL }
-    : { kind: "local", reason: "not_public" };
+}
+
+/** Decide the section's mode. Pure: the dashboard and every capture action ask the same question. */
+export function decideSnapshotMode(input: SnapshotModeInput): SnapshotMode {
+  const off = ["off", "local"].includes(input.override?.trim() ?? "");
+  const url = off ? null : serviceOverride(input.override);
+  if (!url) {
+    if (input.development) return { kind: "local", reason: "development" };
+    if (!looksPublicOrigin(input.origin)) return { kind: "local", reason: "not_public" };
+    if (off) return { kind: "disabled", reason: "turned_off" };
+  }
+  const service = url ?? SNAPSHOT_SERVICE_URL;
+  if (!input.storageReady) return { kind: "disabled", reason: "no_storage" };
+  if (input.consent === "declined") return { kind: "disabled", reason: "declined" };
+  if (input.consent !== "accepted") return { kind: "consent", url: service };
+  return { kind: "service", url: service };
 }

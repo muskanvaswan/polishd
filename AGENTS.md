@@ -326,7 +326,7 @@ survive there.
 |---|---|---|
 | `POLISHD_DATABASE_URL` | for production capture | Pooled Postgres connection string |
 | `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` | for production site snapshots | Injected automatically when a Vercel Blob store is connected — `BLOB_STORE_ID` for an OIDC connection, `BLOB_READ_WRITE_TOKEN` for the classic one; either works, as do public and private stores. The dashboard uploads snapshot images there straight from the browser, with an upload URL the server signs per file. `BLOB_WEBHOOK_PUBLIC_KEY` isn't needed |
-| `POLISHD_SNAPSHOT_SERVICE` | no | `off` keeps snapshot capture on the host's own browser (not possible on Vercel). A URL points at a self-hosted screenshot service |
+| `POLISHD_SNAPSHOT_SERVICE` | no | `off` never calls the screenshot service (snapshots then only work in local development). A URL points at a self-hosted screenshot service |
 | `POLISHD_DASHBOARD_TOKEN` | for production, unless auth is wired | Protects `/polishd`. `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | no | `true` to serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | no | Rename the session cookie; read by both proxy and ingest |
@@ -343,7 +343,15 @@ for provisioning and schema.
 Polishd's hosted screenshot service, which the dashboard calls from the
 owner's browser, so the host never runs a browser. Tell the user plainly that
 **page URLs and pixels pass through that service**. It shoots only the calling
-site's public pages and stores nothing. Two things can still need a change:
+site's public pages and stores nothing.
+
+The dashboard asks the owner once, in a consent dialog on the Design tab,
+before the service is ever used, and keeps the answer in the store. **That
+choice is the owner's: don't pre-answer it, write it to the store, or set
+anything to skip it.** Until it's allowed, or when there's no Blob store on
+Vercel, the Site snapshots section sits at the bottom of the tab, turned off,
+with the reason. That's expected, not a broken install. Two things can still
+need a change:
 
 - **A strict Content-Security-Policy.** If the app sets `connect-src`, add
   `https://shots.polishd.muskanvaswan.xyz` (the service) and
@@ -353,9 +361,9 @@ site's public pages and stores nothing. Two things can still need a change:
   login page, so snapshots only work on a public deployment. That's expected;
   don't work around it with bypass secrets.
 
-`POLISHD_SNAPSHOT_SERVICE=off` keeps captures on the host's own browser, for
-owners who don't want URLs leaving their server. It needs Chrome on the
-server, so it can't work on Vercel.
+`POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever being called, for
+owners who don't want URLs leaving their server. Snapshots then work only in
+local development.
 
 Without a database URL the package degrades to a safe no-op: a console warning,
 a notice on the dashboard, and no impact on the host app.
@@ -382,6 +390,7 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Snapshot capture reports a CSP block | The app's `connect-src` omits the screenshot service or the Blob API | Add `https://shots.polishd.muskanvaswan.xyz` and `https://vercel.com` to `connect-src` |
 | Snapshot capture: "behind Vercel's Deployment Protection" | A protected preview deployment | Expected — capture from the production domain |
 | Snapshot capture: "nowhere to live on this deployment" | Vercel, no Blob store connected | Connect a Blob store (Storage → Blob), redeploy |
+| Site snapshots at the bottom of the Design tab, marked Off | No Blob store, the owner declined the screenshot service, or a capture found it unusable here (CSP, rate limit, outage, site not public) | Its message names which. Declining is the owner's choice — leave it |
 
 ## Entry points
 

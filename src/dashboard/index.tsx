@@ -67,7 +67,8 @@ import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
 import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
 import { getDesignData } from "../server/design";
-import { listSnapshots, snapshotCaptureIssue } from "../server/snapshots";
+import { resolveSiteOrigin } from "../server/site-origin";
+import { listSnapshots, snapshotAvailability } from "../server/snapshots";
 import type {
   PolishdAISettingsPublic,
   PolishdProjectProfile,
@@ -890,11 +891,11 @@ function AnalyticsStream() {
 // ── The other tabs, each loading behind the chrome ───────────────────────────
 
 async function DesignTabData() {
-  const [design, settings, snapshots, captureIssue] = await Promise.all([
+  const [design, settings, snapshots, snapshotMode] = await Promise.all([
     getDesignData(),
     getAISettingsPublic(),
     listSnapshots(),
-    snapshotCaptureIssue(),
+    resolveSiteOrigin().then(snapshotAvailability),
   ]);
   const reviewState = await loadDesignReviewState(design);
   return (
@@ -904,7 +905,7 @@ async function DesignTabData() {
       reviewStale={reviewState.stale}
       settings={settings}
       snapshots={snapshots}
-      captureIssue={captureIssue}
+      snapshotMode={snapshotMode}
     />
   );
 }

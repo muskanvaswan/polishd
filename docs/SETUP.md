@@ -444,18 +444,19 @@ For **site snapshots** in production on Vercel, connect a
 [Blob store](https://vercel.com/docs/vercel-blob). Whichever variable the
 connection injects switches image storage over automatically: `BLOB_STORE_ID`
 (OIDC) or `BLOB_READ_WRITE_TOKEN`. `BLOB_WEBHOOK_PUBLIC_KEY` isn't needed, and
-public and private stores both work. Nothing else is needed: no `next.config`
-changes and no browser in your deployment. The shots are taken by Polishd's
+public and private stores both work. A self-hosted server with a writable disk
+needs nothing. Nothing else is needed either: no `next.config` changes and no
+browser in your deployment. In production the shots are taken by Polishd's
 screenshot service, which the dashboard calls from your browser. **Page URLs
 and pixels pass through that service.** It shoots only your site's public
-pages and stores nothing. The dashboard then uploads the images straight to
-your Blob store. See the README's
+pages and stores nothing. The Design tab asks you once, in a dialog, before
+it's ever used; if you decline, or there's no Blob store, the section moves to
+the bottom of the tab, turned off, and says why. See the README's
 [Site snapshots](../README.md#site-snapshots) for what the service does and
 doesn't do. If your site sets a Content-Security-Policy, add
 `https://shots.polishd.muskanvaswan.xyz` and `https://vercel.com` to
-`connect-src`. To keep captures on your own server instead, set
-`POLISHD_SNAPSHOT_SERVICE=off`; that needs Chrome on the server, so it doesn't
-work on Vercel.
+`connect-src`. `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever
+being called; snapshots are then taken only in local development.
 
 See [DATABASE.md](../DATABASE.md) for schema, pooling notes, and retention.
 

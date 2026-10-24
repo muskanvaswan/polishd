@@ -5,13 +5,13 @@ import {
   blobUploadMessage,
   chunkRanges,
   classifyServiceError,
-  localEngineNote,
+  disabledMessage,
   protectedMessage,
   retryIn,
   serviceFailureMessage,
 } from "./snapshot-messages.ts";
 
-const ctx = { origin: "https://example.com", serviceOrigin: "https://shots.example", fellBack: false };
+const ctx = { origin: "https://example.com", serviceOrigin: "https://shots.example" };
 
 test("service errors are read by code", () => {
   assert.deepEqual(
@@ -47,12 +47,9 @@ test("rate limits say whose limit and when to come back", () => {
   assert.match(serviceFailureMessage({ kind: "rate_limited", scope: "global", retryAfter: 7200 }, ctx), /everyone today.*about 2 hours/);
 });
 
-test("a down service says so, and says when this server took over", () => {
+test("a down service says so, and when to try again", () => {
   assert.match(serviceFailureMessage({ kind: "unreachable" }, ctx), /didn't respond.*Try again/);
-  assert.match(serviceFailureMessage({ kind: "down", status: 500 }, ctx), /HTTP 500/);
-  const fellBack = serviceFailureMessage({ kind: "unreachable" }, { ...ctx, fellBack: true });
-  assert.match(fellBack, /this server's own browser instead/);
-  assert.doesNotMatch(fellBack, /Try again/);
+  assert.match(serviceFailureMessage({ kind: "down", status: 500 }, ctx), /HTTP 500.*Try again/);
 });
 
 test("a site the service can't reach is named, with the way out", () => {
@@ -62,10 +59,15 @@ test("a site the service can't reach is named, with the way out", () => {
   assert.match(msg, /public domain/);
 });
 
-test("protected previews and local captures get their own wording", () => {
+test("each reason the section is off says why", () => {
+  assert.match(disabledMessage("no_storage", "Connect a Vercel Blob store."), /Connect a Vercel Blob store/);
+  assert.match(disabledMessage("no_storage", null), /nowhere to be stored/);
+  assert.match(disabledMessage("declined", null), /wasn't allowed.*Review it/);
+  assert.match(disabledMessage("turned_off", null), /POLISHD_SNAPSHOT_SERVICE=off/);
+});
+
+test("protected previews and upload failures get their own wording", () => {
   assert.match(protectedMessage("https://my-app-git-x.vercel.app"), /my-app-git-x\.vercel\.app is behind Vercel's Deployment Protection/);
-  assert.match(localEngineNote("http://localhost:3000", "not_public"), /localhost:3000 isn't reachable from the internet/);
-  assert.match(localEngineNote("https://example.com", "configured"), /never leave it/);
   assert.match(blobUploadMessage("x", true), /connect-src/);
   assert.match(blobUploadMessage("HTTP 403", false), /HTTP 403/);
 });

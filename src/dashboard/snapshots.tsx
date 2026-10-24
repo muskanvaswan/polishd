@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Polishd — the Design tab's snapshot gallery.
+ * Polishd — the Design tab's Site snapshots section.
  *
  * Renders the site's captured screenshots as a device/theme-filterable grid,
  * with a button that shoots a fresh set. A capture runs from this page (see
@@ -11,13 +11,33 @@
  * (they live on the server's disk or in Vercel Blob — either way the
  * dashboard never hands out a direct URL), and a clicked tile expands into a
  * full-height lightbox.
+ *
+ * Where the section sits depends on what it can do here (`SnapshotMode`):
+ * locally, or in production once the owner has allowed Polishd's screenshot
+ * service and images have somewhere to go, it's near the top of the tab. In
+ * production without one of those — or once a capture finds the service
+ * can't be used from here (CSP, rate limit, outage, a site it can't reach) —
+ * it moves to the bottom, turned off, saying why. The tab is server-rendered,
+ * so the section lives in two slots and a provider holds its state; moving
+ * between them never loses a capture in flight. The provider also asks the
+ * consent question, once, in a dialog.
  */
-import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
-import type { PolishdSnapshot, PolishdSnapshotShot } from "../server/snapshots";
-import { getSnapshotImageAction } from "./snapshot-actions";
-import { runSnapshotCapture, type LiveShot } from "./snapshot-capture";
-import { border, card, labelCls, primaryBtn, relTime, RefreshIcon } from "./ui";
+import type { SnapshotMode } from "../capture/protocol";
+import type { PolishdSnapshot, PolishdSnapshotShot, SnapshotAvailability } from "../server/snapshots";
+import { getSnapshotImageAction, setSnapshotServiceConsentAction } from "./snapshot-actions";
+import { runSnapshotCapture, type CaptureBlock, type LiveShot } from "./snapshot-capture";
+import { disabledMessage } from "./snapshot-messages";
+import { border, card, ghostBtn, labelCls, primaryBtn, relTime, RefreshIcon } from "./ui";
 
 const shotKey = (s: { route: string; device: string; theme: string }) =>
   `${s.route}|${s.device}|${s.theme}`;
@@ -126,78 +146,296 @@ function ShotTile({
   );
 }
 
-export interface SnapshotsCardProps {
-  initial: PolishdSnapshot[];
-  /**
-   * A reason captures are known to fail in this environment (an optional
-   * dependency the host needs was omitted from the install), detected
-   * server-side at render. Non-null disables the capture button and explains
-   * why up front, instead of a minute into a doomed run.
-   */
-  captureIssue: string | null;
+// ── State, shared by both slots ──────────────────────────────────────────────
+
+interface SnapshotsState {
+  snapshots: PolishdSnapshot[];
+  availability: SnapshotAvailability;
+  /** Set when a capture found the service can't be used from here. */
+  block: CaptureBlock | null;
+  error: string | null;
+  capturing: boolean;
+  progress: { done: number; total: number } | null;
+  live: LiveShot[];
+  /** Images the last capture already holds, by snapshot id then cell. */
+  fresh: Map<string, Map<string, string>>;
+  capture: () => void;
+  openConsent: () => void;
+  /** Withdraw consent: production captures stop using the service. */
+  turnOff: () => void;
 }
 
-export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardProps) {
+const SnapshotsContext = createContext<SnapshotsState | null>(null);
+
+function useSnapshots(): SnapshotsState {
+  const ctx = useContext(SnapshotsContext);
+  if (!ctx) throw new Error("Site snapshots rendered outside their provider");
+  return ctx;
+}
+
+/** True when the section is off — it then renders in the bottom slot. */
+function isOff(mode: SnapshotMode, block: CaptureBlock | null): boolean {
+  return mode.kind === "disabled" || block !== null;
+}
+
+function serviceHost(mode: SnapshotMode): string | null {
+  if (mode.kind !== "service" && mode.kind !== "consent") return null;
+  try {
+    return new URL(mode.url).host;
+  } catch {
+    return mode.url;
+  }
+}
+
+export interface SnapshotsProviderProps {
+  initial: PolishdSnapshot[];
+  /** What the section can do here, decided server-side at render. */
+  availability: SnapshotAvailability;
+  children: ReactNode;
+}
+
+export function SnapshotsProvider({ initial, availability: initialAvailability, children }: SnapshotsProviderProps) {
   const [snapshots, setSnapshots] = useState<PolishdSnapshot[]>(initial);
-  const [selectedId, setSelectedId] = useState<string | null>(initial[0]?.id ?? null);
-  const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
-  const [theme, setTheme] = useState<(typeof THEMES)[number]>("light");
+  const [availability, setAvailability] = useState(initialAvailability);
+  const [block, setBlock] = useState<CaptureBlock | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
-  const [pending, startCapture] = useTransition();
+  const [capturing, setCapturing] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [engine, setEngine] = useState<"service" | "local" | null>(null);
   const [live, setLive] = useState<LiveShot[]>([]);
-  // Images the last capture already holds, by snapshot id then cell.
+  const [consentOpen, setConsentOpen] = useState(initialAvailability.mode.kind === "consent");
+  const [deciding, setDeciding] = useState(false);
   const fresh = useRef(new Map<string, Map<string, string>>());
 
-  const selected =
-    snapshots.find((s) => s.id === selectedId) ?? snapshots[0] ?? null;
-  // A site with no dark mode has its identical dark shots dropped at capture
-  // time — hide the toggle rather than offering an empty view.
-  const effectiveTheme = selected?.noDarkMode ? "light" : theme;
-
-  const capture = () => {
+  const capture = useCallback(() => {
+    if (capturing) return;
     setError(null);
-    setNotice(null);
+    setBlock(null);
     setLive([]);
-    setEngine(null);
-    startCapture(async () => {
-      // Every await is caught: a rejected action must land in the error box,
-      // never in the error boundary (which would take the whole tab down).
-      const arrived = new Map<string, string>();
-      try {
-        const outcome = await runSnapshotCapture({
-          onPlan: (plan) =>
-            setProgress({ done: 0, total: plan.routes.length * plan.renderings.length }),
-          onShot: (shot) => {
-            if (shot.src) arrived.set(shotKey(shot), shot.src);
-            setLive((prev) => [...prev, shot]);
-          },
-          onProgress: (done, total) => setProgress({ done, total }),
-          onNotice: setNotice,
-          onEngine: setEngine,
-        });
-        if (outcome.ok) {
-          fresh.current.set(outcome.snapshot.id, arrived);
-          setSnapshots((prev) => [outcome.snapshot, ...prev]);
-          setSelectedId(outcome.snapshot.id);
-          if (outcome.warning) setError(outcome.warning);
-        } else {
-          setError(outcome.message);
+    setCapturing(true);
+    const arrived = new Map<string, string>();
+    // Every await is caught: a rejected action must land in the error box,
+    // never in the error boundary (which would take the whole tab down).
+    runSnapshotCapture({
+      onPlan: (plan) => setProgress({ done: 0, total: plan.routes.length * plan.renderings.length }),
+      onShot: (shot) => {
+        if (shot.src) arrived.set(shotKey(shot), shot.src);
+        setLive((prev) => [...prev, shot]);
+      },
+      onProgress: (done, total) => setProgress({ done, total }),
+    })
+      .then((outcome) => {
+        if (outcome.snapshot) {
+          const snapshot = outcome.snapshot;
+          fresh.current.set(snapshot.id, arrived);
+          setSnapshots((prev) => [snapshot, ...prev]);
         }
-      } catch {
+        setBlock(outcome.block);
+        setError(outcome.error);
+      })
+      .catch(() =>
         setError(
           "The capture failed before a result came back — your host's function " +
             "logs will name the exact failure.",
-        );
-      } finally {
+        ),
+      )
+      .finally(() => {
+        setCapturing(false);
         setProgress(null);
         setLive([]);
-      }
-    });
+      });
+  }, [capturing]);
+
+  const decide = useCallback((allow: boolean) => {
+    setDeciding(true);
+    setSnapshotServiceConsentAction(allow)
+      .then((res) => {
+        if (res.ok) {
+          setAvailability({ mode: res.mode, storageIssue: res.storageIssue });
+          setBlock(null);
+          setError(null);
+        } else {
+          setError(res.message);
+        }
+      })
+      .catch(() => setError("Couldn't record the choice — try again."))
+      .finally(() => {
+        setDeciding(false);
+        setConsentOpen(false);
+      });
+  }, []);
+
+  const state: SnapshotsState = {
+    snapshots,
+    availability,
+    block,
+    error,
+    capturing,
+    progress,
+    live,
+    fresh: fresh.current,
+    capture,
+    openConsent: () => setConsentOpen(true),
+    turnOff: () => decide(false),
   };
+
+  const host = serviceHost(availability.mode);
+  return (
+    <SnapshotsContext.Provider value={state}>
+      {children}
+      {consentOpen && host && (
+        <ConsentDialog host={host} busy={deciding} onDecide={decide} />
+      )}
+    </SnapshotsContext.Provider>
+  );
+}
+
+/**
+ * Where the section may render. The tab places one near the top and one at
+ * the bottom; only the slot matching the section's state shows it.
+ */
+export function SnapshotsSlot({ position }: { position: "top" | "bottom" }) {
+  const { availability, block } = useSnapshots();
+  const off = isOff(availability.mode, block);
+  return off === (position === "bottom") ? <SnapshotsCard /> : null;
+}
+
+// ── The consent dialog ───────────────────────────────────────────────────────
+
+/**
+ * Asked once per install, in production: may site snapshots call Polishd's
+ * screenshot service? It says plainly what the call is, what the service sees
+ * and doesn't, and why it's harmless. Declining (or dismissing) turns the
+ * section off; it can be reconsidered from there.
+ */
+function ConsentDialog({
+  host,
+  busy,
+  onDecide,
+}: {
+  host: string;
+  busy: boolean;
+  onDecide: (allow: boolean) => void;
+}) {
+  const allowRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    allowRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onDecide(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onDecide]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="polishd-snapshot-consent-title"
+        data-component="design-snapshot-consent"
+        className={`w-full max-w-lg ${card} p-5 shadow-2xl sm:p-6`}
+      >
+        <h2 id="polishd-snapshot-consent-title" className="text-[15px] font-semibold text-white">
+          Allow site snapshots to use Polishd&rsquo;s screenshot service?
+        </h2>
+        <p className="mt-3 text-[13px] leading-relaxed text-[#aaa]">
+          In production, your server runs no browser, so screenshots of your pages are taken by
+          Polishd&rsquo;s screenshot service at <span className="font-mono text-[#ddd]">{host}</span>.
+          When you capture, this dashboard sends it the path of each page; the service opens that
+          page on your site the way any visitor would and sends the picture back here, and the
+          dashboard saves it to your own storage.
+        </p>
+        <ul className="mt-3 space-y-1.5 text-[12.5px] leading-relaxed text-[#999]">
+          <li>
+            <span className="text-[#ddd]">What it sees:</span> the paths being shot, and what those
+            pages show the public.
+          </li>
+          <li>
+            <span className="text-[#ddd]">What it never gets:</span> your cookies or logins, your
+            analytics data, or your storage credentials.
+          </li>
+          <li>
+            <span className="text-[#ddd]">Why it&rsquo;s harmless:</span> it only loads public pages,
+            read-only, a few at a time and rate-limited; it keeps no images or logs of them; and its
+            visits are never counted in your analytics.
+          </li>
+        </ul>
+        <p className="mt-3 text-[12px] text-[#666]">
+          Nothing is sent until you press Capture. You can change this later from the Site
+          snapshots section.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            data-component="design-snapshot-consent-decline"
+            disabled={busy}
+            onClick={() => onDecide(false)}
+            className={ghostBtn}
+          >
+            Not now
+          </button>
+          <button
+            ref={allowRef}
+            type="button"
+            data-component="design-snapshot-consent-allow"
+            disabled={busy}
+            onClick={() => onDecide(true)}
+            className={primaryBtn}
+          >
+            Allow
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── The section ──────────────────────────────────────────────────────────────
+
+/** Why the section is off, and what can be done about it from here. */
+function offState(
+  availability: SnapshotAvailability,
+  block: CaptureBlock | null,
+): { message: string; action: "reconsider" | "retry" | null } | null {
+  if (block) return { message: block.message, action: "retry" };
+  if (availability.mode.kind !== "disabled") return null;
+  const { reason } = availability.mode;
+  return {
+    message: disabledMessage(reason, availability.storageIssue),
+    action: reason === "declined" ? "reconsider" : null,
+  };
+}
+
+function SnapshotsCard() {
+  const {
+    snapshots,
+    availability,
+    block,
+    error,
+    capturing,
+    progress,
+    live,
+    fresh,
+    capture,
+    openConsent,
+    turnOff,
+  } = useSnapshots();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
+  const [theme, setTheme] = useState<(typeof THEMES)[number]>("light");
+  const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
+
+  // A new capture selects itself.
+  const newest = snapshots[0]?.id ?? null;
+  useEffect(() => setSelectedId(null), [newest]);
+
+  const { mode } = availability;
+  const off = offState(availability, block);
+  const needsConsent = mode.kind === "consent";
+  const selected = snapshots.find((s) => s.id === selectedId) ?? snapshots[0] ?? null;
+  // A site with no dark mode has its identical dark shots dropped at capture
+  // time — hide the toggle rather than offering an empty view.
+  const effectiveTheme = selected?.noDarkMode ? "light" : theme;
 
   const shots = selected
     ? selected.shots.filter(
@@ -205,22 +443,62 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
       )
     : [];
   const skipped = selected
-    ? selected.shots.filter(
-        (s) => s.device === device && s.theme === effectiveTheme && !s.file,
-      )
+    ? selected.shots.filter((s) => s.device === device && s.theme === effectiveTheme && !s.file)
     : [];
+
+  const captureButton = needsConsent ? (
+    <button
+      type="button"
+      data-component="design-snapshot-consent-open"
+      onClick={openConsent}
+      className={primaryBtn}
+    >
+      Allow screenshots…
+    </button>
+  ) : (
+    <button
+      type="button"
+      data-component="design-snapshot-capture"
+      onClick={capture}
+      disabled={capturing || (off !== null && off.action !== "retry")}
+      title={off?.message ?? "Screenshot every scanned page — phone and desktop, light and dark"}
+      className={primaryBtn}
+    >
+      <span className="flex items-center gap-1.5">
+        <RefreshIcon spinning={capturing} />
+        {capturing
+          ? progress && progress.total > 0
+            ? `Shooting ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+            : "Shooting pages…"
+          : off?.action === "retry"
+            ? "Try again"
+            : selected
+              ? "Capture again"
+              : "Capture snapshot"}
+      </span>
+    </button>
+  );
 
   return (
     // The data-component names here feed polishd's own dashboard telemetry:
     // clicks group under these on the collecting side, so "does anyone shoot
     // a second snapshot?" is answerable. Inert for host apps.
-    <section data-component="design-snapshots" className={`mb-8 ${card} overflow-hidden`}>
+    <section
+      data-component="design-snapshots"
+      data-state={off ? "off" : mode.kind}
+      className={`mb-8 ${card} overflow-hidden ${off ? "opacity-90" : ""}`}
+    >
       <div
         className={`flex flex-wrap items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}
       >
         <div className="flex items-center gap-2">
           <span className={labelCls}>Site snapshots</span>
-          {selected && (
+          {off && (
+            <span className="rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888]">
+              Off
+            </span>
+          )}
+          {selected && !off && (
             <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
               {selected.origin}
             </span>
@@ -259,35 +537,34 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
               )}
             </>
           )}
-          <button
-            type="button"
-            data-component="design-snapshot-capture"
-            onClick={capture}
-            disabled={pending || captureIssue !== null}
-            title={
-              captureIssue ??
-              "Screenshot every scanned page — phone and desktop, light and dark"
-            }
-            className={primaryBtn}
-          >
-            <span className="flex items-center gap-1.5">
-              <RefreshIcon spinning={pending} />
-              {pending
-                ? progress && progress.total > 0
-                  ? `Shooting ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
-                  : "Shooting pages…"
-                : selected
-                  ? "Capture again"
-                  : "Capture snapshot"}
-            </span>
-          </button>
+          {off?.action === "reconsider" ? (
+            <button
+              type="button"
+              data-component="design-snapshot-consent-open"
+              onClick={openConsent}
+              className={primaryBtn}
+            >
+              Review and allow…
+            </button>
+          ) : (
+            captureButton
+          )}
         </div>
       </div>
 
       <div className="px-4 py-4 sm:px-5 sm:py-5">
-        {captureIssue && (
-          <div className="mb-3 rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-[12px] text-amber-400">
-            {captureIssue}
+        {off && (
+          <div
+            data-component="design-snapshot-off-reason"
+            className="mb-3 rounded-md border border-[#2e2e2e] bg-[#151515] px-3 py-2 text-[12px] leading-relaxed text-[#aaa]"
+          >
+            {off.message}
+          </div>
+        )}
+        {needsConsent && (
+          <div className="mb-3 rounded-md border border-[#2e2e2e] bg-[#151515] px-3 py-2 text-[12px] leading-relaxed text-[#aaa]">
+            In production, snapshots are taken by Polishd&rsquo;s screenshot service — allow it to
+            start capturing.
           </div>
         )}
         {error && (
@@ -295,23 +572,18 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
             {error}
           </div>
         )}
-        {notice && (
-          <div className="mb-3 rounded-md border border-[#2e2e2e] bg-[#151515] px-3 py-2 text-[12px] text-[#999]">
-            {notice}
-          </div>
-        )}
-        {pending && (
+        {capturing && (
           <p className="mb-3 text-[12px] text-[#888]">
             Shooting every scanned page at two sizes in two themes
-            {engine === "service"
+            {mode.kind === "service"
               ? " with Polishd's screenshot service"
-              : engine === "local"
+              : mode.kind === "local"
                 ? " with a browser on this machine"
                 : ""}{" "}
             — this can take a minute. Keep this tab open.
           </p>
         )}
-        {pending && live.length > 0 && (
+        {capturing && live.length > 0 && (
           <div
             data-component="design-snapshot-live"
             className="mb-5 grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-8"
@@ -342,7 +614,7 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
           </div>
         )}
 
-        {!selected && !pending && (
+        {!selected && !capturing && !off && !needsConsent && (
           <p className="text-[13px] leading-relaxed text-[#888]">
             No snapshots yet. Capture one to see every page of the site as it renders
             right now — the &ldquo;before&rdquo; to hold future design changes against.
@@ -368,7 +640,7 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
                     key={`${selected.id}|${s.file}`}
                     snapshotId={selected.id}
                     shot={s}
-                    known={fresh.current.get(selected.id)?.get(shotKey(s))}
+                    known={fresh.get(selected.id)?.get(shotKey(s))}
                     onZoom={(src, route) => setZoom({ src, route })}
                   />
                 ))}
@@ -404,6 +676,21 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
               )}
             </div>
           </>
+        )}
+
+        {mode.kind === "service" && !capturing && (
+          <p className="mt-3 text-[11px] text-[#555]">
+            Captures use Polishd&rsquo;s screenshot service — page paths and pixels pass through it;
+            it keeps neither.{" "}
+            <button
+              type="button"
+              data-component="design-snapshot-consent-withdraw"
+              onClick={turnOff}
+              className="underline decoration-[#444] underline-offset-2 hover:text-[#888]"
+            >
+              Turn off
+            </button>
+          </p>
         )}
       </div>
 

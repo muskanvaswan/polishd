@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   MAX_FIND_PER_REQUEST,
   SNAPSHOT_SERVICE_URL,
-  chooseSnapshotEngine,
+  decideSnapshotMode,
   MAX_ROUTES_PER_REQUEST,
   isRoutePath,
   looksPublicOrigin,
@@ -133,20 +133,59 @@ test("origins the service could reach, and ones it never could", () => {
   }
 });
 
-test("public sites use the hosted service; the rest shoot locally", () => {
-  assert.deepEqual(chooseSnapshotEngine("https://example.com"), { kind: "service", url: SNAPSHOT_SERVICE_URL });
-  assert.deepEqual(chooseSnapshotEngine("http://localhost:3000"), { kind: "local", reason: "not_public" });
+const base = { origin: "https://example.com", development: false, storageReady: true, consent: null } as const;
+
+test("development and local addresses shoot locally, with nothing to consent to", () => {
+  assert.deepEqual(decideSnapshotMode({ ...base, development: true }), { kind: "local", reason: "development" });
+  assert.deepEqual(decideSnapshotMode({ ...base, origin: "http://localhost:3000" }), {
+    kind: "local",
+    reason: "not_public",
+  });
+  assert.deepEqual(decideSnapshotMode({ ...base, origin: "http://192.168.1.4:3000", storageReady: false }), {
+    kind: "local",
+    reason: "not_public",
+  });
 });
 
-test("POLISHD_SNAPSHOT_SERVICE points elsewhere, or turns the service off", () => {
-  assert.deepEqual(chooseSnapshotEngine("http://localhost:3000", "http://localhost:4100/api/v1/"), {
+test("production asks before the service is used, and remembers the answer", () => {
+  assert.deepEqual(decideSnapshotMode(base), { kind: "consent", url: SNAPSHOT_SERVICE_URL });
+  assert.deepEqual(decideSnapshotMode({ ...base, consent: "accepted" }), {
     kind: "service",
+    url: SNAPSHOT_SERVICE_URL,
+  });
+  assert.deepEqual(decideSnapshotMode({ ...base, consent: "declined" }), { kind: "disabled", reason: "declined" });
+});
+
+test("production with nowhere to store images is off, whatever the consent", () => {
+  for (const consent of [null, "accepted", "declined"] as const) {
+    assert.deepEqual(decideSnapshotMode({ ...base, storageReady: false, consent }), {
+      kind: "disabled",
+      reason: "no_storage",
+    });
+  }
+});
+
+test("POLISHD_SNAPSHOT_SERVICE=off keeps captures local, so a public deployment has none", () => {
+  assert.deepEqual(decideSnapshotMode({ ...base, override: "off" }), { kind: "disabled", reason: "turned_off" });
+  assert.deepEqual(decideSnapshotMode({ ...base, override: "off", development: true }), {
+    kind: "local",
+    reason: "development",
+  });
+});
+
+test("a service URL override applies even in development, consent included", () => {
+  const local = "http://localhost:4100/api/v1/";
+  assert.deepEqual(decideSnapshotMode({ ...base, development: true, origin: "http://localhost:3000", override: local }), {
+    kind: "consent",
     url: "http://localhost:4100/api/v1",
   });
-  assert.deepEqual(chooseSnapshotEngine("https://example.com", "off"), { kind: "local", reason: "configured" });
+  assert.deepEqual(
+    decideSnapshotMode({ ...base, development: true, override: local, consent: "accepted" }),
+    { kind: "service", url: "http://localhost:4100/api/v1" },
+  );
   // Garbage is ignored rather than trusted.
-  assert.deepEqual(chooseSnapshotEngine("https://example.com", "javascript:alert(1)"), {
-    kind: "service",
+  assert.deepEqual(decideSnapshotMode({ ...base, override: "javascript:alert(1)" }), {
+    kind: "consent",
     url: SNAPSHOT_SERVICE_URL,
   });
 });

@@ -1,17 +1,17 @@
 /**
  * Polishd — the local stand-in for the screenshot service (server only).
  *
- * Polishd's hosted screenshot service can only reach public sites, so a
- * dashboard on `localhost` (or anywhere else the internet can't see) shoots
- * with a browser on its own machine instead: your installed Chrome or Edge,
- * or Playwright's Chromium. Same capture core as the service
- * (capture/core.ts), same request guard, same WebP output — the dashboard
- * drives both through one loop and can't tell them apart. It also stands in
- * when the service can't be reached, wherever this server has a browser.
+ * Local development — `next dev`, or a dashboard on `localhost` or a private
+ * address, which Polishd's hosted screenshot service couldn't reach anyway —
+ * shoots with a browser on its own machine: your installed Chrome or Edge, or
+ * Playwright's Chromium. Same capture core as the service (capture/core.ts),
+ * same request guard, same WebP output — the dashboard drives both through
+ * one loop and can't tell them apart.
  *
- * On Vercel there is no browser to launch, and none is bundled: production
- * captures go through the service. That's the point of the service — no
- * 70 MB Chromium and no tracing configuration in every host app.
+ * Production never comes here: it uses the service, or snapshots are off.
+ * On Vercel there is no browser to launch, and none is bundled — that's the
+ * point of the service: no 70 MB Chromium and no tracing configuration in
+ * every host app.
  *
  * The browser is launched once and kept for a minute after its last shot, so
  * a capture's forty-odd shots don't pay forty launches. It's parked on

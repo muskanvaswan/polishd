@@ -31,15 +31,27 @@ calls straight from the owner's browser.
   store with a presigned URL your server signs for that one file (no webhook,
   so no `BLOB_WEBHOOK_PUBLIC_KEY`); elsewhere, streamed to disk in chunks.
   Images are now WebP, much smaller than the old PNGs.
-- **Local development is unchanged.** A dashboard on `localhost` (or anywhere
-  the internet can't see) is shot by your own Chrome, through the same capture
-  loop. The same applies wherever your server has a browser and the service
-  can't be used. `POLISHD_SNAPSHOT_SERVICE=off` keeps every capture on your
-  own server.
-- **Clear messages** for the ways the new path can fail: the site's CSP blocking
-  the service or the Blob upload (with the `connect-src` entries to add), a
-  preview behind Vercel's Deployment Protection, a non-public origin, rate
-  limits, and the service being down.
+- **It asks first.** The first time the Design tab opens in production, a
+  dialog explains the call (what the service sees, what it never gets, why
+  it's harmless) and asks whether snapshots may use it. The answer is kept per
+  install. It can be reviewed later, and withdrawn with "Turn off".
+- **Three modes.** Local development (`next dev`, or a dashboard on localhost
+  or a private address) is shot by your own Chrome, through the same capture
+  loop, with nothing to agree to. Production with a Blob store (or a writable
+  disk, self-hosted) and the owner's agreement uses the service; the section
+  stays where it was. Anything else moves the section to the **bottom of the
+  Design tab, turned off**, with the reason.
+- **Clear messages** for the reasons the section is off: no Blob store, the
+  service not allowed, `POLISHD_SNAPSHOT_SERVICE=off`. Also for the reasons a
+  capture finds:
+  - the site's CSP blocking the service or the Blob upload (with the
+    `connect-src` entries to add);
+  - a preview behind Vercel's Deployment Protection;
+  - a site the service can't reach;
+  - rate limits;
+  - the service being down.
+  
+  Production never falls back to a browser on the host.
 - **Removed:** the `@sparticuz/chromium` optional dependency and the
   serverless capture path. No host should need `next.config` changes for
   snapshots; any `outputFileTracingIncludes` added for them can be removed.

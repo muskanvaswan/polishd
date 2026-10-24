@@ -9,11 +9,12 @@
  * server issues, or streamed to the server's disk in chunks. Each cell is
  * recorded with the server once its images are stored.
  *
- * When the service can't be used — this page is on localhost, or the service
- * is unreachable, or the site's CSP blocks it — the same loop has the server
- * shoot each cell with its own browser instead, wherever it has one. Rate
- * limits and protected previews end the run with a message; whatever was
- * already shot is kept.
+ * In local development (or on a local address) the same loop has the server
+ * shoot each cell with this machine's own browser instead, and nothing leaves
+ * it. In production there's no such fallback: when the service can't be used
+ * — the site's CSP blocks it, it's down or rate-limiting, it can't reach the
+ * site — the run ends with a `block`, and the section turns itself off and
+ * says why. Whatever was already shot is kept.
  */
 import type {
   EncodedImage,
@@ -38,7 +39,6 @@ import {
   blobUploadMessage,
   chunkRanges,
   classifyServiceError,
-  localEngineNote,
   protectedMessage,
   serviceFailureMessage,
   type ServiceFailure,
@@ -58,14 +58,21 @@ export interface CaptureCallbacks {
   onPlan(plan: SnapshotPlan): void;
   onShot(shot: LiveShot): void;
   onProgress(done: number, total: number): void;
-  /** Informational: who's shooting and why. */
-  onNotice(message: string): void;
-  onEngine(engine: "service" | "local"): void;
 }
 
-export type CaptureOutcome =
-  | { ok: true; snapshot: PolishdSnapshot; warning: string | null }
-  | { ok: false; message: string };
+/** Why the service couldn't be used from here — the section turns off and says so. */
+export interface CaptureBlock {
+  reason: "csp" | "unreachable" | "down" | "rate_limited" | "not_public" | "protected";
+  message: string;
+}
+
+export interface CaptureOutcome {
+  /** The recorded snapshot — including a partial one when the run was cut short. */
+  snapshot: PolishdSnapshot | null;
+  block: CaptureBlock | null;
+  /** Anything else that went wrong. */
+  error: string | null;
+}
 
 /** Cells in flight at once against the service; the local engine runs one at a time. */
 const SERVICE_CONCURRENCY = 2;
@@ -207,25 +214,18 @@ async function storeImage(
 }
 
 /**
- * Run a whole capture. Resolves with the recorded snapshot (and a warning if
- * the run was cut short), or with the reason nothing could be recorded.
+ * Run a whole capture. Resolves with the recorded snapshot (possibly partial),
+ * the block that ended it early if the service couldn't be used, or the error
+ * that stopped it.
  */
 export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureOutcome> {
   const begun = await beginSnapshotCaptureAction();
-  if (!begun.ok) return { ok: false, message: begun.message };
+  if (!begun.ok) return { snapshot: null, block: null, error: begun.message };
   const plan: SnapshotPlan = begun;
   cb.onPlan(plan);
 
-  let engine: "service" | "local" = plan.engine.kind;
-  if (plan.engine.kind === "local") {
-    if (!plan.localAvailable) {
-      return { ok: false, message: localEngineNote(plan.origin, plan.engine.reason) };
-    }
-    cb.onNotice(localEngineNote(plan.origin, plan.engine.reason));
-  }
-  cb.onEngine(engine);
-  const serviceBase = plan.engine.kind === "service" ? plan.engine.url : "";
-  const serviceOrigin = serviceBase ? new URL(serviceBase).origin : "";
+  const engine = plan.engine;
+  const serviceOrigin = engine.kind === "service" ? new URL(engine.url).origin : "";
 
   // Rendering-major: every page's default view (desktop, light) first, so
   // the gallery's first screen fills in first, and the cells in flight
@@ -235,8 +235,10 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
   );
   const total = units.length;
   let done = 0;
-  /** A message that ends the run; cells already stored are still recorded. */
-  let stop: string | null = null;
+  /** What ended the run early, if anything; cells already stored are still recorded. */
+  let block: CaptureBlock | null = null;
+  let error: string | null = null;
+  const stopped = () => block !== null || error !== null;
   const found = new Set<string>();
   /** Values being looked for by a cell in flight — not sent again until it answers. */
   const searching = new Set<string>();
@@ -257,22 +259,10 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
       .slice(0, 16)
       .map((t) => ({ key: t.key, ref: t.ref }));
 
-  const switchToLocal = (failure: ServiceFailure): boolean => {
-    if (engine === "local") return true;
-    if (!plan.localAvailable) {
-      stop ??= serviceFailureMessage(failure, { origin: plan.origin, serviceOrigin, fellBack: false });
-      return false;
-    }
-    engine = "local";
-    cb.onEngine("local");
-    cb.onNotice(serviceFailureMessage(failure, { origin: plan.origin, serviceOrigin, fellBack: true }));
-    return true;
-  };
-
   const shootLocal = async (slot: ShotSlot) => {
     const res = await serial(() => captureLocalShotAction(plan.id, slot, findFor(slot.route).map((t) => t.key)));
     if (!res.ok) {
-      stop ??= res.message;
+      error ??= res.message;
       return;
     }
     for (const p of res.shot.previews) found.add(p.key);
@@ -283,30 +273,24 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
     });
   };
 
-  const shootRemote = async (slot: ShotSlot): Promise<"done" | "fallback"> => {
-    const find = findFor(slot.route);
-    for (const t of find) searching.add(t.key);
-    try {
-      return await shootAndStore(slot, find);
-    } finally {
-      for (const t of find) searching.delete(t.key);
-    }
-  };
-
-  const shootAndStore = async (slot: ShotSlot, find: FindTarget[]): Promise<"done" | "fallback"> => {
-    const res = await shootWithService(serviceBase, slot, find);
+  const shootAndStore = async (base: string, slot: ShotSlot, find: FindTarget[]) => {
+    const res = await shootWithService(base, slot, find);
     if (!res.ok) {
       const { failure } = res;
-      if (failure.kind === "rate_limited" || failure.kind === "rejected") {
-        stop ??= serviceFailureMessage(failure, { origin: plan.origin, serviceOrigin, fellBack: false });
-        return "done";
+      if (failure.kind === "rejected") {
+        error ??= serviceFailureMessage(failure, { origin: plan.origin, serviceOrigin });
+      } else {
+        block ??= {
+          reason: failure.kind,
+          message: serviceFailureMessage(failure, { origin: plan.origin, serviceOrigin }),
+        };
       }
-      return switchToLocal(failure) ? "fallback" : "done";
+      return;
     }
     const { shot } = res;
     if (shot.reason === "protected") {
-      stop ??= protectedMessage(plan.origin);
-      return "done";
+      block ??= { reason: "protected", message: protectedMessage(plan.origin) };
+      return;
     }
     cb.onShot({
       ...slot,
@@ -335,39 +319,51 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
       };
       const recorded = await serial(() => recordSnapshotShotAction(plan.id, record));
       if (!recorded.ok) {
-        stop ??= recorded.message;
-        return "done";
+        error ??= recorded.message;
+        return;
       }
       for (const p of shot.previews) found.add(p.key);
     } catch (err) {
-      stop ??= err instanceof StoreError ? err.message : "Couldn't store the screenshots.";
+      error ??= err instanceof StoreError ? err.message : "Couldn't store the screenshots.";
     }
-    return "done";
+  };
+
+  const shootRemote = async (base: string, slot: ShotSlot) => {
+    const find = findFor(slot.route);
+    for (const t of find) searching.add(t.key);
+    try {
+      await shootAndStore(base, slot, find);
+    } finally {
+      for (const t of find) searching.delete(t.key);
+    }
   };
 
   let cursor = 0;
   const worker = async () => {
     for (;;) {
-      if (stop) return;
+      if (stopped()) return;
       const slot = units[cursor++];
       if (!slot) return;
       try {
-        const handled = engine === "service" && (await shootRemote(slot)) === "done";
-        if (!handled && !stop) await shootLocal(slot);
+        if (engine.kind === "service") await shootRemote(engine.url, slot);
+        else await shootLocal(slot);
       } catch {
-        stop ??= "The capture failed before a result came back — the server's logs will name the failure.";
+        error ??= "The capture failed before a result came back — the server's logs will name the failure.";
       }
       done++;
       cb.onProgress(done, total);
     }
   };
   await Promise.all(
-    Array.from({ length: engine === "service" ? SERVICE_CONCURRENCY : 1 }, () => worker()),
+    Array.from({ length: engine.kind === "service" ? SERVICE_CONCURRENCY : 1 }, () => worker()),
   );
   await queue;
 
   const fin = await finishSnapshotCaptureAction(plan.id);
-  if (!fin.ok) return { ok: false, message: stop ?? fin.message };
-  const cut = stop ? `${stop} The pages shot before that are in the snapshot.` : null;
-  return { ok: true, snapshot: fin.snapshot, warning: cut };
+  if (fin.ok) {
+    const cut = error ? `${error} The pages shot before that are in the snapshot.` : null;
+    return { snapshot: fin.snapshot, block, error: cut };
+  }
+  // Nothing recorded: say why the run stopped, rather than "every page failed".
+  return { snapshot: null, block, error: block ? null : (error ?? fin.message) };
 }

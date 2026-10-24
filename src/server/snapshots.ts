@@ -34,13 +34,16 @@
 import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import type {
-  EncodedImage,
-  ShotResult,
-  SkipReason,
-  SnapshotDevice,
-  SnapshotEngine,
-  SnapshotTheme,
+import {
+  decideSnapshotMode,
+  type EncodedImage,
+  type ShotResult,
+  type SkipReason,
+  type SnapshotConsent,
+  type SnapshotDevice,
+  type SnapshotEngine,
+  type SnapshotMode,
+  type SnapshotTheme,
 } from "../capture/protocol";
 import type { DesignPreviewTarget } from "../shared/design-values";
 import {
@@ -299,6 +302,8 @@ interface PendingSnapshot {
   routes: string[];
   targets: DesignPreviewTarget[];
   storage: "blob" | "disk";
+  /** Who shoots this capture. Each action only serves its own engine's calls. */
+  engine: SnapshotEngine;
   /** The access mode browser uploads succeeded with, once one has. */
   blobAccess?: BlobAccess;
   engines: ("service" | "local")[];
@@ -324,7 +329,7 @@ async function loadPendingRaw(): Promise<Partial<PendingSnapshot> | null> {
 
 async function loadPending(id: string): Promise<PendingSnapshot | null> {
   const parsed = await loadPendingRaw();
-  return parsed?.v === 2 && parsed.id === id ? (parsed as PendingSnapshot) : null;
+  return parsed?.v === 2 && parsed.id === id && parsed.engine ? (parsed as PendingSnapshot) : null;
 }
 
 /** Persist the in-flight capture; null clears it. */
@@ -339,6 +344,11 @@ const GONE = {
 
 export type Failure = { ok: false; message: string };
 
+const NOT_THIS_ENGINE = {
+  ok: false as const,
+  message: "That call doesn't belong to this capture's way of shooting — start a new one.",
+};
+
 /** What the dashboard needs to drive a capture. */
 export interface SnapshotPlan {
   id: string;
@@ -348,8 +358,6 @@ export interface SnapshotPlan {
   /** Flagged values to picture, each with the pages it was measured on. */
   targets: DesignPreviewTarget[];
   engine: SnapshotEngine;
-  /** Whether this server can shoot with a browser of its own (never on Vercel). */
-  localAvailable: boolean;
   storage: "blob" | "disk";
 }
 
@@ -406,6 +414,7 @@ export async function beginSnapshot(
     routes,
     targets: input.targets ?? [],
     storage: blobConfigured() ? "blob" : "disk",
+    engine: input.engine,
     engines: [],
     shots: [],
     previews: [],
@@ -422,7 +431,6 @@ export async function beginSnapshot(
     renderings: SNAPSHOT_RENDERINGS,
     targets: pending.targets,
     engine: input.engine,
-    localAvailable: localCaptureUnavailable() === null,
     storage: pending.storage,
   };
 }
@@ -462,6 +470,7 @@ export async function snapshotUploadTarget(
 ): Promise<({ ok: true } & UploadTarget) | Failure> {
   const pending = await loadPending(id);
   if (!pending) return GONE;
+  if (pending.engine.kind !== "service") return NOT_THIS_ENGINE;
   if (!validSlot(pending, slot)) return { ok: false, message: "That shot isn't part of this capture." };
   const file = snapshotFileFor(pending.routes, slot, type);
   if (!file) return { ok: false, message: "That image isn't part of this capture." };
@@ -531,6 +540,7 @@ export async function appendSnapshotChunk(
 ): Promise<{ ok: true } | Failure> {
   const pending = await loadPending(id);
   if (!pending) return GONE;
+  if (pending.engine.kind !== "service") return NOT_THIS_ENGINE;
   if (pending.storage !== "disk") return { ok: false, message: "This capture stores images in Blob." };
   const parsed = parseSnapshotFile(file);
   if (!parsed || parsed.routeIndex >= pending.routes.length) {
@@ -666,6 +676,7 @@ export async function recordSnapshotShot(
 ): Promise<{ ok: true } | Failure> {
   const pending = await loadPending(id);
   if (!pending) return GONE;
+  if (pending.engine.kind !== "service") return NOT_THIS_ENGINE;
   const slot: ShotSlot = { route: record.route, device: record.device, theme: record.theme };
   if (!validSlot(pending, slot)) return { ok: false, message: "That shot isn't part of this capture." };
   if (pending.shots.some((s) => s.route === slot.route && s.device === slot.device && s.theme === slot.theme)) {
@@ -736,6 +747,7 @@ export async function captureLocalShot(
 ): Promise<LocalShotResult> {
   const pending = await loadPending(id);
   if (!pending) return GONE;
+  if (pending.engine.kind !== "local") return NOT_THIS_ENGINE;
   if (!validSlot(pending, slot)) return { ok: false, message: "That shot isn't part of this capture." };
   const unavailable = localCaptureUnavailable();
   if (unavailable) return { ok: false, message: unavailable };
@@ -895,6 +907,54 @@ async function deleteImageFiles(id: string, images: { file: string; url?: string
       await rm(join(snapshotsRoot(), id, parsed.dir, image.file), { force: true }).catch(() => {});
     }
   }
+}
+
+// ── Consent and mode ─────────────────────────────────────────────────────────
+
+const CONSENT_KEY = "snapshot_service_consent";
+
+/**
+ * The owner's answer to the consent dialog: whether production snapshots may
+ * call Polishd's screenshot service. Kept per install, like telemetry consent.
+ */
+export async function loadSnapshotConsent(): Promise<SnapshotConsent> {
+  const raw = await getMeta(CONSENT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { decision?: unknown };
+    return parsed.decision === "accepted" || parsed.decision === "declined" ? parsed.decision : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveSnapshotConsent(accepted: boolean): Promise<boolean> {
+  return setMeta(CONSENT_KEY, JSON.stringify({ decision: accepted ? "accepted" : "declined", at: Date.now() }));
+}
+
+/** What the Site snapshots section may do here, and the storage problem when that's why it can't. */
+export interface SnapshotAvailability {
+  mode: SnapshotMode;
+  /** Set when images have nowhere to go — the message for `no_storage`. */
+  storageIssue: string | null;
+}
+
+/**
+ * Work out the section's mode for a dashboard on `origin`: local under
+ * `next dev` or on a local address; otherwise the hosted service, once there
+ * is somewhere to store images and the owner has agreed to it.
+ */
+export async function snapshotAvailability(origin: string | null): Promise<SnapshotAvailability> {
+  const storageIssue = await snapshotCaptureIssue();
+  const consent = await loadSnapshotConsent();
+  const mode = decideSnapshotMode({
+    origin: origin ?? "",
+    development: process.env.NODE_ENV === "development",
+    override: process.env.POLISHD_SNAPSHOT_SERVICE,
+    storageReady: storageIssue === null,
+    consent,
+  });
+  return { mode, storageIssue };
 }
 
 /**

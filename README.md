@@ -459,12 +459,34 @@ style, color and radius, and the most-used off-grid paddings, it finds the
 element carrying the value on its page and saves a ringed crop of it. Hover a
 flagged value on the Design tab to see that picture and the page it's on.
 
-**Who takes the shots.** Your server doesn't run a browser in production.
-The dashboard, in your browser, sends each page to **Polishd's screenshot
-service** (`shots.polishd.muskanvaswan.xyz`, source in [`service/`](./service))
-one at a time. The service loads that page on the site the dashboard is
-running on and sends back WebP images, which appear in the gallery as they
-arrive and are then stored by your install. Plainly:
+**Who takes the shots.** It depends on where the dashboard is running:
+
+1. **Local development** (`next dev`, or a dashboard opened on localhost or
+   a private address): a browser on your own machine. That's your installed
+   Chrome or Edge, or Playwright's Chromium (`npx playwright install
+   chromium` once if you have neither). Nothing leaves the machine and
+   there's nothing to agree to.
+2. **Production**: your server doesn't run a browser. The dashboard, in your
+   browser, sends each page to **Polishd's screenshot service**
+   (`shots.polishd.muskanvaswan.xyz`, source in [`service/`](./service)) one
+   at a time. The service loads that page on the site the dashboard is
+   running on and sends back WebP images, which appear in the gallery as they
+   arrive and are then stored by your install. Before that happens, the
+   Design tab **asks you once, in a dialog**, whether snapshots may use the
+   service, and says what it does and doesn't see. The answer is kept per
+   install.
+3. **Production without a place for images or without your agreement**: the
+   Site snapshots section moves to the **bottom of the Design tab, turned
+   off**, and says why. The reasons are: no Blob store connected on Vercel,
+   or the service wasn't allowed (with a button to review it). Some reasons
+   only show up during a capture, and the message names the fix:
+   - your site's CSP blocked the call;
+   - the service can't reach the site, such as an intranet address or a
+     preview behind Vercel's login;
+   - the service is rate-limiting;
+   - the service is unreachable.
+
+What the service does, plainly:
 
 - **Page URLs and pixels pass through Polishd's service.** It sees the paths
   being shot and renders them like any visitor would. It returns the images
@@ -476,17 +498,15 @@ arrive and are then stored by your install. Plainly:
   metadata addresses, checks every request and redirect the page makes after
   DNS resolution, and keeps navigation on your origin.
 - It's **rate-limited** per site, per caller and in total. If you hit a limit,
-  the dashboard says which one and when to try again, and keeps the pages it
+  the section says which one and when to try again, and keeps the pages it
   had already shot.
-- A site the service can't reach (**`next dev` on localhost**, an intranet)
-  is shot by a browser on your own machine instead: your installed Chrome or
-  Edge, or Playwright's Chromium (`npx playwright install chromium` once if
-  you have neither). The same thing happens wherever your server has a browser
-  and the service is unreachable or blocked. To keep every capture on your own
-  server, set `POLISHD_SNAPSHOT_SERVICE=off`.
+- You can withdraw the agreement any time from the section ("Turn off").
+  `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever being called;
+  snapshots are then only taken in local development.
 
-**Where the images go.** On disk under `.polishd/snapshots/` locally
-(`POLISHD_SNAPSHOT_DIR` overrides). **On Vercel**, connect a
+**Where the images go.** On disk under `.polishd/snapshots/` locally, and on
+a self-hosted server with a writable disk (`POLISHD_SNAPSHOT_DIR` overrides).
+**On Vercel**, connect a
 [Blob store](https://vercel.com/docs/vercel-blob) to the project; that's the
 whole setup. Whichever variable the connection injects switches storage to
 Blob: `BLOB_STORE_ID` for a store connected over OIDC, or the classic
@@ -495,8 +515,8 @@ store with a short-lived URL your server signs for exactly that file, so
 images never have to fit through a server action or a function response.
 Public and private stores both work; either way the dashboard serves the
 images itself, behind its own access check. `BLOB_WEBHOOK_PUBLIC_KEY` isn't
-needed. Without a Blob store on Vercel, the button explains what's missing
-instead of failing.
+needed. Without a Blob store on Vercel, the section is off and says what's
+missing.
 
 No `next.config` changes and no extra packages are needed. **If your site
 sends a strict Content-Security-Policy**, allow the service and the Blob API
@@ -506,7 +526,7 @@ in `connect-src`:
 connect-src 'self' https://shots.polishd.muskanvaswan.xyz https://vercel.com;
 ```
 
-The dashboard recognises a CSP block and names the directive to change. It
+The section recognises a CSP block and names the directive to change. It
 also tells you when a preview deployment is behind Vercel's Deployment
 Protection: the service can only see the login page there, so capture from
 your production domain instead.
@@ -652,7 +672,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_GITHUB_REPO` | GitHub (optional) | Repository as `owner/repo` — enables filing bugs from AI-found losses |
 | `POLISHD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
-| `POLISHD_SNAPSHOT_SERVICE` | optional | `off` — shoot [site snapshots](#site-snapshots) with this server's own browser instead of Polishd's screenshot service, so page URLs and pixels never leave it. Or a URL, to use your own deployment of [`service/`](./service) |
+| `POLISHD_SNAPSHOT_SERVICE` | optional | `off` — never call Polishd's screenshot service: [site snapshots](#site-snapshots) are then only taken in local development, and the section is off on a public deployment. Or a URL, to use your own deployment of [`service/`](./service) (also in development, for testing it) |
 | `POLISHD_SNAPSHOT_DIR` | optional | Where disk-stored snapshot images go (default `.polishd/snapshots`) |
 | `POLISHD_SITE_ORIGIN` | optional | The origin snapshots are taken of, if not the one the dashboard is opened on (proxies, tunnels) |
 | `POLISHD_TELEMETRY` | optional | `off` (or `0`/`false`/`no`) — disable [dashboard telemetry](#dashboard-telemetry) entirely, consent prompt included |
@@ -683,7 +703,8 @@ Run `npx @polishd/next doctor` first — it catches most of these by name, and
 | Server actions fail with an opaque digest | No dashboard page registered a policy | Expected if you deleted `app/polishd/page.tsx` — the actions fail closed by design |
 | Snapshot capture: *"Content-Security-Policy blocked…"* | Your CSP's `connect-src` doesn't allow the screenshot service or the Blob API | Add `https://shots.polishd.muskanvaswan.xyz` and `https://vercel.com` to `connect-src` |
 | Snapshot capture: *"behind Vercel's Deployment Protection"* | A protected preview deployment; the service only sees Vercel's login | Capture from the production domain, or a deployment without protection |
-| Snapshot capture: *"can't reach …"* | The site isn't on the public internet | Run the dashboard locally (`next dev`) — a browser on your machine shoots it — or set `POLISHD_SNAPSHOT_SERVICE=off` on a server that has Chrome |
+| Snapshot capture: *"can't reach …"* | The site isn't on the public internet | Run the dashboard locally (`next dev`), where a browser on your machine shoots it |
+| Site snapshots section is at the bottom of the Design tab, marked Off | Production without a Blob store (on Vercel), or the screenshot service wasn't allowed, or a capture found it can't be used from here | The section's message names which; "Review and allow…" reopens the consent dialog |
 
 ## Entry points
 
