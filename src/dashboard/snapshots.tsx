@@ -4,21 +4,23 @@
  * Polishd — the Design tab's snapshot gallery.
  *
  * Renders the site's captured screenshots as a device/theme-filterable grid,
- * with a button that shoots a fresh set. Images are fetched lazily per tile
- * through a server action (they live on the server's disk or in Vercel Blob —
- * either way the dashboard never hands out a direct URL) and a clicked tile
- * expands into a full-height lightbox.
+ * with a button that shoots a fresh set. A capture runs from this page (see
+ * snapshot-capture.ts): each shot appears in a live grid as it arrives, and
+ * the finished snapshot reuses those images rather than fetching them again.
+ * Older snapshots' images are fetched lazily per tile through a server action
+ * (they live on the server's disk or in Vercel Blob — either way the
+ * dashboard never hands out a direct URL), and a clicked tile expands into a
+ * full-height lightbox.
  */
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import type { PolishdSnapshot, PolishdSnapshotShot } from "../server/snapshots";
-import {
-  beginSnapshotCaptureAction,
-  captureSnapshotRouteAction,
-  finishSnapshotCaptureAction,
-  getSnapshotImageAction,
-} from "./snapshot-actions";
+import { getSnapshotImageAction } from "./snapshot-actions";
+import { runSnapshotCapture, type LiveShot } from "./snapshot-capture";
 import { border, card, labelCls, primaryBtn, relTime, RefreshIcon } from "./ui";
+
+const shotKey = (s: { route: string; device: string; theme: string }) =>
+  `${s.route}|${s.device}|${s.theme}`;
 
 const DEVICES = ["desktop", "phone"] as const;
 const THEMES = ["light", "dark"] as const;
@@ -54,21 +56,30 @@ function TogglePills<T extends string>({
   );
 }
 
-/** One screenshot tile. Fetches its image the first time it renders. */
+/**
+ * One screenshot tile. Fetches its image the first time it renders, unless
+ * the capture that just ran already has it in hand.
+ */
 function ShotTile({
   snapshotId,
   shot,
+  known,
   onZoom,
 }: {
   snapshotId: string;
   shot: PolishdSnapshotShot;
+  known?: string;
   onZoom: (src: string, route: string) => void;
 }) {
-  const [src, setSrc] = useState<string | null>(null);
+  const [src, setSrc] = useState<string | null>(known ?? null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    if (known) {
+      setSrc(known);
+      return;
+    }
     setSrc(null);
     setFailed(false);
     getSnapshotImageAction(snapshotId, shot.file)
@@ -81,7 +92,7 @@ function ShotTile({
     return () => {
       alive = false;
     };
-  }, [snapshotId, shot.file]);
+  }, [snapshotId, shot.file, known]);
 
   return (
     <figure className="min-w-0">
@@ -132,9 +143,14 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
   const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("light");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
   const [pending, startCapture] = useTransition();
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [engine, setEngine] = useState<"service" | "local" | null>(null);
+  const [live, setLive] = useState<LiveShot[]>([]);
+  // Images the last capture already holds, by snapshot id then cell.
+  const fresh = useRef(new Map<string, Map<string, string>>());
 
   const selected =
     snapshots.find((s) => s.id === selectedId) ?? snapshots[0] ?? null;
@@ -144,51 +160,32 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
 
   const capture = () => {
     setError(null);
+    setNotice(null);
+    setLive([]);
+    setEngine(null);
     startCapture(async () => {
-      // The capture is one action call per route, so no single request has to
-      // outlive a serverless host's function time limit — and every await is
-      // caught: a rejected action must land in the error box, never in the
-      // error boundary (which would take the whole tab down).
+      // Every await is caught: a rejected action must land in the error box,
+      // never in the error boundary (which would take the whole tab down).
+      const arrived = new Map<string, string>();
       try {
-        const begun = await beginSnapshotCaptureAction();
-        if (!begun.ok) {
-          setError(begun.message);
-          return;
-        }
-        setProgress({ done: 0, total: begun.routes.length });
-        const failed: string[] = [];
-        let failure: string | null = null;
-        for (const [i, route] of begun.routes.entries()) {
-          try {
-            const res = await captureSnapshotRouteAction(begun.id, route);
-            if (!res.ok) {
-              failed.push(route);
-              failure = res.message;
-            }
-          } catch {
-            failed.push(route);
-            failure =
-              "the request failed mid-shoot — usually a serverless function " +
-              "time limit; the host's function logs will name the exact failure";
-          }
-          setProgress({ done: i + 1, total: begun.routes.length });
-        }
-        // Finish even when every route failed: it sweeps the capture's state
-        // and reports "every page failed" — the per-route failure is more
-        // specific, so it wins the error box when there is one.
-        const fin = await finishSnapshotCaptureAction(begun.id);
-        if (fin.ok) {
-          setSnapshots((prev) => [fin.snapshot, ...prev]);
-          setSelectedId(fin.snapshot.id);
-          if (failed.length > 0) {
-            setError(
-              `${failed.length} of ${begun.routes.length} page${
-                begun.routes.length === 1 ? "" : "s"
-              } failed to capture (${failure}). The rest are in the snapshot.`,
-            );
-          }
+        const outcome = await runSnapshotCapture({
+          onPlan: (plan) =>
+            setProgress({ done: 0, total: plan.routes.length * plan.renderings.length }),
+          onShot: (shot) => {
+            if (shot.src) arrived.set(shotKey(shot), shot.src);
+            setLive((prev) => [...prev, shot]);
+          },
+          onProgress: (done, total) => setProgress({ done, total }),
+          onNotice: setNotice,
+          onEngine: setEngine,
+        });
+        if (outcome.ok) {
+          fresh.current.set(outcome.snapshot.id, arrived);
+          setSnapshots((prev) => [outcome.snapshot, ...prev]);
+          setSelectedId(outcome.snapshot.id);
+          if (outcome.warning) setError(outcome.warning);
         } else {
-          setError(failure ? `Capture failed: ${failure}.` : fin.message);
+          setError(outcome.message);
         }
       } catch {
         setError(
@@ -197,6 +194,7 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
         );
       } finally {
         setProgress(null);
+        setLive([]);
       }
     });
   };
@@ -275,8 +273,8 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
             <span className="flex items-center gap-1.5">
               <RefreshIcon spinning={pending} />
               {pending
-                ? progress
-                  ? `Shooting page ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+                ? progress && progress.total > 0
+                  ? `Shooting ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
                   : "Shooting pages…"
                 : selected
                   ? "Capture again"
@@ -297,11 +295,51 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
             {error}
           </div>
         )}
+        {notice && (
+          <div className="mb-3 rounded-md border border-[#2e2e2e] bg-[#151515] px-3 py-2 text-[12px] text-[#999]">
+            {notice}
+          </div>
+        )}
         {pending && (
           <p className="mb-3 text-[12px] text-[#888]">
-            Shooting every scanned page at two sizes in two themes, one page at a
-            time — this can take a minute. Keep this tab open.
+            Shooting every scanned page at two sizes in two themes
+            {engine === "service"
+              ? " with Polishd's screenshot service"
+              : engine === "local"
+                ? " with a browser on this machine"
+                : ""}{" "}
+            — this can take a minute. Keep this tab open.
           </p>
+        )}
+        {pending && live.length > 0 && (
+          <div
+            data-component="design-snapshot-live"
+            className="mb-5 grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-8"
+          >
+            {live.map((shot) => (
+              <figure key={shotKey(shot)} className="min-w-0">
+                <div
+                  className={`aspect-[4/5] w-full overflow-hidden rounded-md border ${border} bg-[#111]`}
+                >
+                  {shot.src ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={shot.src}
+                      alt={`${shot.route} — ${shot.device}, ${shot.theme}`}
+                      className="h-full w-full object-cover object-top"
+                    />
+                  ) : (
+                    <span className="flex h-full items-center justify-center px-1 text-center text-[10px] text-[#555]">
+                      {shot.skipped ?? "no image"}
+                    </span>
+                  )}
+                </div>
+                <figcaption className="mt-1 truncate font-mono text-[10px] text-[#777]">
+                  {shot.route} · {shot.device} {shot.theme}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
         )}
 
         {!selected && !pending && (
@@ -330,6 +368,7 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
                     key={`${selected.id}|${s.file}`}
                     snapshotId={selected.id}
                     shot={s}
+                    known={fresh.current.get(selected.id)?.get(shotKey(s))}
                     onZoom={(src, route) => setZoom({ src, route })}
                   />
                 ))}
@@ -354,6 +393,14 @@ export default function SnapshotsCard({ initial, captureIssue }: SnapshotsCardPr
                   behind login: {selected.authWalled.slice(0, 3).join(", ")}
                   {selected.authWalled.length > 3 ? ", …" : ""}
                 </span>
+              )}
+              {selected.engines?.includes("service") && (
+                <span title="Page URLs and pixels pass through Polishd's screenshot service on their way to your storage; the service keeps neither.">
+                  Shot by Polishd&rsquo;s screenshot service
+                </span>
+              )}
+              {selected.engines?.length === 1 && selected.engines[0] === "local" && (
+                <span>Shot by a browser on this machine</span>
               )}
             </div>
           </>

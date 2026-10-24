@@ -7,11 +7,22 @@
  * `requirePolishdAuth()` first: action ids ship in the public client bundle,
  * so these are reachable whether or not the dashboard page ever rendered.
  *
- * Image bytes travel through an action rather than a new GET route on purpose:
- * the ingest route is the package's only public endpoint, and consumers wire
- * it up by re-exporting `POST` alone — a new handler would silently not exist
- * on every install that doesn't update that one-line file. Actions need no
- * wiring and inherit the auth guard.
+ * The capture itself is driven from the browser (see snapshot-capture.ts):
+ * the dashboard asks for a plan, sends each route to Polishd's screenshot
+ * service — or, for a site the service can't reach, has this server shoot it
+ * — stores the images, and reports each cell back here. These actions plan,
+ * issue upload targets, check and record, and close the snapshot. None of
+ * them carries an image larger than a chunk: a server action accepts 1 MB.
+ *
+ * Image bytes for display travel through an action rather than a new GET
+ * route on purpose: the ingest route is the package's only public endpoint,
+ * and consumers wire it up by re-exporting `POST` alone — a new handler would
+ * silently not exist on every install that doesn't update that one-line file.
+ * Actions need no wiring and inherit the auth guard.
+ *
+ * Everything after auth reduces to a message rather than a thrown error: a
+ * rejected action crashes the dashboard tab into Next's error boundary with
+ * an opaque digest, while a returned message renders in the card.
  */
 import { headers } from "next/headers";
 
@@ -19,25 +30,33 @@ import { buildDesignDigest } from "../ai/design";
 import { fingerprintDigest } from "../ai/digest";
 import { requirePolishdAuth } from "../ai/guard";
 import { resolveSettings } from "../ai/settings";
+import { chooseSnapshotEngine } from "../capture/protocol";
 import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
-import { designPreviewTargets } from "../shared/design-values";
+import type { ShotSlot } from "../server/snapshot-files";
 import {
   MAX_SNAPSHOT_ROUTES,
+  appendSnapshotChunk,
   beginSnapshot,
-  captureSnapshotRoute,
+  captureLocalShot,
   finishSnapshot,
   readSnapshotImage,
-  type BeginSnapshotResult,
-  type CaptureRouteResult,
-  type CaptureSnapshotResult,
+  recordSnapshotShot,
+  snapshotUploadTarget,
+  type Failure,
+  type LocalShotResult,
+  type PolishdSnapshot,
+  type ShotRecord,
+  type SnapshotPlan,
+  type UploadTarget,
 } from "../server/snapshots";
+import { designPreviewTargets } from "../shared/design-values";
 
 /**
- * The origin to shoot. `POLISHD_SITE_ORIGIN` wins when set (proxies, tunnels,
- * a prod URL shot from a dev machine); otherwise the origin the dashboard was
- * itself requested on — the one URL the server is guaranteed to be reachable
- * at, learned from the request rather than configuration.
+ * The origin to shoot. `POLISHD_SITE_ORIGIN` wins when set (proxies, tunnels);
+ * otherwise the origin the dashboard was itself requested on. With the hosted
+ * service that is also the only origin it will shoot: the service takes it
+ * from the browser's own Origin header, so the two agree by construction.
  */
 async function resolveSiteOrigin(): Promise<string | null> {
   const configured = process.env.POLISHD_SITE_ORIGIN;
@@ -51,20 +70,13 @@ async function resolveSiteOrigin(): Promise<string | null> {
   return `${proto}://${host}`;
 }
 
-/**
- * Capture is chunked into one action call per route — begin, then one
- * `captureSnapshotRouteAction` per returned route, then finish — so no single
- * request has to outlive a serverless host's function time limit. The client
- * drives the loop; every per-route call is validated against the plan the
- * begin call parked server-side, so the client contributes nothing but ids.
- *
- * Everything after auth reduces to a message rather than a thrown error: a
- * rejected action crashes the dashboard tab into Next's error boundary with
- * an opaque digest, while a returned message renders in the card.
- */
-export async function beginSnapshotCaptureAction(): Promise<BeginSnapshotResult> {
-  await requirePolishdAuth();
+function failed(prefix: string, err: unknown): Failure {
+  return { ok: false, message: `${prefix}: ${err instanceof Error ? err.message : "unknown error"}` };
+}
 
+/** Plan a capture: the routes, renderings and values to picture, and who shoots. */
+export async function beginSnapshotCaptureAction(): Promise<({ ok: true } & SnapshotPlan) | Failure> {
+  await requirePolishdAuth();
   try {
     const origin = await resolveSiteOrigin();
     if (!origin) {
@@ -100,55 +112,86 @@ export async function beginSnapshotCaptureAction(): Promise<BeginSnapshotResult>
     const shot = new Set(routes);
     const targets = designPreviewTargets(data).filter((t) => t.pages.some((p) => shot.has(p)));
 
-    return await beginSnapshot({ origin, routes, fingerprint, targets });
+    const engine = chooseSnapshotEngine(origin, process.env.POLISHD_SNAPSHOT_SERVICE);
+    return await beginSnapshot({ origin, routes, fingerprint, targets, engine });
   } catch (err) {
-    return {
-      ok: false,
-      message: `Snapshot capture failed unexpectedly: ${
-        err instanceof Error ? err.message : "unknown error"
-      }`,
-    };
+    return failed("Snapshot capture failed unexpectedly", err);
   }
 }
 
-/** Shoot one route of the capture in progress — both devices, both themes. */
-export async function captureSnapshotRouteAction(
+/** Where to put one image: a presigned Blob URL, or a disk file to stream chunks to. */
+export async function snapshotUploadTargetAction(
   id: string,
-  route: string,
-): Promise<CaptureRouteResult> {
+  slot: ShotSlot,
+  type: string,
+  size: number,
+): Promise<({ ok: true } & UploadTarget) | Failure> {
   await requirePolishdAuth();
   try {
-    return await captureSnapshotRoute(id, route);
+    return await snapshotUploadTarget(id, slot, type, size);
   } catch (err) {
-    return {
-      ok: false,
-      message: `Screenshot capture failed unexpectedly: ${
-        err instanceof Error ? err.message : "unknown error"
-      }`,
-    };
+    return failed("Couldn't prepare the upload", err);
+  }
+}
+
+/** One chunk of a disk-stored image (base64, well under the 1 MB action limit). */
+export async function appendSnapshotChunkAction(
+  id: string,
+  file: string,
+  offset: number,
+  base64: string,
+  last: boolean,
+): Promise<{ ok: true } | Failure> {
+  await requirePolishdAuth();
+  try {
+    return await appendSnapshotChunk(id, file, offset, base64, last);
+  } catch (err) {
+    return failed("Couldn't store the image", err);
+  }
+}
+
+/** Record one cell shot through the service, once its images are stored. */
+export async function recordSnapshotShotAction(
+  id: string,
+  record: ShotRecord,
+): Promise<{ ok: true } | Failure> {
+  await requirePolishdAuth();
+  try {
+    return await recordSnapshotShot(id, record);
+  } catch (err) {
+    return failed("Couldn't record the shot", err);
+  }
+}
+
+/** Shoot, store and record one cell with this server's own browser. */
+export async function captureLocalShotAction(
+  id: string,
+  slot: ShotSlot,
+  findKeys: string[],
+): Promise<LocalShotResult> {
+  await requirePolishdAuth();
+  try {
+    return await captureLocalShot(id, slot, findKeys);
+  } catch (err) {
+    return failed("Screenshot capture failed unexpectedly", err);
   }
 }
 
 /** Record the accumulated shots as a snapshot and prune old ones. */
 export async function finishSnapshotCaptureAction(
   id: string,
-): Promise<CaptureSnapshotResult> {
+): Promise<{ ok: true; snapshot: PolishdSnapshot } | Failure> {
   await requirePolishdAuth();
   try {
     return await finishSnapshot(id);
   } catch (err) {
-    return {
-      ok: false,
-      message: `The snapshot couldn't be recorded: ${
-        err instanceof Error ? err.message : "unknown error"
-      }`,
-    };
+    return failed("The snapshot couldn't be recorded", err);
   }
 }
 
 export type SnapshotImageResult = { ok: true; dataUrl: string } | { ok: false };
 
-/** One shot's PNG as a data URL — fetched lazily as tiles scroll into use. */
+/** One shot's image as a data URL — fetched lazily as tiles scroll into use. */
 export async function getSnapshotImageAction(
   snapshotId: string,
   file: string,

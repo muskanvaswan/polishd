@@ -196,8 +196,8 @@ import { createPolishdPage } from "@polishd/next/dashboard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Server actions inherit this page's time limit; 300s gives site-snapshot
-// capture headroom on hosts with strict function limits.
+// Server actions inherit this page's time limit; 300s gives the AI
+// analyses headroom on hosts with strict function limits.
 export const maxDuration = 300;
 
 export default createPolishdPage();
@@ -441,13 +441,21 @@ SQLite file cannot persist there. Production capture needs Postgres.
 4. Deploy. Tables are created automatically on first use.
 
 For **site snapshots** in production on Vercel, connect a
-[Blob store](https://vercel.com/docs/vercel-blob) — whichever variable the
-connection injects, `BLOB_STORE_ID` (OIDC) or `BLOB_READ_WRITE_TOKEN`, switches
-image storage over automatically. `BLOB_WEBHOOK_PUBLIC_KEY` isn't needed, and
-public and private stores both work. Capture runs as one short server
-call per page so it fits inside function time limits; keeping
-`export const maxDuration = 300` on the dashboard's `page.tsx` adds headroom
-for heavy pages.
+[Blob store](https://vercel.com/docs/vercel-blob). Whichever variable the
+connection injects switches image storage over automatically: `BLOB_STORE_ID`
+(OIDC) or `BLOB_READ_WRITE_TOKEN`. `BLOB_WEBHOOK_PUBLIC_KEY` isn't needed, and
+public and private stores both work. Nothing else is needed: no `next.config`
+changes and no browser in your deployment. The shots are taken by Polishd's
+screenshot service, which the dashboard calls from your browser. **Page URLs
+and pixels pass through that service.** It shoots only your site's public
+pages and stores nothing. The dashboard then uploads the images straight to
+your Blob store. See the README's
+[Site snapshots](../README.md#site-snapshots) for what the service does and
+doesn't do. If your site sets a Content-Security-Policy, add
+`https://shots.polishd.muskanvaswan.xyz` and `https://vercel.com` to
+`connect-src`. To keep captures on your own server instead, set
+`POLISHD_SNAPSHOT_SERVICE=off`; that needs Chrome on the server, so it doesn't
+work on Vercel.
 
 See [DATABASE.md](../DATABASE.md) for schema, pooling notes, and retention.
 
