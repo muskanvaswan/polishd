@@ -53,6 +53,10 @@ export interface DesignReviewCardProps {
   scannedPages: number;
   /** True when a GitHub repo + token are configured — enables "File bug". */
   githubConnected: boolean;
+  /** Told when a regenerate lands — the Overview builds its fix prompt from it. */
+  onReviewChange?: (review: PolishdDesignReview) => void;
+  /** Told when an issue is filed from one of the review's problems, keyed by its evidence. */
+  onIssueFiled?: (evidence: string, filed: { url: string; number: number }) => void;
 }
 
 /** The model's aesthetic read of the measured design system. */
@@ -64,6 +68,8 @@ export default function DesignReviewCard({
   model,
   scannedPages,
   githubConnected,
+  onReviewChange,
+  onIssueFiled,
 }: DesignReviewCardProps) {
   const [review, setReview] = useState<PolishdDesignReview | null>(initialReview);
   const [stale, setStale] = useState(initialStale);
@@ -77,6 +83,7 @@ export default function DesignReviewCard({
       if (res.ok) {
         setReview(res.review);
         setStale(false);
+        onReviewChange?.(res.review);
       } else {
         setError(res.message);
       }
@@ -131,6 +138,7 @@ export default function DesignReviewCard({
               strengths={review.strengths}
               issues={review.issues}
               githubConnected={githubConnected}
+              onIssueFiled={onIssueFiled}
             />
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
               <span>
@@ -178,10 +186,12 @@ function StrengthsIssues({
   strengths,
   issues,
   githubConnected,
+  onIssueFiled,
 }: {
   strengths: PolishdDesignReview["strengths"];
   issues: PolishdDesignReview["issues"];
   githubConnected: boolean;
+  onIssueFiled?: (evidence: string, filed: { url: string; number: number }) => void;
 }) {
   const hasStrengths = !!strengths?.length;
   const hasIssues = !!issues?.length;
@@ -225,6 +235,7 @@ function StrengthsIssues({
                       <span className="flex flex-wrap items-center gap-1.5">
                         <FileBugButton
                           dataComponent="design-file-bug"
+                          onFiled={(filed) => onIssueFiled?.(iss.evidence, filed)}
                           filed={
                             iss.issueUrl
                               ? { url: iss.issueUrl, number: iss.issueNumber ?? 0 }

@@ -42,6 +42,7 @@ import {
   DropletIcon,
   GearIcon,
   GlobeIcon,
+  GridIcon,
   IssueIcon,
   SpinnerIcon,
   card,
@@ -49,6 +50,7 @@ import {
 } from "./ui";
 
 export type PolishdDashboardTab =
+  | "overview"
   | "analytics"
   | "design"
   | "issues"
@@ -56,6 +58,8 @@ export type PolishdDashboardTab =
   | "settings";
 
 const TABS: { id: PolishdDashboardTab; name: string; icon: ReactNode }[] = [
+  // The landing tab: both reviews, the headline numbers, the fix prompt.
+  { id: "overview", name: "Overview", icon: <GridIcon /> },
   { id: "analytics", name: "Analytics", icon: <ChartIcon /> },
   { id: "design", name: "Design", icon: <DropletIcon /> },
   // Shown only once a GitHub repo is connected — the tab has nothing to list,
@@ -189,7 +193,7 @@ export default function DashboardChrome({
               </p>
               <nav
                 aria-label="Dashboard sections"
-                className="mt-1 flex gap-1.5 lg:mt-5 lg:flex-col"
+                className="mt-1 flex flex-wrap gap-1.5 lg:mt-5 lg:flex-col lg:flex-nowrap"
               >
                 {TABS.filter(
                   // Direct navigation to a tab this install hasn't earned
