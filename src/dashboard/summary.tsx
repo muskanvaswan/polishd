@@ -49,7 +49,7 @@ export interface SummaryCardProps {
   initialProfile: PolishdProjectProfile | null;
   /** Component identifiers in the analytics that the profile doesn't cover. */
   initialGaps: string[];
-  /** Whether the app's source tree is on disk here (scan possible). */
+  /** Whether the app's source tree is on disk here. A scan can also read the connected repo. */
   sourceAvailable: boolean;
 }
 
@@ -180,7 +180,12 @@ export default function SummaryCard({
         )}
       </div>
 
-      <ProfileNudge profile={initialProfile} gaps={initialGaps} sourceAvailable={sourceAvailable} />
+      <ProfileNudge
+        profile={initialProfile}
+        gaps={initialGaps}
+        canScan={sourceAvailable || (settings.hasGithubToken && !!settings.githubRepo)}
+        hasApiKey={settings.hasApiKey}
+      />
     </section>
   );
 }
@@ -193,16 +198,25 @@ export default function SummaryCard({
 function ProfileNudge({
   profile,
   gaps,
-  sourceAvailable,
+  canScan,
+  hasApiKey,
 }: {
   profile: PolishdProjectProfile | null;
   gaps: string[];
-  sourceAvailable: boolean;
+  /** Whether there's source to scan: on disk here, or a connected repo. */
+  canScan: boolean;
+  hasApiKey: boolean;
 }) {
   let message: string | null = null;
-  if (!profile && sourceAvailable) {
+  let action = profile ? "Re-scan in Settings" : "Scan in Settings";
+  if (!profile && canScan) {
     message =
       "The model hasn't read your codebase yet — one scan lets every summary name real components instead of selectors.";
+  } else if (!profile && hasApiKey) {
+    // Nothing on disk to read here — the repo is the way in.
+    message =
+      "The model hasn't read your codebase — connect your GitHub repo and one scan lets every summary name real components instead of selectors.";
+    action = "Connect in Settings";
   } else if (gaps.length > 0) {
     message = `${gaps.length} ${gaps.length === 1 ? "component has" : "components have"} appeared since the last codebase scan.`;
   }
@@ -217,7 +231,7 @@ function ProfileNudge({
         tab="settings"
         className="text-[11px] text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
       >
-        {profile ? "Re-scan in Settings" : "Scan in Settings"} →
+        {action} →
       </TabLink>
     </div>
   );

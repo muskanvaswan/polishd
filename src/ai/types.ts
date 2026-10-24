@@ -93,6 +93,11 @@ export interface PolishdProjectProfile {
   /** How many source files went into the scan, and whether it was capped. */
   sourceFiles: number;
   truncated: boolean;
+  /**
+   * Set when the scan read the connected GitHub repo rather than the disk:
+   * the repo, the branch, and the app's folder in it ("" for the repo root).
+   */
+  github?: { repo: string; ref: string; root: string };
 }
 
 /** Result of a profile scan attempt. */
@@ -100,7 +105,11 @@ export type GenerateProfileResult =
   | { ok: true; profile: PolishdProjectProfile }
   | { ok: false; error: GenerateProfileError; message: string };
 
-export type GenerateProfileError = "no-key" | "no-source" | "provider-error";
+export type GenerateProfileError =
+  | "no-key"
+  | "no-source" // nothing to scan: no source on disk and no repo, or no app in the repo
+  | "github-error" // the repo couldn't be read
+  | "provider-error";
 
 /**
  * A specific problem the model found in the data. Losses are held to a higher

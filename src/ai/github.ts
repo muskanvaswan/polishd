@@ -2,9 +2,10 @@
  * Polishd — GitHub API client (server only).
  *
  * A thin client over GitHub's REST API for the repo the owner connected during
- * onboarding. Capabilities, all scoped to that one repo: read and search source
- * (Contents + code-search APIs — lets the AI layer ground its findings in real
- * code even where the source tree isn't on disk, e.g. Vercel), create branches,
+ * onboarding. Capabilities, all scoped to that one repo: list, read and search
+ * source (Git trees/blobs, Contents and code-search APIs — lets the AI layer
+ * scan the codebase and ground its findings in real code even where the source
+ * tree isn't on disk, e.g. Vercel), create branches,
  * open pull requests, and file issues — then read those issues back, which is
  * what the dashboard's Issues tab lists. The "loss → verified bug"
  * orchestration that uses this client lives in issues.ts.
@@ -147,6 +148,80 @@ export async function readGithubFile(
   } catch {
     return null;
   }
+}
+
+/** Every file on the repo's default branch, from one recursive tree listing. */
+export interface GithubTree {
+  /** The repo as GitHub reports it. */
+  repo: string;
+  /** The branch the listing was taken from. */
+  ref: string;
+  files: { path: string; size: number; sha: string }[];
+  /** True when GitHub cut the listing short (repos past ~100k entries). */
+  truncated: boolean;
+}
+
+/**
+ * List the default branch's files — two API calls however big the repo is.
+ * This is what lets the codebase scan run where the source isn't on disk.
+ * Null when nothing is connected; throws with GitHub's message otherwise, so
+ * a token without Contents (read) fails the scan with a reason.
+ */
+export async function readGithubTree(): Promise<GithubTree | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  const repo = await gh<RepoResponse>(conn.token, "GET", `/repos/${conn.repo}`);
+  const tree = await gh<{
+    tree: { path: string; type: string; size?: number; sha: string }[];
+    truncated: boolean;
+  }>(
+    conn.token,
+    "GET",
+    `/repos/${conn.repo}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`,
+  );
+  return {
+    repo: repo.full_name,
+    ref: repo.default_branch,
+    files: tree.tree
+      .filter((e) => e.type === "blob")
+      .map((e) => ({ path: e.path, size: e.size ?? 0, sha: e.sha })),
+    truncated: tree.truncated,
+  };
+}
+
+/** How many blob reads run at once. */
+const BLOB_FETCH_CONCURRENCY = 8;
+
+/**
+ * Read file contents by blob sha (from `readGithubTree`), a few at a time.
+ * A blob that can't be read is simply absent from the map — one unreadable
+ * file shouldn't sink a scan of sixty.
+ */
+export async function readGithubBlobs(shas: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const conn = await connection();
+  if (!conn) return out;
+  const unique = [...new Set(shas)];
+  for (let i = 0; i < unique.length; i += BLOB_FETCH_CONCURRENCY) {
+    const slice = unique.slice(i, i + BLOB_FETCH_CONCURRENCY);
+    await Promise.all(
+      slice.map(async (sha) => {
+        try {
+          const blob = await gh<{ content?: string; encoding?: string }>(
+            conn.token,
+            "GET",
+            `/repos/${conn.repo}/git/blobs/${sha}`,
+          );
+          if (blob.encoding === "base64" && typeof blob.content === "string") {
+            out.set(sha, Buffer.from(blob.content, "base64").toString("utf8"));
+          }
+        } catch {
+          /* skip this file */
+        }
+      }),
+    );
+  }
+  return out;
 }
 
 /**
