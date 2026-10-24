@@ -35,11 +35,11 @@ export function RefreshMetricsButton() {
       data-component="design-metrics-refresh"
       onClick={() => startRefresh(() => router.refresh())}
       disabled={pending}
-      title="Recompute the design metrics from the latest page scans"
-      className="flex items-center gap-1.5 rounded-md border border-[#2e2e2e] px-2.5 py-1.5 text-[12px] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+      title={pending ? "Refreshing…" : "Recompute the design metrics from the latest page scans"}
+      aria-label="Refresh metrics"
+      className={iconBtn}
     >
       <RefreshIcon spinning={pending} />
-      {pending ? "Refreshing…" : "Refresh metrics"}
     </button>
   );
 }

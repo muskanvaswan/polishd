@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Download the Design tab as a brand kit
+
+The Design tab reverse-engineers a site's design system, drift and all. A new
+**Brand kit** button in its header hands the same system over the other way
+round: curated into a guideline and downloaded as a PDF.
+
+- **One-offs stay out.** Anything the tab badges one-off is left out, and
+  padding gets the same test (a sliver of the tallies, on one page).
+  Near-duplicate colors fold into the one used more, and fluid type sizes a few
+  percent apart (30px and 30.7px) count as one step. The last page lists what
+  was left out.
+- **Everything is named.** Colors by hue and lightness on the familiar 50–950
+  steps (`Red 600`, `Neutral 100`), with the two most used brand colors as
+  Primary and Secondary. Type steps run outward from body text (`Display`,
+  `Heading 1`, `Body L`, `Body`, `Caption`). Radii are `sm`–`xl` plus `full`,
+  spacing is `space-1` upward, and `next/font` aliases like `__Inter_d65c78`
+  read as "Inter".
+- **The PDF** (A4 landscape) opens on a cover in the site's own background,
+  text color and display face, then covers the palette, the text/background
+  pairings that pass WCAG AA, a specimen for each typeface, the type scale in
+  the site's own copy, and radii and spacing drawn to scale. It ends with the
+  kit as CSS custom properties, named to also work in Tailwind v4's
+  `@theme`.
+- **Specimens are in the site's real fonts.** The PDF is built in the browser,
+  which has them loaded, so type is drawn in its own face while labels,
+  values and code stay selectable text. A face the dashboard page never
+  loaded falls back to Helvetica, and the kit says so.
+- No new dependencies: the PDF writer is a small in-house module.
+
+The Design header's **Refresh metrics** button is now an icon button, and
+the header stacks on phones instead of squeezing the title.
+
 ### AI findings sit in a scrolling row of cards
 
 The summary's **Losses** and the design review's **Breaking the system** were

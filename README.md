@@ -447,6 +447,14 @@ model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
 for both the metrics and the analysis are on the tab.
 
+**Brand kit.** The **Brand kit** button in the tab's header downloads the
+measured system as a guideline PDF: palette, passing color pairings,
+typefaces, type scale, radii, spacing, and the same tokens as CSS custom
+properties. It's curated rather than copied. One-off values are left out,
+near-duplicate colors fold together, and every value gets a name (`Red 600`,
+`Heading 1`, `radius-md`). The PDF is built in the browser, so specimens are
+drawn in the site's own fonts.
+
 Nothing extra to install or wire: the scan ships with the existing client,
 flows through the existing ingest route, and the dashboard itself is never
 scanned.
