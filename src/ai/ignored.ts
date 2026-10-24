@@ -41,8 +41,8 @@
 import { getMeta, setMeta } from "../server/store";
 import {
   designIssueSignature,
-  isDismissedDesignIssue,
-  type DesignIssueSignature,
+  dismissedIndexes,
+  type DismissedDesignIssue,
   type KnownDesignValues,
 } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
@@ -82,19 +82,18 @@ const clip = (s: string, max: number): string => {
 /** The key a loss used before evidence was clipped — still on dismissals saved then. */
 const legacyKey = (evidence: string): string => evidence.trim().toLowerCase();
 
-/** A design issue's signature, from its text as it would be stored. */
-function designSignature(issue: string, evidence: string, known: KnownDesignValues): DesignIssueSignature {
-  return designIssueSignature(clip(issue, MAX_ISSUE_CHARS), boundEvidence(evidence), known);
-}
-
-/** Whether a design issue matches one of `dismissed`, however it's been reworded. */
-export function isIgnoredDesignIssue(
-  issue: string,
-  evidence: string,
-  dismissed: readonly DesignIssueSignature[],
+/**
+ * Which of `current` the dismissals hide, by index — each dismissal hiding at
+ * most the one issue closest to its wording (see dismissedIndexes). Read from
+ * the text as it would be stored, so a long citation matches its dismissal.
+ */
+export function hiddenDesignIndexes(
+  current: readonly { issue: string; evidence: string }[],
+  dismissed: readonly DismissedDesignIssue[],
   known: KnownDesignValues,
-): boolean {
-  return isDismissedDesignIssue(clip(issue, MAX_ISSUE_CHARS), boundEvidence(evidence), dismissed, known);
+): Set<number> {
+  const bounded = current.map((c) => ({ issue: clip(c.issue, MAX_ISSUE_CHARS), evidence: boundEvidence(c.evidence) }));
+  return dismissedIndexes(bounded, dismissed, known);
 }
 
 type IgnoredLog = Record<string, PolishdIgnoredLoss>;
@@ -107,9 +106,15 @@ interface Ledger {
 }
 
 const LOSSES: Ledger = { metaKey: "ignored_losses", key: (f) => ignoreKey(f.evidence) };
+/**
+ * Design dismissals are kept one per dismissed issue — its citation and its
+ * wording — since two issues can cite identical evidence ("#888888 on
+ * #0a0a0a" for captions, and for placeholders) and dismissing one mustn't
+ * overwrite the other's entry and reason.
+ */
 const DESIGN: Ledger = {
   metaKey: "ignored_design_issues",
-  key: (f) => ignoreKey(f.evidence),
+  key: (f) => `${ignoreKey(f.evidence)}\n${clip(f.issue, MAX_ISSUE_CHARS).toLowerCase()}`,
 };
 
 async function loadLog(ledger: Ledger): Promise<IgnoredLog> {
@@ -142,12 +147,15 @@ export function ignoredKeys(list: PolishdIgnoredLoss[]): Set<string> {
   return new Set(list.map((i) => ignoreKey(i.evidence)));
 }
 
-/** The signatures to recognise dismissed design issues by, read against `known`. */
+/** The dismissed design issues, each with the signature to recognise it by, read against `known`. */
 export function ignoredDesignSignatures(
   list: PolishdIgnoredDesignIssue[],
   known: KnownDesignValues,
-): DesignIssueSignature[] {
-  return list.map((i) => designSignature(i.issue, i.evidence, known));
+): DismissedDesignIssue[] {
+  return list.map((i) => ({
+    issue: i.issue,
+    signature: designIssueSignature(clip(i.issue, MAX_ISSUE_CHARS), boundEvidence(i.evidence), known),
+  }));
 }
 
 /**
@@ -197,11 +205,13 @@ async function record(
 async function erase(ledger: Ledger, finding: Finding): Promise<boolean> {
   if (typeof finding?.evidence !== "string") return true;
   const log = await loadLog(ledger);
-  // Both the clipped key and, for a dismissal saved before clipping, the full one.
+  // The current key, and the older ones a dismissal may have been saved
+  // under: a loss's full, unclipped citation; a design issue's citation alone.
   const keys = [
     ledger.key({ issue: typeof finding.issue === "string" ? finding.issue : "", evidence: finding.evidence }),
     legacyKey(finding.evidence),
-  ].filter((k) => k in log);
+    ignoreKey(finding.evidence),
+  ].filter((k, i, all) => k in log && all.indexOf(k) === i);
   if (keys.length === 0) return true; // already gone — nothing to undo
   for (const k of keys) delete log[k];
   return setMeta(ledger.metaKey, JSON.stringify(log));
@@ -289,10 +299,10 @@ export function withoutIgnored(
 /** Drop dismissed issues from a design review about to be rendered. */
 export function withoutIgnoredIssues(
   review: PolishdDesignReview,
-  dismissed: readonly DesignIssueSignature[],
+  dismissed: readonly DismissedDesignIssue[],
   known: KnownDesignValues,
 ): PolishdDesignReview {
   if (!review.issues?.length || dismissed.length === 0) return review;
-  const issues = review.issues.filter((i) => !isIgnoredDesignIssue(i.issue, i.evidence, dismissed, known));
-  return issues.length === review.issues.length ? review : { ...review, issues };
+  const hidden = hiddenDesignIndexes(review.issues, dismissed, known);
+  return hidden.size === 0 ? review : { ...review, issues: review.issues.filter((_, i) => !hidden.has(i)) };
 }

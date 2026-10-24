@@ -270,24 +270,57 @@ function removals(text: string): Removal[] {
 }
 
 /**
- * Properties a px value can belong to besides the one it was praised as. A
- * change that names one is about that property: "bump the line-height of
- * 16px body text to 24px" sets a line-height and keeps the 16px size. Each
- * word is tagged with the kind of value it is itself, so naming a praised
- * value's own property ("change the 8px card radius to 6px") still counts.
+ * Properties a px value can belong to, tagged with the kind of value each is
+ * itself. A change that names one of them about the praised value is about
+ * that property: "bump the line-height of 16px body text to 24px" sets a
+ * line-height and keeps the 16px size. Naming the value's own property
+ * ("the 28px heading's size", "the 8px card radius") is the same property, so
+ * that change still counts.
  */
 const PROPERTY_WORDS: [DesignValueKind | null, RegExp][] = [
-  ["spacing", /(?<![\w-])(margins?|padding|paddings|gaps?|spacing|gutters?|insets?)(?![\w-])/i],
-  ["radius", /(?<![\w-])(radius|radii|corners?|rounded|rounding)(?![\w-])/i],
+  ["type", /(?<![\w-])(sizes?|font-sizes?|font sizes?|type sizes?|text sizes?)(?![\w-])/gi],
+  ["spacing", /(?<![\w-])(margins?|padding|paddings|gaps?|spacing|gutters?|insets?)(?![\w-])/gi],
+  ["radius", /(?<![\w-])(radius|radii|corners?|rounded|rounding)(?![\w-])/gi],
   [
     null,
-    /(?<![\w-])(line-heights?|leading|letter-spacing|tracking|word-spacing|weights?|font-weight|colou?rs?|opacity|shadows?|borders?|border-width|outlines?|widths?|heights?|max-width|min-width|offsets?|blur)(?![\w-])/i,
+    /(?<![\w-])(line-heights?|leading|letter-spacing|tracking|word-spacing|weights?|font-weight|colou?rs?|opacity|shadows?|borders?|border-width|outlines?|widths?|heights?|max-width|min-width|offsets?|blur)(?![\w-])/gi,
   ],
 ];
 
-/** Whether `text` names a property other than `kind`'s own. */
-function namesOtherProperty(text: string, kind: DesignValueKind | null): boolean {
-  return PROPERTY_WORDS.some(([own, re]) => (own === null || own !== kind) && re.test(text));
+/** "the line-height of [the] 16px…": a property, then "of", then the value. */
+const ATTACHED_BEFORE = /^\s+of\s+(?:(?:the|a|an|its|their|this|that|all)\s+)?(?:[\w-]+\s+){0,2}$/i;
+/**
+ * "16px body text's letter-spacing", "28px heading margin": the value, a few
+ * plain words naming the element, then the property. A preposition or a
+ * conjunction in between ("22px headings with a border") means the property
+ * belongs to something else.
+ */
+const ATTACHED_AFTER =
+  /^(?:\s+(?!(?:with|without|on|in|for|to|into|onto|at|and|or|by|from|under|over|than|plus|via|inside|beside|near)\b)[\w-]+(?:['’]s)?){0,3}\s+$/i;
+
+/**
+ * Whether a change to the praised value `m` is to some other property of it.
+ * Only a property word attached to the value counts. If its own property is
+ * named, the change is to the value itself, whatever else is named with it.
+ */
+function changesOtherProperty(text: string, m: ValueMention, kind: DesignValueKind | null): boolean {
+  const ends = [...text.matchAll(CLAUSE)].map((c) => c.index ?? 0);
+  const start = Math.max(0, ...ends.filter((e) => e < m.start).map((e) => e + 1));
+  const end = ends.find((e) => e >= m.end) ?? text.length;
+  let other = false;
+  for (const [own, re] of PROPERTY_WORDS) {
+    for (const w of text.slice(start, end).matchAll(re)) {
+      const at = start + (w.index ?? 0);
+      const attached =
+        at + w[0].length <= m.start
+          ? ATTACHED_BEFORE.test(text.slice(at + w[0].length, m.start))
+          : at >= m.end && ATTACHED_AFTER.test(text.slice(m.end, at));
+      if (!attached) continue;
+      if (own !== null && own === kind) return false;
+      other = true;
+    }
+  }
+  return other;
 }
 
 const within = (m: ValueMention, [a, b]: Range) => m.start >= a && m.start < b;
@@ -367,21 +400,14 @@ export function checkSuggestion(
       const kind = kindFor(m);
       const p = praised.find((q) => samePraised(q, m.unit, m.key, kind));
       if (!p) continue;
-      // The words around a px value say which of its properties is changing.
-      const about = (from: number, to: number) =>
-        m.unit === "px" && namesOtherProperty(suggestion.slice(from, to), p.kind);
-      if (r.drops) {
-        if (about(r.source[0], r.source[1])) continue;
-        return { withheld: `it would drop ${m.key}, which this review lists as a strength` };
-      }
+      // The words attached to a px value say which of its properties changes.
+      if (m.unit === "px" && changesOtherProperty(suggestion, m, p.kind)) continue;
+      if (r.drops) return { withheld: `it would drop ${m.key}, which this review lists as a strength` };
       const replacement = r.target
         ? mentions.find((t) => {
             if (!within(t, r.target!) || t.unit !== m.unit || t.key === m.key) return false;
             const k = kindFor(t);
-            if (t.unit === "px" && k !== null && k !== p.kind) return false;
-            const from = Math.min(r.source[0], t.start);
-            const to = Math.max(m.end, t.start);
-            return !about(from, to);
+            return t.unit === "hex" || k === null || k === p.kind;
           })
         : undefined;
       if (replacement) {
@@ -444,6 +470,29 @@ export function checkSuggestion(
 // ── Dismissal keys ───────────────────────────────────────────────────────────
 
 // ── Recognising a dismissed issue ────────────────────────────────────────────
+//
+// Policy, for everything below and for the strength check above: when it's
+// uncertain, don't hide a finding and don't withhold a suggestion. A
+// dismissed finding that resurfaces is a nuisance the owner can dismiss
+// again; a real problem hidden, or a fix withheld, is the failure this module
+// exists to remove. So every rule here errs toward "not the same issue" and
+// toward "keep the suggestion".
+//
+// Known residuals, each a consequence of that policy:
+//   - "Swap 22px for 24px" with no kind named anywhere and 24px measured only
+//     as padding is kept: nothing says the 24px is a type size.
+//   - A property word is only read when it's attached to the praised value
+//     (adjacent, or "the X of …"); phrasing that separates them further
+//     ("…and, for the 16px body text, raise the line-height to 24px") is
+//     read as a change to the value and withheld.
+//   - A dismissal resurfaces when a regenerate adds or drops what tells
+//     issues apart: an explicit category word, or a color's role (a role on
+//     one side and none on the other is a non-match). A contrast pair's
+//     sizes are the exception: a rewording that drops them still matches,
+//     but when both list sizes, the sets must be the same.
+//   - Two current issues with identical evidence matching one dismissal: only
+//     the one whose wording is closest to the dismissed issue is hidden (word
+//     overlap; a tie hides the first).
 
 /** What a design issue is about. Part of what makes two issues the same one. */
 export type DesignIssueCategory =
@@ -462,6 +511,23 @@ const PAIR = /#[0-9a-f]{3,8}\b[^#]{0,60}?\b(on|over|under|against|atop|behind)\b
 /** A contrast ratio or the word, in the evidence itself. */
 const RATIO = /\bcontrast\b|\d+(?:\.\d+)?\s*:\s*1\b/i;
 
+/**
+ * Words that name a category outright. When the evidence or the issue uses
+ * one (evidence first), it decides, over what the design data would say.
+ */
+const EXPLICIT_CATEGORY: [DesignIssueCategory, RegExp][] = [
+  ["contrast", /\b(contrast|wcag)\b/i],
+  ["radius", /\b(radius|radii|corners?|rounded|rounding)\b/i],
+  ["spacing", /\b(padding|paddings|spacing|gaps?|margins?|gutters?)\b/i],
+  ["type", /\b(fonts?|font-sizes?|typograph\w*|type(?:\s+(?:sizes?|scale|styles?))?|text sizes?)\b/i],
+];
+
+/** The one category a sentence names outright, among `allowed`, or null. */
+function explicitCategory(text: string, allowed: DesignIssueCategory[]): DesignIssueCategory | null {
+  const named = EXPLICIT_CATEGORY.filter(([c, re]) => allowed.includes(c) && re.test(text)).map(([c]) => c);
+  return named.length === 1 ? named[0] : null;
+}
+
 const ROLE_WORDS: [string, RegExp][] = [
   ["background", /\b(backgrounds?|bg|surfaces?|fills?)\b/i],
   ["border", /\b(borders?|outlines?|dividers?|strokes?|rules?|hairlines?)\b/i],
@@ -476,32 +542,24 @@ function roleOf(text: string): string | null {
 
 /**
  * What makes two design issues the same one, however the model words them.
- * `values` must match exactly; `sizes` and `role` only rule a match out when
- * both issues state one and they disagree (see sameDesignIssue).
+ * Every field must agree (see sameDesignIssue).
  */
 export interface DesignIssueSignature {
   category: DesignIssueCategory;
   /** The colors (contrast, palette) or px values cited, normalized and sorted; for "other", the text. */
   values: string;
-  /** A contrast issue's text sizes. */
+  /** A contrast issue's text sizes, sorted. */
   sizes: string[];
-  /** The role a palette issue's color plays, when its evidence says. */
+  /** The role a palette issue's color plays, when its evidence or wording says. */
   role: string | null;
 }
 
 /**
  * Which section of the measured design a set of px values belongs to: the
- * one holding all of them, or failing that most of them. The wording breaks a
- * tie — evidence first, then the issue — and is never read otherwise, since a
- * regenerate rewords freely ("Body text uses two sizes" vs "Two near-identical
- * sizes") while the measurements stay put.
+ * one holding all of them, or failing that most of them, with descriptive
+ * wording ("headings", "card") breaking a tie.
  */
-function pxCategory(
-  keys: string[],
-  issue: string,
-  evidence: string,
-  known: KnownDesignValues,
-): DesignIssueCategory {
+function pxCategory(keys: string[], issue: string, evidence: string, known: KnownDesignValues): DesignIssueCategory {
   const kinds: DesignValueKind[] = ["type", "radius", "spacing"];
   const held = kinds.map((k) => ({ k, n: keys.filter((key) => known[k].has(key)).length }));
   const best = Math.max(...held.map((h) => h.n));
@@ -522,40 +580,78 @@ export function designIssueSignature(
   const colors = [...new Set(mentions.filter((m) => m.unit === "hex").map((m) => m.key))].sort();
   const px = [...new Set(mentions.filter((m) => m.unit === "px").map((m) => m.key))].sort();
 
-  if (colors.length >= 2 && (PAIR.test(evidence) || RATIO.test(evidence))) {
-    return { category: "contrast", values: colors.join(" "), sizes: px, role: null };
-  }
   if (colors.length > 0) {
-    return { category: "palette", values: colors.join(" "), sizes: [], role: roleOf(evidence) };
+    const named = explicitCategory(evidence, ["contrast"]) ?? explicitCategory(issue, ["contrast"]);
+    const contrast = named === "contrast" || (colors.length >= 2 && (PAIR.test(evidence) || RATIO.test(evidence)));
+    return contrast
+      ? { category: "contrast", values: colors.join(" "), sizes: px, role: null }
+      : { category: "palette", values: colors.join(" "), sizes: [], role: roleOf(evidence) ?? roleOf(issue) };
   }
   if (px.length > 0) {
-    return { category: pxCategory(px, issue, evidence, known), values: px.join(" "), sizes: [], role: null };
+    const allowed: DesignIssueCategory[] = ["type", "radius", "spacing"];
+    const category =
+      explicitCategory(evidence, allowed) ?? explicitCategory(issue, allowed) ?? pxCategory(px, issue, evidence, known);
+    return { category, values: px.join(" "), sizes: [], role: null };
   }
   return { category: "other", values: evidence.replace(/\s+/g, " ").trim().toLowerCase(), sizes: [], role: null };
 }
 
 /**
- * Whether two signatures are one issue: same category, same values, and no
- * disagreement on what both of them state. "#888 on #0a0a0a at 11px" and the
- * same pair "at 16px" are two failures; "at 11px" and no size given are one,
- * reworded. A background color and a border color are two issues; a color
- * whose role one wording leaves out is still the same one.
+ * Whether two signatures are one issue. Strict on purpose (see the policy
+ * above): the same category and values; the same role, where no role only
+ * matches no role; and, when both list sizes, the same sizes. A size dropped
+ * by a rewording still matches: "#888 on #0a0a0a" is the 11px failure
+ * reworded, while "at 11px and 12px" and "at 12px and 16px" are two failures.
  */
 export function sameDesignIssue(a: DesignIssueSignature, b: DesignIssueSignature): boolean {
-  if (a.category !== b.category || a.values !== b.values) return false;
-  if (a.sizes.length && b.sizes.length && !a.sizes.some((size) => b.sizes.includes(size))) return false;
-  if (a.role && b.role && a.role !== b.role) return false;
-  return true;
+  if (a.category !== b.category || a.values !== b.values || a.role !== b.role) return false;
+  return a.sizes.length === 0 || b.sizes.length === 0 || a.sizes.join(" ") === b.sizes.join(" ");
 }
 
-/** Whether a design issue matches any dismissed one. */
-export function isDismissedDesignIssue(
-  issue: string,
-  evidence: string,
-  dismissed: readonly DesignIssueSignature[],
+/** A dismissed design issue: its wording, and its signature. */
+export interface DismissedDesignIssue {
+  issue: string;
+  signature: DesignIssueSignature;
+}
+
+const words = (s: string): Set<string> => new Set(s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+
+/** Shared words, the measure of which current issue a dismissal was about. */
+function overlap(a: Set<string>, b: Set<string>): number {
+  let n = 0;
+  for (const w of a) if (b.has(w)) n++;
+  return n;
+}
+
+/**
+ * Which current issues the dismissals hide, by index. Each dismissal hides at
+ * most one issue: the closest in wording among those it matches and no other
+ * dismissal has claimed. So two current issues citing identical evidence
+ * ("#888888 on #0a0a0a" for captions, and for placeholders) are only both
+ * hidden when both were dismissed.
+ */
+export function dismissedIndexes(
+  current: readonly { issue: string; evidence: string }[],
+  dismissed: readonly DismissedDesignIssue[],
   known: KnownDesignValues,
-): boolean {
-  if (dismissed.length === 0) return false;
-  const signature = designIssueSignature(issue, evidence, known);
-  return dismissed.some((d) => sameDesignIssue(d, signature));
+): Set<number> {
+  const hidden = new Set<number>();
+  if (dismissed.length === 0 || current.length === 0) return hidden;
+  const signatures = current.map((c) => designIssueSignature(c.issue, c.evidence, known));
+  const currentWords = current.map((c) => words(c.issue));
+  for (const d of dismissed) {
+    const dWords = words(d.issue);
+    let best = -1;
+    let bestScore = -1;
+    signatures.forEach((sig, i) => {
+      if (hidden.has(i) || !sameDesignIssue(sig, d.signature)) return;
+      const score = overlap(dWords, currentWords[i]);
+      if (score > bestScore) {
+        best = i;
+        bestScore = score;
+      }
+    });
+    if (best >= 0) hidden.add(best);
+  }
+  return hidden;
 }

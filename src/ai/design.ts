@@ -25,9 +25,9 @@ import { getDesignData, type PolishdDesignData } from "../server/design";
 import { checkSuggestion, knownDesignValues } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import {
+  hiddenDesignIndexes,
   ignoredDesignSignatures,
   ignoredFingerprint,
-  isIgnoredDesignIssue,
   ignoredSection,
   loadIgnoredDesignIssues,
   withoutIgnoredIssues,
@@ -294,19 +294,24 @@ function verifyIssues(
 ): PolishdDesignIssue[] {
   const hay = digest.toLowerCase();
   const known = knownDesignValues(data);
-  const ignored = ignoredDesignSignatures(ignoredList, known);
-  const out: PolishdDesignIssue[] = [];
+  const grounded: { issue: string; evidence: string; suggestion: unknown }[] = [];
   for (const r of raw) {
     if (typeof r.issue !== "string" || !r.issue.trim()) continue;
     const evidence = typeof r.evidence === "string" ? r.evidence.trim() : "";
     if (!evidence) continue;
-    if (isIgnoredDesignIssue(r.issue, evidence, ignored, known)) continue; // reviewed and dismissed
     const tokens = evidence
       .toLowerCase()
       .split(/[^\w#/.-]+/)
       .filter((t) => t.length >= 3);
     if (!tokens.length || !tokens.some((t) => hay.includes(t))) continue;
-    const issue = r.issue.trim();
+    grounded.push({ issue: r.issue.trim(), evidence, suggestion: r.suggestion });
+  }
+  // Reviewed and dismissed: each dismissal hides the one issue closest to it.
+  const hidden = hiddenDesignIndexes(grounded, ignoredDesignSignatures(ignoredList, known), known);
+  const out: PolishdDesignIssue[] = [];
+  for (const [i, r] of grounded.entries()) {
+    if (hidden.has(i)) continue;
+    const { issue, evidence } = r;
     const suggestion =
       typeof r.suggestion === "string" && r.suggestion.trim() ? r.suggestion.trim() : undefined;
     const checked = suggestion ? checkSuggestion(issue, suggestion, strengths, known) : {};
