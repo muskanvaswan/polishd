@@ -24,8 +24,10 @@ now carry:
   class names its `.module.*` file), or a page's route file. Design values
   are listed in px and rem.
 - **How current it is.** A note up front when the two reviews are two weeks
-  or more apart, when either is a month old, or when the data has changed
-  since a review was generated.
+  or more apart, when either is a month old, or when the design measurements
+  have changed since the review. A review that's stale only because of a
+  dismissal or a settings change gets a neutral note (or none, when the
+  measurements are known not to have moved), never a claim of new data.
 - **A verdict block.** The agent is asked to finish with fenced JSON, one
   entry per problem: `{ "id": "A1", "verdict": "fixed" | "not_real" |
   "deliberate", "reason": "…", "files": [] }`.
@@ -47,9 +49,14 @@ prompts as notes about the site, never instructions.
 Design review issues now have the **Ignore** control the summary's losses
 have: an ignored issue leaves every later review, its reason is replayed into
 the review prompt, and the cached review is marked stale. The model rewords
-design evidence on every regenerate, so a dismissal is keyed by the colors the
-evidence cites (or, without colors, its sizes, then its pages): "#444444 on
-#0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A" are the same issue.
+design evidence on every regenerate, so a dismissal is keyed by the kind of
+issue (contrast, color, type, radius, spacing) and the values and pages it
+cites, not its wording: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text
+at 11px on #0A0A0A" are the same issue. A contrast failure keeps its size, so
+dismissing it at 11px doesn't hide the same pair failing at 16px, and an 11px
+caption and an 11px radius are different issues. Ignoring, undoing or
+recording verdicts after the dashboard session expires shows an error in
+place instead of crashing the page.
 
 ### The design review stops redesigning the site
 
@@ -63,14 +70,15 @@ already uses.
 
 Its suggestions are also checked once parsed. One that clearly removes a
 value the same review lists as a strength is withheld, with the reason shown
-on the card and in the fix prompt. That covers naming it as the value to
-collapse or replace, and proposing a scale that spans it but skips it. A
-review once praised 22px and 28px headings, then proposed a 12/14/16/20/24px
-scale. The check is deliberately narrow: only values written with a unit or
-`#` count as praised, the strength and the suggestion must be about the same
-kind of value, and an ordinary fix such as 9px → 10px is never touched. A
-value a suggestion introduces that the site doesn't render yet is labelled as
-new.
+on the card and in the fix prompt. That covers replacing it with a different
+value of the same kind ("collapse 22px into 20px"), dropping it, and
+proposing a scale that spans it but skips it. A review once praised 22px and
+28px headings, then proposed a 12/14/16/20/24px scale. The check is
+deliberately narrow: only values written with a unit or `#` count as praised,
+and a fix that changes something about a praised value without replacing it
+("change the 16px body text color", "convert 16px to rem") or an ordinary fix
+such as 9px → 10px is never touched. A value a suggestion introduces that the
+site doesn't render yet is labelled as new.
 
 ### Runtime JavaScript errors are captured again
 

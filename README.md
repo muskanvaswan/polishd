@@ -307,8 +307,10 @@ its half. A prompt carries:
 
 - the site description and audience from Settings, and the traffic so far;
 - a warning up front when the two reviews are far apart in time (two weeks or
-  more), when one is a month old, or when the data has changed since a review
-  was generated;
+  more), when one is a month old, or when the design measurements have changed
+  since the review. A review that's out of date for another reason (a
+  dismissal, a settings change) gets a neutral note, never a claim of new
+  data;
 - each review's summary, and what's working, so the agent doesn't regress it;
 - every problem, labelled `A1`, `D1`…, with the evidence it was found from,
   the source file it was matched to, the suggested fix, and the GitHub issue
@@ -508,13 +510,18 @@ uses.
 
 Its fixes are then checked against the review itself. A fix that clearly
 removes a value the same review praised is withheld, and the card says why:
-one that names the value as the thing to collapse or replace, or a review
-that admires 22px and 28px headings, then proposes a 12/14/16/20/24px type
-scale. Nothing else is withheld. Any value a fix introduces that the site
-doesn't render yet is labelled new. Issues can be ignored like the summary's
-losses, with a reason the model reads on every later review; the dismissal
-holds when a regenerate rewords the evidence, as long as it cites the same
-colors (or, without colors, the same sizes). It
+one that replaces the value with a different one of the same kind
+(*collapse 22px into 20px*), drops it, or comes from a review that admires
+22px and 28px headings and then proposes a 12/14/16/20/24px type scale. A fix
+that only changes something about a praised value (its color, its
+line-height, a token in place of the literal) is left alone, and nothing
+else is withheld. Any value a fix introduces that the site doesn't render yet
+is labelled new. Issues can be ignored like the summary's losses, with a
+reason the model reads on every later review. The dismissal holds when a
+regenerate rewords the evidence, as long as it's the same kind of issue
+(contrast, color, type, radius or spacing) citing the same values; a contrast
+failure keeps its text size, so dismissing it for captions doesn't hide the
+same colors failing on body text. It
 follows the summary's token-thrift rules: the
 model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons

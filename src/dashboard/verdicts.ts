@@ -24,6 +24,7 @@
  *
  * Pure, with type-only imports, so the tests exercise it directly.
  */
+import type { PolishdVerdictDismissal } from "../ai/types";
 import type { FixPromptFinding } from "./fix-prompt";
 
 export type VerdictKind = "fixed" | "not_real" | "deliberate";
@@ -195,4 +196,67 @@ export function planVerdicts(
     if (verdict.verdict === "fixed") return { verdict, finding, action: "none" };
     return { verdict, finding, action: "dismiss", reason: dismissalReason(verdict.verdict, verdict.reason) };
   });
+}
+
+/** A finding as the server holds it: its wording and its citation. */
+interface StoredFinding {
+  issue: string;
+  evidence: string;
+}
+
+/** One dismissal the server will write, with the citation the client sent. */
+export interface SelectedDismissal {
+  source: "analytics" | "design";
+  /** The citation as sent, for the client to match the result back. */
+  sent: string;
+  /** The stored finding: its wording is what gets replayed, not the request's. */
+  finding: StoredFinding;
+  reason: string;
+}
+
+const citation = (s: string) => s.trim().toLowerCase();
+
+/**
+ * The server's check on a verdict request (recordVerdictsAction), kept pure so
+ * it's tested directly. The request came from a paste, so nothing in it is
+ * taken on trust: it must be an array of at most `MAX_VERDICTS`; each entry
+ * needs a known source, a `not_real` or `deliberate` verdict and a citation
+ * naming a finding the current summary or review holds. The wording comes from
+ * that stored finding; the only request text kept is the reason, cleaned and
+ * labelled as the agent's. Unknown fields are never read. Null means the
+ * request isn't a verdict block at all.
+ */
+export function selectVerdictDismissals(
+  request: unknown,
+  current: { losses: StoredFinding[]; issues: StoredFinding[] },
+): { selected: SelectedDismissal[]; skipped: number } | null {
+  if (!Array.isArray(request) || request.length > MAX_VERDICTS) return null;
+  const losses = new Map(current.losses.map((l) => [citation(l.evidence), l]));
+  const issues = new Map(current.issues.map((i) => [citation(i.evidence), i]));
+  const selected: SelectedDismissal[] = [];
+  let skipped = 0;
+  for (const raw of request as Partial<PolishdVerdictDismissal>[]) {
+    const source = raw?.source;
+    const verdict = raw?.verdict;
+    const sent = raw?.evidence;
+    const finding =
+      typeof sent !== "string"
+        ? undefined
+        : source === "design"
+          ? issues.get(citation(sent))
+          : source === "analytics"
+            ? losses.get(citation(sent))
+            : undefined;
+    if (!finding || (verdict !== "not_real" && verdict !== "deliberate")) {
+      skipped++;
+      continue;
+    }
+    selected.push({
+      source: source as "analytics" | "design",
+      sent: sent as string,
+      finding: { issue: finding.issue, evidence: finding.evidence },
+      reason: dismissalReason(verdict, typeof raw.reason === "string" ? raw.reason : ""),
+    });
+  }
+  return { selected, skipped };
 }

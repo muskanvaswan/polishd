@@ -112,6 +112,21 @@ export type GenerateProfileError =
   | "provider-error";
 
 /**
+ * How much behaviour a loss's evidence accounts for, looked up in the
+ * aggregated analytics after the model answers — never the model's numbers.
+ * `kind` is the event type counted: `dead_click`, `rage_click`, `js_error`,
+ * or, for evidence with no friction on it, `page_view` / `component_view`.
+ * `pages` lists where it happened, most affected first (capped; empty for a
+ * component's views).
+ */
+export interface PolishdLossSignal {
+  kind: string;
+  count: number;
+  sessions: number;
+  pages: string[];
+}
+
+/**
  * A specific problem the model found in the data. Losses are held to a higher
  * bar than wins: each must cite evidence (a selector, component name, or page
  * path) that appears in the digest we sent — uncited losses are dropped as
@@ -127,12 +142,8 @@ export interface PolishdLossItem {
   location?: string;
   /** True when the citation was matched to a file in the codebase. */
   verified: boolean;
-  /**
-   * The aggregated count behind the citation, filled server-side when the
-   * summary is generated: how many events of `kind`, across how many
-   * sessions, on which pages. Absent on older summaries.
-   */
-  signal?: { kind: string; count: number; sessions: number; pages: string[] };
+  /** The analytics volume behind the evidence. Absent when nothing counts it. */
+  signal?: PolishdLossSignal;
   /** GitHub issue filed for this problem (manually or automatically). */
   issueUrl?: string;
   issueNumber?: number;
@@ -273,6 +284,12 @@ export interface PolishdDesignReview {
   generatedAt: number;
   /** Hash of the design digest it was generated from — drives staleness. */
   fingerprint: string;
+  /**
+   * Hash of the measurements alone — no site description, no dismissals — so
+   * a stale review can say whether the site's design actually changed or only
+   * something around it did. Absent on reviews from older versions.
+   */
+  metricsFingerprint?: string;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 

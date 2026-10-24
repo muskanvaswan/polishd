@@ -264,7 +264,7 @@ function IssueCard({
 }) {
   const dismissal = useDismissal({
     dismiss: (reason) => ignoreDesignIssueAction({ issue: iss.issue, evidence: iss.evidence }, reason),
-    restore: () => unignoreDesignIssueAction(iss.evidence),
+    restore: () => unignoreDesignIssueAction({ issue: iss.issue, evidence: iss.evidence }),
     onChange: (ignored) => onChange?.({ ignored }),
     adopted,
   });

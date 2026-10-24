@@ -179,14 +179,79 @@ test("reviews far apart in time, or old, or behind their data, say so up front",
   // A single-half prompt has no gap to report, but still dates an old review.
   assert.match(buildFixPrompt(apart, "design")!, /- The design review is 70 days old \(2026-08-15\)\./);
 
-  const behind = buildFixPrompt({ ...input, summaryStale: true, reviewStale: true }, "all")!;
-  assert.match(behind, /New analytics have arrived since the summary was generated/);
-  assert.match(behind, /design measurements have changed since the review was generated/);
   // A stale flag only speaks for a half the prompt carries.
   assert.doesNotMatch(
-    buildFixPrompt({ ...input, reviewStale: true }, "analytics")!,
+    buildFixPrompt({ ...input, reviewStale: true, reviewMetricsChanged: true }, "analytics")!,
     /## How current this is/,
   );
+});
+
+test("a stale flag claims new data only when the data itself changed", () => {
+  // The design measurements really moved: say so, and send the agent to the code.
+  const measured = buildFixPrompt({ ...input, reviewStale: true, reviewMetricsChanged: true }, "design")!;
+  assert.match(measured, /- The design measurements have changed since the review was generated, so it may cite values the site no longer renders\./);
+  assert.match(measured, /One that no longer holds is `not_real` in your verdicts\./);
+
+  // Stale only through a dismissal or settings: the measurements are known not
+  // to have moved, so there's nothing to tell the agent.
+  assert.doesNotMatch(
+    buildFixPrompt({ ...input, reviewStale: true, reviewMetricsChanged: false }, "design")!,
+    /## How current this is/,
+  );
+
+  // Stale for a reason Polishd can't tell apart: a neutral note, no claim of
+  // new data, and no instruction to call findings not_real on the strength of it.
+  const unknown = buildFixPrompt({ ...input, summaryStale: true, reviewStale: true }, "all")!;
+  assert.match(
+    unknown,
+    /- Something the analytics summary is built from has changed since it was generated \(new analytics, a dismissal, the codebase profile or settings\)/,
+  );
+  assert.match(
+    unknown,
+    /- Something the design review is built from has changed since it was generated \(the measurements, a dismissal or the site description\)/,
+  );
+  assert.doesNotMatch(unknown, /New analytics have arrived|measurements have changed since|not_real` in your verdicts/);
+});
+
+test("the blind-spot step only points at a detection section the prompt has", () => {
+  // An analytics-only prompt whose findings name no kind gets no detection section.
+  const plain = buildFixPrompt(
+    {
+      ...input,
+      summary: {
+        ...summary,
+        losses: [{ issue: "Visitors leave the pricing page early.", evidence: "/pricing", verified: false }],
+      },
+    },
+    "analytics",
+  )!;
+  assert.doesNotMatch(plain, /## How these were detected/);
+  assert.doesNotMatch(plain, /How these were detected/);
+  assert.match(plain, /1\. Take the problems one at a time\.[^\n]*\n2\. If the code shows a problem isn't real/);
+
+  const full = buildFixPrompt(input, "all")!;
+  assert.match(full, /2\. Rule out the blind spot of the finding's kind \(under "How these were detected"\)/);
+});
+
+test("signal kinds read as words, and an unfamiliar one is shown as written", () => {
+  const withKinds = (kind: string, count: number) =>
+    buildFixPrompt(
+      {
+        ...input,
+        summary: {
+          ...summary,
+          losses: [
+            { issue: "Something on pricing.", evidence: "/pricing", verified: false, signal: { kind, count, sessions: 2, pages: [] } },
+          ],
+        },
+      },
+      "analytics",
+    )!;
+  assert.match(withKinds("js_error", 4), /Volume: 4 JS errors across 2 sessions\n/);
+  assert.match(withKinds("component_view", 1), /Volume: 1 component view across 2 sessions\n/);
+  assert.match(withKinds("page_view", 900), /Volume: 900 page views across 2 sessions\n/);
+  // Not "focu": a kind outside the map isn't stemmed.
+  assert.match(withKinds("focus", 3), /Volume: 3 `focus` events across 2 sessions\n/);
 });
 
 test("an analytics finding carries its volume, kind and search handles", () => {

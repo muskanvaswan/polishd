@@ -14,14 +14,12 @@
  * re-runs that same callback against the caller's cookies on every call.
  */
 import { requirePolishdAuth } from "./guard";
-import { dismissalReason, MAX_VERDICTS } from "../dashboard/verdicts";
+import { selectVerdictDismissals } from "../dashboard/verdicts";
 import { generateDesignReview, loadDesignReview } from "./design";
-import { designEvidenceKey } from "./design-suggestions";
 import { suggestIssueFix } from "./fix";
 import { verifyGithubConnection } from "./github";
 import {
   ignoreDesignIssue,
-  ignoreKey,
   ignoreLoss,
   unignoreDesignIssue,
   unignoreLoss,
@@ -187,9 +185,11 @@ export async function ignoreDesignIssueAction(
 }
 
 /** Undo a design issue's dismissal. */
-export async function unignoreDesignIssueAction(evidence: string): Promise<UnignoreLossResult> {
+export async function unignoreDesignIssueAction(
+  issue: Pick<PolishdDesignIssue, "issue" | "evidence">,
+): Promise<UnignoreLossResult> {
   await requirePolishdAuth();
-  return (await unignoreDesignIssue(evidence))
+  return (await unignoreDesignIssue(issue))
     ? { ok: true }
     : { ok: false, message: "Couldn't undo that — the analytics store didn't accept the write." };
 }
@@ -197,53 +197,35 @@ export async function unignoreDesignIssueAction(evidence: string): Promise<Unign
 /**
  * Record a coding agent's not-real and deliberate verdicts as dismissals.
  *
- * The block came from a paste, so nothing in it is taken on trust. Each entry
- * must name a finding the current summary or review holds, by its citation;
- * the problem's wording comes from that stored finding, not from the request,
- * and the only text of the agent's that's kept is its reason — flattened,
- * clipped and labelled as the agent's (see dismissalReason). Unknown fields
- * are never read. Entries are written in order, in one call: each dismissal
- * rewrites its log, so parallel calls would drop each other's entries.
+ * The block came from a paste, so nothing in it is taken on trust: each entry
+ * must name a finding the current summary or review holds, and only its
+ * cleaned reason is kept (selectVerdictDismissals, pure and tested). Entries
+ * are written in order, in one call: each dismissal rewrites its log, so
+ * parallel calls would drop each other's entries.
  */
 export async function recordVerdictsAction(
   dismissals: PolishdVerdictDismissal[],
 ): Promise<RecordVerdictsResult> {
   await requirePolishdAuth();
-  if (!Array.isArray(dismissals) || dismissals.length > MAX_VERDICTS) {
-    return { ok: false, message: "That isn't a verdict block from a fix prompt." };
-  }
   const [summary, review] = await Promise.all([loadSummary(), loadDesignReview()]);
-  const losses = new Map((summary?.losses ?? []).map((l) => [ignoreKey(l.evidence), l]));
-  const issues = new Map((review?.issues ?? []).map((i) => [designEvidenceKey(i.evidence), i]));
+  const checked = selectVerdictDismissals(dismissals, {
+    losses: summary?.losses ?? [],
+    issues: review?.issues ?? [],
+  });
+  if (!checked) return { ok: false, message: "That isn't a verdict block from a fix prompt." };
 
   const recorded: Extract<RecordVerdictsResult, { ok: true }>["recorded"] = [];
-  let skipped = 0;
-  for (const d of dismissals) {
-    const verdict = d?.verdict;
-    if (
-      typeof d?.evidence !== "string" ||
-      (verdict !== "not_real" && verdict !== "deliberate") ||
-      (d.source !== "analytics" && d.source !== "design")
-    ) {
-      skipped++;
-      continue;
-    }
-    const finding =
-      d.source === "design" ? issues.get(designEvidenceKey(d.evidence)) : losses.get(ignoreKey(d.evidence));
-    if (!finding) {
-      skipped++;
-      continue;
-    }
-    const stored = { issue: finding.issue, evidence: finding.evidence };
-    const reason = dismissalReason(verdict, typeof d.reason === "string" ? d.reason : "");
+  for (const d of checked.selected) {
     const ignored =
-      d.source === "design" ? await ignoreDesignIssue(stored, reason) : await ignoreLoss(stored, reason);
+      d.source === "design"
+        ? await ignoreDesignIssue(d.finding, d.reason)
+        : await ignoreLoss(d.finding, d.reason);
     if (!ignored) {
       return recorded.length
-        ? { ok: true, recorded, skipped }
+        ? { ok: true, recorded, skipped: checked.skipped }
         : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
     }
-    recorded.push({ source: d.source, evidence: d.evidence, ignored });
+    recorded.push({ source: d.source, evidence: d.sent, ignored });
   }
-  return { ok: true, recorded, skipped };
+  return { ok: true, recorded, skipped: checked.skipped };
 }

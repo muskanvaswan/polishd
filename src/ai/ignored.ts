@@ -28,12 +28,16 @@
  * A loss is keyed by its evidence citation — the same key the GitHub issue log
  * uses (see issues.ts) — so a problem refound under slightly different wording
  * is still recognised as the one that was dismissed. A design issue is keyed by
- * the values its evidence cites (see design-suggestions.ts), since the model
- * rewrites that evidence on every regenerate and "15px and 17px" and
- * "17px/15px" are the same finding.
+ * what it's about and the values its evidence cites (see designIssueKey),
+ * since the model rewrites that evidence on every regenerate and "15px and
+ * 17px" and "17px/15px" are the same finding.
+ *
+ * Evidence and issue text are clipped before they're stored, as reasons are:
+ * all three are replayed into later prompts. Keys are computed from the
+ * clipped text on both sides, so a long citation still matches its dismissal.
  */
 import { getMeta, setMeta } from "../server/store";
-import { designEvidenceKey, isDismissedDesignIssue } from "./design-suggestions";
+import { designIssueKey } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import type {
   PolishdDesignIssue,
@@ -49,22 +53,49 @@ const MAX_STORED = 50;
 const MAX_IN_PROMPT = 20;
 const MAX_ISSUE_CHARS = 160;
 const MAX_REASON_CHARS = 240;
+/** Evidence is clipped to the same cap as a reason: both are replayed. */
+const MAX_EVIDENCE_CHARS = MAX_REASON_CHARS;
+
+/** Evidence as it's stored: trimmed, and clipped past the cap. */
+function boundEvidence(evidence: string): string {
+  const t = evidence.trim();
+  return t.length > MAX_EVIDENCE_CHARS ? `${t.slice(0, MAX_EVIDENCE_CHARS - 1)}…` : t;
+}
 
 /** Same normalization as the issue log: one citation, one verdict. */
 export function ignoreKey(evidence: string): string {
-  return evidence.trim().toLowerCase();
+  return boundEvidence(evidence).toLowerCase();
+}
+
+const clip = (s: string, max: number): string => {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+};
+
+/** A design issue's dismissal key, from the text as it's stored. */
+export function designIgnoreKey(issue: string, evidence: string): string {
+  return designIssueKey(clip(issue, MAX_ISSUE_CHARS), boundEvidence(evidence));
+}
+
+/** Whether a design issue is among `keys`, however it's been reworded. */
+export function isIgnoredDesignIssue(issue: string, evidence: string, keys: ReadonlySet<string>): boolean {
+  return keys.size > 0 && keys.has(designIgnoreKey(issue, evidence));
 }
 
 type IgnoredLog = Record<string, PolishdIgnoredLoss>;
+type Finding = { issue: string; evidence: string };
 
 /** One store row of dismissals, and how its entries are keyed. */
 interface Ledger {
   metaKey: string;
-  key: (evidence: string) => string;
+  key: (finding: Finding) => string;
 }
 
-const LOSSES: Ledger = { metaKey: "ignored_losses", key: ignoreKey };
-const DESIGN: Ledger = { metaKey: "ignored_design_issues", key: designEvidenceKey };
+const LOSSES: Ledger = { metaKey: "ignored_losses", key: (f) => ignoreKey(f.evidence) };
+const DESIGN: Ledger = {
+  metaKey: "ignored_design_issues",
+  key: (f) => designIgnoreKey(f.issue, f.evidence),
+};
 
 async function loadLog(ledger: Ledger): Promise<IgnoredLog> {
   const raw = await getMeta(ledger.metaKey);
@@ -96,15 +127,10 @@ export function ignoredKeys(list: PolishdIgnoredLoss[]): Set<string> {
   return new Set(list.map((i) => ignoreKey(i.evidence)));
 }
 
-/** The evidence keys to filter design issues by. */
+/** The keys to filter design issues by. */
 export function ignoredDesignKeys(list: PolishdIgnoredDesignIssue[]): Set<string> {
-  return new Set(list.map((i) => designEvidenceKey(i.evidence)));
+  return new Set(list.map((i) => designIgnoreKey(i.issue, i.evidence)));
 }
-
-const clip = (s: string, max: number): string => {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-};
 
 /**
  * Dismiss one finding, with an optional reason. Re-ignoring an already-ignored
@@ -114,17 +140,19 @@ const clip = (s: string, max: number): string => {
  */
 async function record(
   ledger: Ledger,
-  finding: { issue: string; evidence: string },
+  finding: Finding,
   reason?: string,
 ): Promise<PolishdIgnoredLoss | null> {
-  const evidence = finding.evidence.trim();
+  if (typeof finding?.evidence !== "string" || typeof finding.issue !== "string") return null;
+  const evidence = boundEvidence(finding.evidence);
   if (!evidence) return null;
-  const key = ledger.key(evidence);
+  const issue = clip(finding.issue, MAX_ISSUE_CHARS);
+  const key = ledger.key({ issue, evidence });
   const log = await loadLog(ledger);
-  const trimmed = reason?.trim();
+  const trimmed = typeof reason === "string" ? reason.trim() : undefined;
 
   const entry: PolishdIgnoredLoss = {
-    issue: clip(finding.issue, MAX_ISSUE_CHARS),
+    issue,
     evidence,
     reason: trimmed ? clip(trimmed, MAX_REASON_CHARS) : undefined,
     ignoredAt: log[key]?.ignoredAt ?? Date.now(),
@@ -145,9 +173,10 @@ async function record(
 }
 
 /** Undo a dismissal. Returns false only when the store refused the write. */
-async function erase(ledger: Ledger, evidence: string): Promise<boolean> {
+async function erase(ledger: Ledger, finding: Finding): Promise<boolean> {
+  if (typeof finding?.evidence !== "string") return true;
   const log = await loadLog(ledger);
-  const key = ledger.key(evidence);
+  const key = ledger.key({ issue: typeof finding.issue === "string" ? finding.issue : "", evidence: finding.evidence });
   if (!(key in log)) return true; // already gone — nothing to undo
   delete log[key];
   return setMeta(ledger.metaKey, JSON.stringify(log));
@@ -163,7 +192,7 @@ export function ignoreLoss(
 
 /** Undo a loss's dismissal. */
 export function unignoreLoss(evidence: string): Promise<boolean> {
-  return erase(LOSSES, evidence);
+  return erase(LOSSES, { issue: "", evidence });
 }
 
 /** Dismiss one design issue, with an optional reason. */
@@ -174,9 +203,11 @@ export function ignoreDesignIssue(
   return record(DESIGN, issue, reason);
 }
 
-/** Undo a design issue's dismissal. */
-export function unignoreDesignIssue(evidence: string): Promise<boolean> {
-  return erase(DESIGN, evidence);
+/** Undo a design issue's dismissal. Its key needs the wording as well as the evidence. */
+export function unignoreDesignIssue(
+  issue: Pick<PolishdDesignIssue, "issue" | "evidence">,
+): Promise<boolean> {
+  return erase(DESIGN, issue);
 }
 
 /** Quoted for a prompt: one line, and no double quote to close the quote early. */
@@ -236,6 +267,6 @@ export function withoutIgnoredIssues(
   keys: Set<string>,
 ): PolishdDesignReview {
   if (!review.issues?.length || keys.size === 0) return review;
-  const issues = review.issues.filter((i) => !isDismissedDesignIssue(i.evidence, keys));
+  const issues = review.issues.filter((i) => !isIgnoredDesignIssue(i.issue, i.evidence, keys));
   return issues.length === review.issues.length ? review : { ...review, issues };
 }

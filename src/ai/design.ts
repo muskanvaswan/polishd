@@ -22,11 +22,12 @@
  */
 import { getMeta, setMeta } from "../server/store";
 import { getDesignData, type PolishdDesignData } from "../server/design";
-import { checkSuggestion, isDismissedDesignIssue, knownDesignValues } from "./design-suggestions";
+import { checkSuggestion, knownDesignValues } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import {
   ignoredDesignKeys,
   ignoredFingerprint,
+  isIgnoredDesignIssue,
   ignoredSection,
   loadIgnoredDesignIssues,
   withoutIgnoredIssues,
@@ -235,7 +236,7 @@ function verifyIssues(
     if (typeof r.issue !== "string" || !r.issue.trim()) continue;
     const evidence = typeof r.evidence === "string" ? r.evidence.trim() : "";
     if (!evidence) continue;
-    if (isDismissedDesignIssue(evidence, ignored)) continue; // reviewed and dismissed
+    if (isIgnoredDesignIssue(r.issue, evidence, ignored)) continue; // reviewed and dismissed
     const tokens = evidence
       .toLowerCase()
       .split(/[^\w#/.-]+/)
@@ -353,6 +354,7 @@ export async function generateDesignReview(
     model: settings.model,
     generatedAt: Date.now(),
     fingerprint,
+    metricsFingerprint: metricsFingerprint(data),
     usage: reply.usage,
   };
   // Persisted without issue links — those live in the issue log and are
@@ -365,20 +367,33 @@ export async function generateDesignReview(
   };
 }
 
+/** The measurements' own hash: the digest without the site description, and no dismissals. */
+function metricsFingerprint(data: PolishdDesignData): string {
+  return fingerprintDigest(buildDesignDigest(data));
+}
+
 /**
- * For the Design tab's first render: the cached review plus whether the live
- * metrics have drifted from it. Only reads the store; never calls a model.
+ * For the Design tab's first render: the cached review plus whether anything
+ * it was built from has changed since (`stale`: the metrics, the site
+ * description or the dismissals), and whether that includes the metrics
+ * themselves (`metricsChanged`; null when the review predates the check). The
+ * fix prompt only tells an agent the site's design changed on the second.
+ * Only reads the store; never calls a model.
  */
 export async function loadDesignReviewState(preloaded?: PolishdDesignData): Promise<{
   review: PolishdDesignReview | null;
   stale: boolean;
+  metricsChanged: boolean | null;
 }> {
   const [review, data] = await Promise.all([
     loadDesignReview(),
     preloaded ? Promise.resolve(preloaded) : getDesignData(),
   ]);
-  if (!data.ready || data.pages.length === 0) return { review, stale: false };
+  if (!data.ready || data.pages.length === 0) return { review, stale: false, metricsChanged: null };
   const [{ settings }, ignored] = await Promise.all([resolveSettings(), loadIgnoredDesignIssues()]);
   const { fingerprint } = composeReview(buildDesignDigest(data, settings.context), ignored);
-  return { review, stale: review !== null && review.fingerprint !== fingerprint };
+  const stale = review !== null && review.fingerprint !== fingerprint;
+  const metricsChanged =
+    review?.metricsFingerprint === undefined ? null : review.metricsFingerprint !== metricsFingerprint(data);
+  return { review, stale, metricsChanged };
 }

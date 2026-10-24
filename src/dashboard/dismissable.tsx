@@ -25,6 +25,9 @@ import { microBtn } from "./ui";
 export const microLink =
   "text-[10px] text-[#666] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
 
+/** A server action that threw: the token cookie expired, or the network dropped. */
+export const UNREACHABLE = "Couldn't reach the server — reload the page and try again.";
+
 export interface Dismissal {
   ignored: PolishdIgnoredLoss | null;
   pending: boolean;
@@ -57,24 +60,34 @@ export function useDismissal({
     if (adopted) setIgnored(adopted);
   }, [adopted]);
 
+  // A throw inside a transition is rethrown into the nearest error boundary,
+  // and the dashboard has none: catch it here and say so on the card.
   const ignore = (reason?: string) =>
     start(async () => {
       setError(null);
-      const res = await dismiss(reason);
-      if (res.ok) {
-        setIgnored(res.ignored);
-        onChange?.(true);
-      } else setError(res.message);
+      try {
+        const res = await dismiss(reason);
+        if (res.ok) {
+          setIgnored(res.ignored);
+          onChange?.(true);
+        } else setError(res.message);
+      } catch {
+        setError(UNREACHABLE);
+      }
     });
 
   const undo = () =>
     start(async () => {
       setError(null);
-      const res = await restore();
-      if (res.ok) {
-        setIgnored(null);
-        onChange?.(false);
-      } else setError(res.message);
+      try {
+        const res = await restore();
+        if (res.ok) {
+          setIgnored(null);
+          onChange?.(false);
+        } else setError(res.message);
+      } catch {
+        setError(UNREACHABLE);
+      }
     });
 
   return { ignored, pending, error, ignore, undo };

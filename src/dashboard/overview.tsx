@@ -37,6 +37,7 @@ import type { PolishdSnapshot } from "../server/snapshots";
 import { TabLink, type PolishdDashboardTab } from "./chrome";
 import { copyText } from "./color-chip";
 import DesignReviewCard from "./design-review-card";
+import { UNREACHABLE } from "./dismissable";
 import {
   buildFixPrompt,
   fixableCounts,
@@ -94,6 +95,8 @@ export interface OverviewPanelProps {
   sourceAvailable: boolean;
   review: PolishdDesignReview | null;
   reviewStale: boolean;
+  /** Whether the design measurements themselves changed since the review; null when unknown. */
+  reviewMetricsChanged: boolean | null;
   /** Pages with a design scan — the review card needs at least one. */
   scannedPages: number;
   /** The newest snapshot with any pictures in it, or null. */
@@ -112,6 +115,7 @@ export default function OverviewPanel({
   sourceAvailable,
   review: initialReview,
   reviewStale,
+  reviewMetricsChanged,
   scannedPages,
   snapshot,
 }: OverviewPanelProps) {
@@ -120,6 +124,7 @@ export default function OverviewPanel({
   const [review, setReview] = useState(initialReview);
   const [summaryIsStale, setSummaryIsStale] = useState(summaryStale);
   const [reviewIsStale, setReviewIsStale] = useState(reviewStale);
+  const [metricsChanged, setMetricsChanged] = useState(reviewMetricsChanged);
   const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
   const [ignoredDesign, setIgnoredDesign] = useState<ReadonlySet<string>>(() => new Set());
   const [filedLosses, setFiledLosses] = useState<ReadonlyMap<string, Filed>>(() => new Map());
@@ -141,6 +146,7 @@ export default function OverviewPanel({
   const onReviewChange = useCallback((next: PolishdDesignReview) => {
     setReview(next);
     setReviewIsStale(false);
+    setMetricsChanged(false);
   }, []);
 
   const onLossChange = useCallback((evidence: string, change: LossChange) => {
@@ -204,6 +210,7 @@ export default function OverviewPanel({
     },
     summaryStale: summaryIsStale,
     reviewStale: reviewIsStale,
+    reviewMetricsChanged: metricsChanged,
   };
   const counts = fixableCounts(input);
   const githubConnected = settings.hasGithubToken && !!settings.githubRepo;
@@ -565,15 +572,23 @@ function VerdictImport({
     start(async () => {
       setError(null);
       // Only the citation, verdict and reason travel; the server looks the
-      // finding up itself and writes the stored reason.
-      const res = await recordVerdictsAction(
-        toRecord.map((p) => ({
-          source: p.finding.source,
-          evidence: p.finding.evidence,
-          verdict: p.verdict.verdict as "not_real" | "deliberate",
-          reason: p.verdict.reason,
-        })),
-      );
+      // finding up itself and writes the stored reason. A throw (expired
+      // token, dropped network) would crash the page from inside a
+      // transition, so it's caught and shown here.
+      let res: Awaited<ReturnType<typeof recordVerdictsAction>>;
+      try {
+        res = await recordVerdictsAction(
+          toRecord.map((p) => ({
+            source: p.finding.source,
+            evidence: p.finding.evidence,
+            verdict: p.verdict.verdict as "not_real" | "deliberate",
+            reason: p.verdict.reason,
+          })),
+        );
+      } catch {
+        setError(UNREACHABLE);
+        return;
+      }
       if (!res.ok) {
         setError(res.message);
         return;

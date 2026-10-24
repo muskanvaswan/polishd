@@ -55,10 +55,19 @@ export interface FixPromptInput {
   summary: PolishdSummary | null;
   /** Issues the owner ignored must already be gone from this. */
   review: PolishdDesignReview | null;
-  /** True when the analytics have changed since the summary was generated. */
+  /**
+   * True when something the summary is built from has changed since it was
+   * generated: the analytics, a dismissal, the codebase profile or settings.
+   * Which of them isn't known, so the prompt says so without claiming new data.
+   */
   summaryStale?: boolean;
-  /** True when the design metrics have changed since the review was generated. */
+  /** The same for the design review: its metrics, a dismissal or the site description. */
   reviewStale?: boolean;
+  /**
+   * Whether the design measurements themselves changed since the review —
+   * the one case the prompt calls new data. Null or absent when unknown.
+   */
+  reviewMetricsChanged?: boolean | null;
   /** When the prompt is built, ms since epoch. Defaults to now. */
   now?: number;
 }
@@ -182,10 +191,16 @@ function trafficSection(traffic: FixPromptTraffic | null, analytics: boolean): s
  * Warnings about the reviews' age: far apart from each other (one may describe
  * a site the other no longer sees), old in themselves, or generated before the
  * data last changed. Empty when there's nothing to warn about.
+ *
+ * Only a real change in time or data earns the "check it against the code as
+ * it is now" line. A review that's merely stale — its inputs include
+ * dismissals and settings, which say nothing about the code — gets a neutral
+ * note, or none when the data is known not to have moved.
  */
 function freshnessSection(input: FixPromptInput, analytics: boolean, design: boolean): string[] {
   const now = input.now ?? Date.now();
   const notes: string[] = [];
+  let dataMoved = false;
   const summaryAt = analytics ? input.summary!.generatedAt : null;
   const reviewAt = design ? input.review!.generatedAt : null;
 
@@ -195,6 +210,7 @@ function freshnessSection(input: FixPromptInput, analytics: boolean, design: boo
   if (summaryAt !== null && reviewAt !== null && daysBetween(summaryAt, reviewAt) >= GAP_DAYS) {
     const gap = daysBetween(summaryAt, reviewAt);
     olderOfGap = reviewAt < summaryAt ? "design" : "analytics";
+    dataMoved = true;
     notes.push(
       olderOfGap === "design"
         ? `The design review is from ${day(reviewAt)}, ${gap} days before the analytics summary (${day(summaryAt)}). The site may have changed in between, so the two can describe different versions of it.`
@@ -207,14 +223,24 @@ function freshnessSection(input: FixPromptInput, analytics: boolean, design: boo
   ] as const) {
     if (at === null || half === olderOfGap) continue;
     const age = daysBetween(now, at);
-    if (age >= OLD_DAYS) notes.push(`The ${name} is ${age} days old (${day(at)}).`);
+    if (age >= OLD_DAYS) {
+      dataMoved = true;
+      notes.push(`The ${name} is ${age} days old (${day(at)}).`);
+    }
   }
   if (analytics && input.summaryStale) {
-    notes.push("New analytics have arrived since the summary was generated, so its counts are behind.");
+    notes.push(
+      "Something the analytics summary is built from has changed since it was generated (new analytics, a dismissal, the codebase profile or settings), so it may not reflect everything Polishd has now.",
+    );
   }
-  if (design && input.reviewStale) {
+  if (design && input.reviewMetricsChanged === true) {
+    dataMoved = true;
     notes.push(
       "The design measurements have changed since the review was generated, so it may cite values the site no longer renders.",
+    );
+  } else if (design && input.reviewStale && input.reviewMetricsChanged == null) {
+    notes.push(
+      "Something the design review is built from has changed since it was generated (the measurements, a dismissal or the site description), so it may not reflect everything Polishd has now.",
     );
   }
   if (notes.length === 0) return [];
@@ -223,8 +249,12 @@ function freshnessSection(input: FixPromptInput, analytics: boolean, design: boo
     "",
     ...notes.map((s) => `- ${s}`),
     "",
-    "Check each finding against the code as it is now. One that no longer holds is `not_real` in your verdicts.",
-    "",
+    ...(dataMoved
+      ? [
+          "Check each finding against the code as it is now. One that no longer holds is `not_real` in your verdicts.",
+          "",
+        ]
+      : []),
   ];
 }
 
@@ -315,14 +345,25 @@ function detectionSection(kinds: Set<FindingKind>): string[] {
 
 // ── Volumes and search handles ───────────────────────────────────────────────
 
-/** `dead_click` → "dead click"/"dead clicks"; a JS error keeps its capitals. */
+/** How each signal kind reads in a sentence, singular and plural. */
+const KIND_NOUNS: Record<string, [string, string]> = {
+  dead_click: ["dead click", "dead clicks"],
+  rage_click: ["rage click", "rage clicks"],
+  click: ["click", "clicks"],
+  js_error: ["JS error", "JS errors"],
+  page_view: ["page view", "page views"],
+  component_view: ["component view", "component views"],
+  scroll_depth: ["scroll-depth reading", "scroll-depth readings"],
+  hover: ["hover", "hovers"],
+  mount: ["mount", "mounts"],
+  viewport: ["viewport sample", "viewport samples"],
+};
+
+/** `dead_click` → "dead clicks". A kind not in the map is shown as written, never guessed at. */
 function kindNoun(kind: string, count: number): string {
-  const words = kind
-    .trim()
-    .replace(/[_-]+/g, " ")
-    .replace(/\bjs\b/i, "JS")
-    .replace(/s$/, "");
-  return count === 1 ? words : `${words}s`;
+  const nouns = KIND_NOUNS[kind.trim().toLowerCase()];
+  if (nouns) return nouns[count === 1 ? 0 : 1];
+  return `${code(kind.trim())} ${count === 1 ? "event" : "events"}`;
 }
 
 /** Pages, three at most, then how many more. */
@@ -505,10 +546,13 @@ function designSection(review: PolishdDesignReview, kinds: Set<FindingKind>): st
   return lines;
 }
 
-function howToWork(analytics: boolean, design: boolean, ids: string[]): string[] {
+function howToWork(analytics: boolean, design: boolean, ids: string[], detection: boolean): string[] {
   const steps = [
     "Take the problems one at a time. Before changing anything, find the code responsible — the evidence was captured from the running site, so it points at markup this codebase really renders.",
-    "Rule out the blind spot of the finding's kind (under \"How these were detected\") before accepting it.",
+    // Only point at the section when it's in the prompt.
+    ...(detection
+      ? ["Rule out the blind spot of the finding's kind (under \"How these were detected\") before accepting it."]
+      : []),
     "If the code shows a problem isn't real, or is deliberate, leave it and say why. Don't invent a change to match the report.",
   ];
   if (analytics) {
@@ -575,7 +619,7 @@ export function buildFixPrompt(input: FixPromptInput, scope: FixPromptScope): st
     ...trafficSection(input.traffic, analytics),
     ...findings,
     ...detectionSection(kinds),
-    ...howToWork(analytics, design, fixPromptFindings(input, scope).map((f) => f.id)),
+    ...howToWork(analytics, design, fixPromptFindings(input, scope).map((f) => f.id), kinds.size > 0),
   ];
   return `${lines.join("\n").trim()}\n`;
 }
