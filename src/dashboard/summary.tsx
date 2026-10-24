@@ -21,6 +21,7 @@ import {
   ignoreLossAction,
   unignoreLossAction,
 } from "../ai/actions";
+import CardRail, { railCard } from "./card-rail";
 import { TabLink } from "./chrome";
 import type {
   PolishdAISettingsPublic,
@@ -262,11 +263,11 @@ const microLink =
  * though: it's replayed to the model on every later summary, so "the second CTA
  * is deliberate" stops the same finding coming back in different words.
  *
- * The dismissal is stored server-side immediately; the row stays put, struck
+ * The dismissal is stored server-side immediately; the card stays put, struck
  * through with an undo, and only disappears on the next render. Ignored losses
  * never reappear — not from the cached summary, and not from a regenerate.
  */
-function LossRow({
+function LossCard({
   loss,
   githubConnected,
   onChange,
@@ -309,106 +310,106 @@ function LossRow({
 
   if (ignored) {
     return (
-      <li className="flex gap-2 text-[13px] leading-snug text-[#666]">
-        <span className="mt-px shrink-0 text-[#444]">✕</span>
-        <span>
+      <li className={`${railCard} text-[#666]`}>
+        <div className="flex gap-2">
+          <span className="mt-px shrink-0 text-[#444]">✕</span>
           <span className="line-through decoration-[#3a3a3a]">{loss.issue}</span>
-          <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-            <span className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#777]">
-              Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
-            </span>
-            {editing ? (
-              <ReasonForm
-                draft={draft}
-                setDraft={setDraft}
-                pending={pending}
-                onSubmit={() => ignore(draft.trim() || undefined)}
-                onCancel={() => setEditing(false)}
-              />
-            ) : (
-              <>
-                <button
-                  type="button"
-                  data-component="loss-ignore-reason"
-                  onClick={() => {
-                    setDraft(ignored.reason ?? "");
-                    setEditing(true);
-                  }}
-                  disabled={pending}
-                  title="Tell the model why this isn't a problem — it reads this on every later summary"
-                  className={microLink}
-                >
-                  {ignored.reason ? "Edit reason" : "Add a reason"}
-                </button>
-                <button
-                  type="button"
-                  data-component="loss-ignore-undo"
-                  onClick={undo}
-                  disabled={pending}
-                  title="Put this back — the model can report it again"
-                  className={microLink}
-                >
-                  {pending ? "Undoing…" : "Undo"}
-                </button>
-              </>
-            )}
-            {error && <span className="text-[10px] text-red-400">{error}</span>}
-          </span>
+        </div>
+        <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#777]">
+          Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
         </span>
+        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+          {editing ? (
+            <ReasonForm
+              draft={draft}
+              setDraft={setDraft}
+              pending={pending}
+              onSubmit={() => ignore(draft.trim() || undefined)}
+              onCancel={() => setEditing(false)}
+            />
+          ) : (
+            <>
+              <button
+                type="button"
+                data-component="loss-ignore-reason"
+                onClick={() => {
+                  setDraft(ignored.reason ?? "");
+                  setEditing(true);
+                }}
+                disabled={pending}
+                title="Tell the model why this isn't a problem — it reads this on every later summary"
+                className={microLink}
+              >
+                {ignored.reason ? "Edit reason" : "Add a reason"}
+              </button>
+              <button
+                type="button"
+                data-component="loss-ignore-undo"
+                onClick={undo}
+                disabled={pending}
+                title="Put this back — the model can report it again"
+                className={microLink}
+              >
+                {pending ? "Undoing…" : "Undo"}
+              </button>
+            </>
+          )}
+          {error && <span className="text-[10px] text-red-400">{error}</span>}
+        </div>
       </li>
     );
   }
 
   return (
-    <li className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
-      <span className="mt-px shrink-0 text-red-400">✕</span>
-      <span>
-        {loss.issue}
-        <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-          <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
-            {loss.evidence}
+    <li className={`${railCard} text-[#bbb]`}>
+      <div className="flex gap-2">
+        <span className="mt-px shrink-0 text-red-400">✕</span>
+        <span>{loss.issue}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <code className="break-all rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
+          {loss.evidence}
+        </code>
+        {loss.location ? (
+          <code className="break-all rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
+            {loss.location}
           </code>
-          {loss.location ? (
-            <code className="rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
-              {loss.location}
-            </code>
-          ) : (
-            <span
-              className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
-              title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
-            >
-              not matched to source
-            </span>
-          )}
-          {(githubConnected || !!loss.issueUrl) && (
-            <FileBugButton
-              dataComponent="loss-file-bug"
-              onFiled={(filed) => onChange?.({ filed })}
-              filed={
-                loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null
-              }
-              file={() =>
-                createIssueFromLossAction({
-                  issue: loss.issue,
-                  evidence: loss.evidence,
-                  location: loss.location,
-                })
-              }
-            />
-          )}
-          <button
-            type="button"
-            data-component="loss-ignore"
-            onClick={() => ignore()}
-            disabled={pending}
-            title="Not a problem — drop it from this summary and stop the model reporting it again"
-            className={microBtn}
+        ) : (
+          <span
+            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
+            title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
           >
-            {pending ? "Ignoring…" : "Ignore"}
-          </button>
-          {error && <span className="text-[10px] text-red-400">{error}</span>}
-        </span>
-      </span>
+            not matched to source
+          </span>
+        )}
+      </div>
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+        {(githubConnected || !!loss.issueUrl) && (
+          <FileBugButton
+            dataComponent="loss-file-bug"
+            onFiled={(filed) => onChange?.({ filed })}
+            filed={loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null}
+            file={() =>
+              createIssueFromLossAction({
+                issue: loss.issue,
+                evidence: loss.evidence,
+                location: loss.location,
+              })
+            }
+          />
+        )}
+        <button
+          type="button"
+          data-component="loss-ignore"
+          onClick={() => ignore()}
+          disabled={pending}
+          title="Not a problem — drop it from this summary and stop the model reporting it again"
+          className={microBtn}
+        >
+          {pending ? "Ignoring…" : "Ignore"}
+        </button>
+        {error && <span className="text-[10px] text-red-400">{error}</span>}
+      </div>
     </li>
   );
 }
@@ -433,7 +434,7 @@ function ReasonForm({
         e.preventDefault();
         onSubmit();
       }}
-      className="flex flex-wrap items-center gap-1.5"
+      className="flex w-full flex-wrap items-center gap-1.5"
     >
       <input
         autoFocus
@@ -445,7 +446,7 @@ function ReasonForm({
         maxLength={240}
         placeholder="Why isn't this a problem?"
         aria-label="Reason for ignoring this loss"
-        className="w-56 rounded border border-[#2e2e2e] bg-[#0d0d0d] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#555] focus:border-[#555] focus:outline-none"
+        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#555] focus:border-[#555] focus:outline-none"
       />
       <button type="submit" disabled={pending} className={microBtn}>
         {pending ? "Saving…" : "Save"}
@@ -473,9 +474,9 @@ function WinsLosses({
   const hasLosses = !!losses?.length;
   if (!hasWins && !hasLosses) return null;
   return (
-    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+    <>
       {hasWins && (
-        <div>
+        <div className="mt-4">
           <div className={`${labelCls} mb-2 text-emerald-500`}>Wins</div>
           <ul className="space-y-1.5">
             {wins!.map((w, i) => (
@@ -488,20 +489,17 @@ function WinsLosses({
         </div>
       )}
       {hasLosses && (
-        <div>
-          <div className={`${labelCls} mb-2 text-red-400`}>Losses</div>
-          <ul className="space-y-2.5">
-            {losses!.map((l, i) => (
-              <LossRow
-                key={l.evidence || i}
-                loss={l}
-                githubConnected={githubConnected}
-                onChange={onLossChange && ((change) => onLossChange(l.evidence, change))}
-              />
-            ))}
-          </ul>
-        </div>
+        <CardRail label="Losses" tone="text-red-400" count={losses!.length}>
+          {losses!.map((l, i) => (
+            <LossCard
+              key={l.evidence || i}
+              loss={l}
+              githubConnected={githubConnected}
+              onChange={onLossChange && ((change) => onLossChange(l.evidence, change))}
+            />
+          ))}
+        </CardRail>
       )}
-    </div>
+    </>
   );
 }

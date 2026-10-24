@@ -54,6 +54,16 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     color: #fff;
+
+    /* The dashboard is dark whatever the host's theme is, so say so. Without
+       it the browser draws native chrome for a light page: every table that
+       scrolls sideways gets a white scrollbar track across the bottom of a
+       dark card. `scrollbar-color` inherits, so this one rule covers every
+       scroll container below — the card rail's own utility predates it.
+       `color-scheme` is the fallback where `scrollbar-color` isn't supported,
+       and also darkens the native <select> menus and checkboxes. */
+    color-scheme: dark;
+    scrollbar-color: #2e2e2e transparent;
   }
 
   /*
