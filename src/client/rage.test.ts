@@ -4,7 +4,8 @@
  * Run with `npm test`. The tracker answers at the click itself, from the
  * click stream alone — the dead-click hold never enters into it, so judging
  * outcomes can't delay a rage click or change which bursts count. Hits are
- * counted per element, by identity, not per selector string.
+ * counted per key: a control element by identity, or — for something that
+ * isn't a control — a selector string.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -39,6 +40,23 @@ test("each hit only has to follow the previous one within the window", () => {
   rage.hit(likeButton, 0);
   rage.hit(likeButton, 450);
   assert.equal(rage.hit(likeButton, 900), true);
+});
+
+test("a fake control is keyed by its selector, and still adds up to rage", () => {
+  // A plain <div> styled as a button: no control to key on, so its selector —
+  // the case rage exists for.
+  const rage = createRageTracker(3, 500);
+  assert.deepEqual(
+    [rage.hit("div.fake-btn", 0), rage.hit("div.fake-btn", 90), rage.hit("div.fake-btn", 180)],
+    [false, false, true],
+  );
+  assert.equal(rage.hit("div.other", 200), false);
+});
+
+test("an element and a string never match each other", () => {
+  const rage = createRageTracker(2, 500);
+  rage.hit("[object Object]", 0);
+  assert.equal(rage.hit(likeButton, 10), false);
 });
 
 test("a gap or a different element starts over", () => {

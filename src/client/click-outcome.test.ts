@@ -34,7 +34,14 @@ interface FakeNode extends NodeLike {
   rect?: { left: number; top: number; right: number; bottom: number };
   /** Its first class, for the kind of child it is. */
   cls?: string;
+  /** Not rendered (display: none, `hidden`). */
+  hidden?: boolean;
+  /** Carries a React click handler. */
+  handler?: boolean;
 }
+
+/** Every fake node, for the "visible surfaces" query. */
+const allNodes: FakeNode[] = [];
 
 /** Just enough selector matching for the judge's selectors: tag names and `[role="…"]`. */
 const matchesSelector = (n: FakeNode, selector: string) =>
@@ -46,7 +53,15 @@ const matchesSelector = (n: FakeNode, selector: string) =>
 const node = (
   nodeName: string,
   parentNode: FakeNode | null = null,
-  opts: { big?: boolean; role?: string; own?: boolean; rect?: FakeNode["rect"]; cls?: string } = {},
+  opts: {
+    big?: boolean;
+    role?: string;
+    own?: boolean;
+    rect?: FakeNode["rect"];
+    cls?: string;
+    hidden?: boolean;
+    handler?: boolean;
+  } = {},
 ): FakeNode => {
   const self: FakeNode = {
     nodeName,
@@ -58,6 +73,8 @@ const node = (
     own: opts.own ?? false,
     rect: opts.rect,
     cls: opts.cls,
+    hidden: opts.hidden,
+    handler: opts.handler,
     contains(other: unknown) {
       for (let n = other as FakeNode | null; n; n = n.parentNode) if (n === self) return true;
       return false;
@@ -74,6 +91,7 @@ const node = (
     },
   };
   parentNode?.children.push(self);
+  allNodes.push(self);
   return self;
 };
 
@@ -106,6 +124,7 @@ function fakeBrowser() {
   const timers = new Map<number, { at: number; fn: () => void }>();
   let deliver: ((records: readonly MutationLike[]) => void) | null = null;
   const state = { href: "https://site.test/a", active: body as unknown };
+  let layoutReads = 0;
   const ownedBy = (n: FakeNode | null, test: (x: FakeNode) => boolean) => {
     for (let x = n; x; x = x.parentNode) if (test(x)) return x;
     return null;
@@ -115,14 +134,29 @@ function fakeBrowser() {
     now: () => now,
     href: () => state.href,
     activeElement: () => state.active,
-    isComponentSized: (n) => !(n as FakeNode).big,
-    distanceTo(n, p: Point) {
-      const el = ownedBy(n as FakeNode, (x) => x.nodeType === 1);
-      const r = el?.rect;
-      if (!el || !r) return Infinity;
-      const d = Math.hypot(Math.max(r.left - p.x, 0, p.x - r.right), Math.max(r.top - p.y, 0, p.y - r.bottom));
-      return d === 0 && el.big ? Infinity : d;
+    isComponentSized: (n) => {
+      layoutReads++;
+      return !(n as FakeNode).big;
     },
+    isVisible: (n) => {
+      layoutReads++;
+      return !ownedBy(n as FakeNode, (x) => !!x.hidden);
+    },
+    // A fake's rect stands for both its live box and the one remembered at
+    // the click, so a node hidden since still has its place; else its parent's.
+    rectOf(n) {
+      layoutReads++;
+      const el = ownedBy(n as FakeNode, (x) => x.nodeType === 1);
+      return el?.rect ?? el?.parentNode?.rect ?? null;
+    },
+    remember() {},
+    handlerOf(n) {
+      let x = (n as FakeNode).parentNode?.parentNode ?? null;
+      for (let depth = 2; x && depth < 4; depth++, x = x.parentNode) if (x.handler) return x;
+      return null;
+    },
+    visibleSurfaces: () =>
+      allNodes.filter((n) => n.role === "dialog" && !ownedBy(n, (x) => !!x.hidden)),
     kindOf: (n) => (n as FakeNode).nodeName + ((n as FakeNode).cls ? `.${(n as FakeNode).cls}` : ""),
     isOwn: (n) => !!ownedBy(n as FakeNode, (x) => x.own),
     observe(onRecords) {
@@ -140,6 +174,7 @@ function fakeBrowser() {
   return {
     env,
     state,
+    layoutReads: () => layoutReads,
     advance(ms: number) {
       const end = now + ms;
       for (;;) {
@@ -214,7 +249,7 @@ const ambient = (
 const verdictAfter = (
   setup: (b: ReturnType<typeof fakeBrowser>, judge: ClickJudge) => void,
   target: FakeNode,
-  during: MutationLike[],
+  during: MutationLike[] | (() => MutationLike[]),
   point: Point | null = CENTER,
 ): boolean | undefined => {
   const b = fakeBrowser();
@@ -222,7 +257,8 @@ const verdictAfter = (
   setup(b, judge);
   const v = verdicts();
   click(judge, target, v.done, point);
-  b.mutate(...during);
+  // A function runs after the click: for changes that flip state on the page.
+  b.mutate(...(typeof during === "function" ? during() : during));
   b.advance(1000);
   return v.seen[0];
 };
@@ -464,10 +500,12 @@ test("background is anything changed in the ten seconds before, however rarely",
   assert.equal(verdictAfter(longAgo, cell, [attr(row, "aria-expanded")]), true, "forgotten after ten");
 });
 
-test("background is per kind of change: a card's hover animation doesn't hide its expanding", () => {
+test("the clicked element's own changes always count, busy or not", () => {
   const hoverAnimation = (b: ReturnType<typeof fakeBrowser>) => ambient(b, 3000, 100, () => attr(card, "style"));
   assert.equal(verdictAfter(hoverAnimation, card, [attr(card, "aria-expanded")]), true);
-  assert.equal(verdictAfter(hoverAnimation, card, [attr(card, "style")]), false);
+  // Documented residual: its hover animation counts too — tier 1 never asks
+  // about background, because a working click must never read as dead.
+  assert.equal(verdictAfter(hoverAnimation, card, [attr(card, "style")]), true);
 });
 
 test("what a judged click caused never counts as background", () => {
@@ -580,7 +618,7 @@ for (const slides of [4, 5]) {
   });
 }
 
-test("a carousel that only renders its active slide doesn't credit a click on it", () => {
+test("residual: a carousel swapping out the very slide clicked credits the click", () => {
   const deck = node("DIV", main);
   const b = fakeBrowser();
   const judge = createClickJudge(b.env);
@@ -596,7 +634,8 @@ test("a carousel that only renders its active slide doesn't credit a click on it
   click(judge, image, v.done);
   b.mutate({ type: "childList", target: deck, addedNodes: [node("DIV", deck, { cls: "slide" })], removedNodes: [current] });
   b.advance(1000);
-  assert.deepEqual(v.seen, [false]);
+  // The clicked element was removed: always the click's (accepted residual).
+  assert.deepEqual(v.seen, [true]);
 });
 
 test("background keeps being learned while the visitor scrolls or types", () => {
@@ -642,6 +681,130 @@ test("a chat message's paragraphs, appended next to the clicked bubble, are back
     })(),
   );
   assert.equal(worked, false);
+});
+
+// ---- last round: regressions that must read as working -------------------------------
+
+test("regression 1: a list rendered in one batch — card 3 expands a minute later", () => {
+  const list = node("UL", main);
+  const cards = Array.from({ length: 10 }, () => node("LI", list, { cls: "card" }));
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  // One render: ten records in one batch, the same instant.
+  b.mutate(...cards.map((c) => added(list, c)));
+  // Infinite scroll appends the next page five seconds later.
+  b.advance(5000);
+  const more = Array.from({ length: 10 }, () => node("LI", list, { cls: "card" }));
+  b.mutate(...more.map((c) => added(list, c)));
+  b.advance(60_000);
+  for (const card of [cards[2], more[3]]) {
+    const v = verdicts();
+    click(judge, node("DIV", card), v.done); // the card's title
+    b.mutate(added(card, el("SECTION"))); // its details open
+    b.advance(1000);
+    assert.deepEqual(v.seen, [true]);
+  }
+});
+
+test("regression 1b: …and two seconds after that one render, too", () => {
+  const list = node("UL", main);
+  const cards = Array.from({ length: 10 }, () => node("LI", list, { cls: "card" }));
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  b.mutate(...cards.map((c) => added(list, c))); // one batch: not background to itself
+  b.advance(2000);
+  const v = verdicts();
+  click(judge, node("DIV", cards[2]), v.done);
+  b.mutate(added(cards[2], el("SECTION")));
+  assert.deepEqual(v.seen, [true]);
+});
+
+test("regression 2: a 200px card revealing details just below itself, and an accordion closing", () => {
+  // Clicked in the middle: the details' top edge is 100px from the pointer,
+  // but flush with the card.
+  const tile = node("DIV", main, { rect: { left: 0, top: 0, right: 300, bottom: 200 } });
+  const details = node("DIV", main, { rect: { left: 0, top: 204, right: 300, bottom: 400 } });
+  assert.equal(verdictAfter(idle, tile, [attr(details, "hidden")]), true);
+  // Closing: the panel is hidden by the click, so it measures by where it was.
+  const header = node("DIV", main, { rect: { left: 0, top: 80, right: 900, bottom: 120 } });
+  const open = node("DIV", main, { rect: { left: 0, top: 120, right: 900, bottom: 600 } });
+  assert.equal(
+    verdictAfter(idle, header, () => {
+      open.hidden = true;
+      return [attr(open, "hidden")];
+    }),
+    true,
+  );
+});
+
+test("regression 3: a plain dot in a five-slide autoplay carousel", () => {
+  const dots = node("DIV", main);
+  const all = Array.from({ length: 5 }, () => node("SPAN", dots, { cls: "dot" }));
+  const worked = verdictAfter(
+    (b) => {
+      // Autoplay moves the active class from dot to dot every 3s.
+      for (let i = 0; i < 5; i++) {
+        b.mutate(attr(all[i], "class"), attr(all[(i + 1) % 5], "class"));
+        b.advance(3000);
+      }
+    },
+    all[3],
+    [attr(all[3], "class")], // the clicked dot becomes the active one
+  );
+  assert.equal(worked, true);
+});
+
+test("regression 4: dismissing a toast by clicking it, though another arrived 3s before", () => {
+  const stack = node("OL", body);
+  const toast = node("LI", stack, { cls: "toast", role: "status" });
+  const message = node("SPAN", toast);
+  const worked = verdictAfter(
+    (b) => {
+      b.mutate(added(stack, node("LI", stack, { cls: "toast", role: "status" })));
+      b.advance(3000);
+    },
+    message,
+    [removed(stack, toast)],
+  );
+  assert.equal(worked, true);
+});
+
+test("regression 5: a dialog already in the page, shown by hidden / aria-hidden / class", () => {
+  for (const name of ["hidden", "aria-hidden", "class"]) {
+    const wrapper = node("DIV", body, { big: true, hidden: true });
+    node("DIV", wrapper, { role: "dialog" });
+    const worked = verdictAfter(
+      (b) => b.advance(200),
+      card,
+      () => {
+        wrapper.hidden = false; // shown, away from the click, pointer still
+        return [attr(wrapper, name)];
+      },
+    );
+    assert.equal(worked, true, name);
+  }
+  // …and one that was open, hidden by a click on a backdrop beside it.
+  const open = node("DIV", body, { role: "dialog" });
+  const backdropBeside = node("DIV", body, { big: true });
+  assert.equal(
+    verdictAfter(idle, backdropBeside, () => {
+      open.hidden = true;
+      return [attr(open, "aria-hidden")];
+    }),
+    true,
+  );
+});
+
+test("with no click pending, mutations cost no layout reads", () => {
+  const b = fakeBrowser();
+  createClickJudge(b.env);
+  b.state.active = node("INPUT", main); // focused, but not where the changes are
+  const before = b.layoutReads();
+  for (let i = 0; i < 100; i++) {
+    b.mutate(added(chat, el("LI")), attr(panel, "class"), text(node("#text", panel)));
+    b.advance(50);
+  }
+  assert.equal(b.layoutReads() - before, 0);
 });
 
 // ---- the newest interaction takes the credit ----------------------------------------
