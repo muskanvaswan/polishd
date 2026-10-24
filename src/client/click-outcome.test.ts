@@ -36,6 +36,8 @@ interface FakeNode extends NodeLike {
   cls?: string;
   /** Not rendered (display: none, `hidden`). */
   hidden?: boolean;
+  /** Rendered but unseen: `opacity: 0` or `visibility: hidden`. */
+  faded?: boolean;
   /** Carries a React click handler. */
   handler?: boolean;
 }
@@ -60,6 +62,7 @@ const node = (
     rect?: FakeNode["rect"];
     cls?: string;
     hidden?: boolean;
+    faded?: boolean;
     handler?: boolean;
   } = {},
 ): FakeNode => {
@@ -74,6 +77,7 @@ const node = (
     rect: opts.rect,
     cls: opts.cls,
     hidden: opts.hidden,
+    faded: opts.faded,
     handler: opts.handler,
     contains(other: unknown) {
       for (let n = other as FakeNode | null; n; n = n.parentNode) if (n === self) return true;
@@ -142,6 +146,10 @@ function fakeBrowser() {
       layoutReads++;
       return !ownedBy(n as FakeNode, (x) => !!x.hidden);
     },
+    isShown: (n) => {
+      layoutReads++;
+      return !ownedBy(n as FakeNode, (x) => !!x.hidden || !!x.faded);
+    },
     // A fake's rect stands for both its live box and the one remembered at
     // the click, so a node hidden since still has its place; else its parent's.
     rectOf(n) {
@@ -156,7 +164,7 @@ function fakeBrowser() {
       return null;
     },
     visibleSurfaces: () =>
-      allNodes.filter((n) => n.role === "dialog" && !ownedBy(n, (x) => !!x.hidden)),
+      allNodes.filter((n) => n.role === "dialog" && !ownedBy(n, (x) => !!x.hidden || !!x.faded)),
     kindOf: (n) => (n as FakeNode).nodeName + ((n as FakeNode).cls ? `.${(n as FakeNode).cls}` : ""),
     isOwn: (n) => !!ownedBy(n as FakeNode, (x) => x.own),
     observe(onRecords) {
@@ -487,17 +495,44 @@ test("a click's own dialog still counts when the pointer moves on right away", (
   assert.deepEqual(v.seen, [true]);
 });
 
-test("background is anything changed in the ten seconds before, however rarely", () => {
+test("background takes two separate changes in the ten seconds before", () => {
+  // Page script collapsing the panels once, three seconds before a click that
+  // opens one, is not churn.
   const once = (b: ReturnType<typeof fakeBrowser>) => {
-    b.mutate(attr(row, "aria-expanded")); // one change, nine seconds ago
-    b.advance(9000);
-  };
-  assert.equal(verdictAfter(once, cell, [attr(row, "aria-expanded")]), false);
-  const longAgo = (b: ReturnType<typeof fakeBrowser>) => {
     b.mutate(attr(row, "aria-expanded"));
+    b.advance(3000);
+  };
+  assert.equal(verdictAfter(once, cell, [attr(row, "aria-expanded")]), true);
+  // Twice is: something keeps doing this.
+  const twice = (b: ReturnType<typeof fakeBrowser>) => {
+    b.mutate(attr(row, "aria-expanded"));
+    b.advance(4000);
+    b.mutate(attr(row, "aria-expanded"));
+    b.advance(4000);
+  };
+  assert.equal(verdictAfter(twice, cell, [attr(row, "aria-expanded")]), false);
+  // One instant is one change, however many records it took.
+  const batch = (b: ReturnType<typeof fakeBrowser>) => {
+    b.mutate(attr(row, "aria-expanded"), attr(row, "aria-expanded"), attr(row, "aria-expanded"));
+    b.advance(3000);
+  };
+  assert.equal(verdictAfter(batch, cell, [attr(row, "aria-expanded")]), true);
+  const longAgo = (b: ReturnType<typeof fakeBrowser>) => {
+    twice(b);
     b.advance(BACKGROUND_MS + 1);
   };
   assert.equal(verdictAfter(longAgo, cell, [attr(row, "aria-expanded")]), true, "forgotten after ten");
+});
+
+test("residual: a carousel turning once every 6s is too slow to be background", () => {
+  const worked = verdictAfter(
+    (b) => ambient(b, 12_000, 6000, () => attr(slide, "aria-hidden")),
+    slideImage,
+    [attr(slide, "aria-hidden")],
+  );
+  // One change in the ten seconds before: not enough to call it background,
+  // so its next turn credits a dead click on it (the safe direction).
+  assert.equal(worked, true);
 });
 
 test("the clicked element's own changes always count, busy or not", () => {
@@ -717,6 +752,72 @@ test("regression 1b: …and two seconds after that one render, too", () => {
   click(judge, node("DIV", cards[2]), v.done);
   b.mutate(added(cards[2], el("SECTION")));
   assert.deepEqual(v.seen, [true]);
+});
+
+test("infinite scroll: a card appended to a busy grid expands like any other", () => {
+  const grid = node("UL", main);
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  // Two pages already arrived — the grid is busy — then a third of twenty.
+  for (let page = 0; page < 2; page++) {
+    b.mutate(...Array.from({ length: 20 }, () => added(grid, node("LI", grid, { cls: "card" }))));
+    b.advance(3000);
+  }
+  const third = Array.from({ length: 20 }, () => node("LI", grid, { cls: "card" }));
+  b.mutate(...third.map((c) => added(grid, c)));
+  b.advance(3000);
+  // Every card of the batch, not just the first few.
+  for (const card of [third[0], third[3], third[4], third[19]]) {
+    const v = verdicts();
+    click(judge, node("DIV", card), v.done); // its title
+    b.mutate(added(card, el("SECTION"))); // its details
+    b.advance(1000);
+    assert.deepEqual(v.seen, [true]);
+  }
+});
+
+test("a node born into a busy container is filled in as part of that insertion", () => {
+  // The chat case again, at the boundary: the new message's paragraphs are
+  // background while it's being filled in, its own once that's over.
+  const thread = node("UL", main);
+  const bubble = node("LI", thread, { cls: "msg", rect: { left: 0, top: 0, right: 300, bottom: 200 } });
+  const message = node("LI", thread, { cls: "msg", rect: { left: 0, top: 205, right: 300, bottom: 260 } });
+  const paragraph = () => added(message, el("P", { rect: { left: 0, top: 205, right: 300, bottom: 230 } }));
+  const busy = (b: ReturnType<typeof fakeBrowser>) =>
+    ambient(b, 8000, 4000, () => added(thread, node("LI", null, { cls: "msg" })));
+  const later = verdictAfter(
+    (b) => {
+      busy(b);
+      b.mutate(added(thread, message)); // arrived well before the click
+      b.advance(1500);
+    },
+    node("SPAN", bubble),
+    [paragraph()],
+  );
+  assert.equal(later, true, "its own change, a second and a half after it arrived");
+});
+
+test("an in-page dialog revealed by fading in (opacity, visibility) counts", () => {
+  // Already rendered, so it has a box before and after; far from the click.
+  for (const how of ["at once", "after the transition"]) {
+    const dialog = node("DIV", body, { role: "dialog", faded: true, rect: { left: 600, top: 400, right: 900, bottom: 700 } });
+    const b = fakeBrowser();
+    const judge = createClickJudge(b.env);
+    const v = verdicts();
+    click(judge, card, v.done);
+    b.advance(200);
+    if (how === "at once") dialog.faded = false; // `opacity-0` → `opacity-100`
+    b.mutate(attr(dialog, "class"));
+    if (how !== "at once") {
+      b.advance(150); // the fade-in starts at 0 and climbs
+      dialog.faded = false;
+    }
+    b.advance(1000);
+    assert.deepEqual(v.seen, [true], how);
+  }
+  // A class change on a dialog that stays faded out is not it appearing.
+  const stillHidden = node("DIV", body, { role: "dialog", faded: true });
+  assert.equal(verdictAfter(idle, card, [attr(stillHidden, "class")]), false);
 });
 
 test("regression 2: a 200px card revealing details just below itself, and an accordion closing", () => {

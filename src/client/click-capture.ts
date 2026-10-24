@@ -107,6 +107,26 @@ const boxOf = (el: Element): Rect | null => {
   return r.width === 0 && r.height === 0 ? null : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
 };
 
+/** Rendered, and not `visibility: hidden` or `opacity: 0` — itself or above. */
+const isShownElement = (el: Element): boolean => {
+  if (!boxOf(el)) return false;
+  const check = (el as Element & { checkVisibility?: (options?: object) => boolean }).checkVisibility;
+  if (typeof check === "function") {
+    // Both spellings: the options were renamed between browser versions.
+    return check.call(el, {
+      opacityProperty: true,
+      visibilityProperty: true,
+      checkOpacity: true,
+      checkVisibilityCSS: true,
+    });
+  }
+  for (let n: Element | null = el, depth = 0; n && depth < 8; n = n.parentElement, depth++) {
+    const style = getComputedStyle(n);
+    if (style.visibility === "hidden" || style.opacity === "0") return false;
+  }
+  return true;
+};
+
 const browserJudgeEnv = (): JudgeEnv => ({
   now: () => Date.now(),
   href: () => location.href,
@@ -118,6 +138,10 @@ const browserJudgeEnv = (): JudgeEnv => ({
   isVisible(node) {
     const el = elementOf(node);
     return !!el && boxOf(el) !== null;
+  },
+  isShown(node) {
+    const el = elementOf(node);
+    return !!el && isShownElement(el);
   },
   rectOf(node) {
     const el = elementOf(node);
@@ -147,7 +171,7 @@ const browserJudgeEnv = (): JudgeEnv => ({
   },
   visibleSurfaces() {
     return Array.from(document.querySelectorAll(MODAL_SELECTOR)).filter(
-      (el) => boxOf(el) !== null,
+      isShownElement,
     ) as unknown as NodeLike[];
   },
   kindOf(node) {

@@ -70,3 +70,24 @@ test("a gap or a different element starts over", () => {
   assert.equal(rage.hit(null, 900), false, "no element is never a burst");
   assert.equal(rage.hit(null, 950), false);
 });
+
+test("a hammered control that leaves the page isn't kept alive by the tracker", async () => {
+  // The collector, without a flag on the test command.
+  const { setFlagsFromString } = await import("node:v8");
+  const { runInNewContext } = await import("node:vm");
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+
+  const rage = createRageTracker(3, 500);
+  let control: object | null = { tag: "button" };
+  const watch = new WeakRef(control);
+  rage.hit(control, 0);
+  rage.hit(control, 50); // the tracker's last key, until the next click
+  control = null;
+  // WeakRef targets survive until the current job ends.
+  for (let i = 0; i < 5 && watch.deref(); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gc();
+  }
+  assert.equal(watch.deref(), undefined);
+});

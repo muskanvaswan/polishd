@@ -25,9 +25,11 @@
  *     • the clicked element, or that handler element, being removed or
  *       hidden.
  *  2. SURFACES — the whole hold, no background check: a dialog, alertdialog
- *     or modal surface added, or one already in the page becoming visible or
- *     hidden (toggled by `hidden`, `aria-hidden`, a class), and `<dialog>`
- *     opening or closing.
+ *     or modal surface added, or one already in the page shown or hidden
+ *     (toggled by `hidden`, `aria-hidden`, a class), and `<dialog>` opening
+ *     or closing. "Shown" is what can be seen — computed `visibility` and
+ *     `opacity` as well as a box — so a fade-in counts, and since a fade
+ *     starts at opacity 0, the end of the hold looks again.
  *  3. RELATED, IF NOT BACKGROUND:
  *     • on one of the four nearest ancestors: any attribute but `style`;
  *       children added or removed if the ancestor is component-sized, only
@@ -47,10 +49,13 @@
  * text against its element; an attribute against its element, and — for
  * attributes other than `class` and `style` — against its parent, so every
  * slide of a carousel feeds one `aria-hidden` history). Something is
- * background while its history has a change in the ten seconds before the
- * click, and only then: history expires. A node inserted into a container
- * that kept receiving its kind (a new chat message) is background inside for
- * as long as that container stays busy. Learning pauses for the second after
+ * background while its history has at least two separate changes in the ten
+ * seconds before the click — one change isn't a pattern, and one instant
+ * (a batch of records) is one change — and only then: history expires.
+ * Insertion is birth, not churn: a node counts in its container's history,
+ * never its own, and a node inserted into a busy container (a new chat
+ * message) is background inside only while it's being filled in, for its
+ * first second. Learning pauses for the second after
  * a press or click — what follows a click is that click's — and skips changes
  * inside the focused element (typing), never scrolling. Changes credited to a
  * judged click are never learned.
@@ -81,6 +86,18 @@
  *    learning.
  *  • `showPopover()` and CSS-only effects make no DOM mutation and read as
  *    dead.
+ *  • A region that changes less than twice in ten seconds (a carousel turning
+ *    every six) isn't background, and its next change credits a dead click
+ *    near it.
+ *  • Carousels and dots that change state only by `class` don't share a
+ *    history between siblings, so a stacked class-based carousel or its dots
+ *    can mask a dead click near them.
+ *  • Details revealed 100–130px from the clicked element — a child deep inside
+ *    a card, the details below the card — are past the reach of "near" and
+ *    read as dead.
+ *  • A hover menu that opens within 300ms of the click credits it.
+ *  • Typing in a component-sized contenteditable costs one rect read per
+ *    mutation record (to tell it from page churn).
  *
  * Import-free, with the browser behind {@link JudgeEnv}, so `node --test` can
  * drive it with fakes.
@@ -104,6 +121,10 @@ const BORN_DEPTH = 8;
 const MAX_HOVERED = 8;
 /** Background change times kept per key. */
 const BACKGROUND_KEPT = 4;
+/** Separate changes within the baseline it takes to call something background. */
+const BACKGROUND_CHANGES = 2;
+/** How long after a node's insertion its own filling-in still counts as that insertion. */
+const BIRTH_MS = 1000;
 
 /** A modal surface: what a click that opens a dialog adds or reveals. */
 export const MODAL_SELECTOR = [
@@ -159,6 +180,12 @@ export interface JudgeEnv {
   /** Is it rendered at all (connected, with a box)? */
   isVisible(node: NodeLike): boolean;
   /**
+   * Can it be seen — rendered, and not `visibility: hidden` or faded to
+   * `opacity: 0`, itself or through an ancestor? How a modal surface already
+   * in the page is judged shown: a fade-in has a box before and after.
+   */
+  isShown(node: NodeLike): boolean;
+  /**
    * Where the element holding `node` is on screen — its box now, or, when it
    * is hidden or gone, the box last remembered for it. Null if neither.
    */
@@ -167,7 +194,7 @@ export interface JudgeEnv {
   remember(subject: NodeLike): void;
   /** The element carrying `node`'s click handler a few levels up, if any (React `onClick`). */
   handlerOf(node: NodeLike): NodeLike | null;
-  /** The modal surfaces visible right now. */
+  /** The modal surfaces shown right now (see `isShown`). */
   visibleSurfaces(): NodeLike[];
   /** What kind of child a node is, for its container's history: tag and first class. */
   kindOf(node: NodeLike): string;
@@ -216,8 +243,10 @@ interface Gesture {
   box: Rect | null;
   /** Nearest ancestors, and whether each is component-sized. */
   ancestors: Map<NodeLike, boolean>;
-  /** Modal surfaces visible when the interaction began. */
+  /** Modal surfaces shown when the interaction began. */
   surfaces: Set<NodeLike>;
+  /** Modal surfaces whose attributes changed during the hold. */
+  touchedSurfaces: Set<NodeLike>;
   point: Point | null;
   /** The interaction this gesture belongs to; older than the current one = superseded. */
   epoch: number;
@@ -280,7 +309,7 @@ export function createClickJudge(
   /** Per node, per key: when the page last changed it on its own. */
   const history = new WeakMap<object, Map<string, number[]>>();
   /** Nodes inserted into a container that kept receiving their kind. */
-  const born = new WeakMap<object, { container: Weak<object>; key: string }>();
+  const born = new WeakMap<object, { container: Weak<object>; key: string; at: number }>();
   let armed: Gesture | null = null;
   let epoch = 0;
   /** Target of the newest press or click; unset after a key press or scroll. */
@@ -323,24 +352,41 @@ export function createClickJudge(
     let keys = history.get(node);
     if (!keys) history.set(node, (keys = new Map()));
     const times = keys.get(key) ?? [];
+    // One instant is one change: a batch of twenty cards doesn't flush the
+    // history with twenty copies of "now".
+    if (times[times.length - 1] === now) return;
     times.push(now);
     if (times.length > BACKGROUND_KEPT) times.shift();
     keys.set(key, times);
   };
 
-  /** Did `node` change this way in the ten seconds before `since`? */
-  const recent = (node: object, key: string, since: number) =>
-    !!history.get(node)?.get(key)?.some((t) => t < since && since - t <= BACKGROUND_MS);
+  /**
+   * Is `node` busy this way: at least two separate changes in the ten seconds
+   * before `since`? One change isn't a pattern — page script collapsing the
+   * panels once, three seconds before a click that opens one, is not churn.
+   */
+  const recent = (node: object, key: string, since: number) => {
+    const times = history.get(node)?.get(key);
+    if (!times) return false;
+    let changes = 0;
+    for (const t of times) if (t < since && since - t <= BACKGROUND_MS) changes++;
+    return changes >= BACKGROUND_CHANGES;
+  };
 
-  /** Is this change the page's own — its node busy in the ten seconds before `since`? */
-  const isBackground = (m: MutationLike, since: number): boolean => {
+  /** Is this change, at `now`, the page's own — its node busy before `since`? */
+  const isBackground = (m: MutationLike, since: number, now: number): boolean => {
     if (keysOf(m).some(([node, key]) => recent(node, key, since))) return true;
-    // Inside a node born into a busy container — while that container is busy.
+    // A node born into a busy container is filled in as part of that insertion
+    // (a streamed chat message's paragraphs) — so for its first second its
+    // own changes are the container's churn. After that they're its own: a
+    // card appended by infinite scroll expands like any other.
     let node: NodeLike | null | undefined = m.target;
     for (let depth = 0; node && depth < BORN_DEPTH; depth++, node = node.parentNode) {
       const birth = born.get(node);
       const container = birth?.container.deref();
-      if (birth && container && recent(container, birth.key, since)) return true;
+      if (birth && container && now - birth.at <= BIRTH_MS && recent(container, birth.key, since)) {
+        return true;
+      }
     }
     return false;
   };
@@ -384,7 +430,11 @@ export function createClickJudge(
     const surface = m.target.matches?.(MODAL_SELECTOR)
       ? m.target
       : (m.target.querySelector?.(MODAL_SELECTOR) as NodeLike | null | undefined);
-    return !!surface && env.isVisible(surface) !== g.surfaces.has(surface);
+    if (!surface) return false;
+    // A fade-in starts at opacity 0, so it may not read as shown yet: the
+    // hold's end looks again (see `outcome`).
+    g.touchedSurfaces.add(surface);
+    return env.isShown(surface) !== g.surfaces.has(surface);
   };
 
   /** Tier 3, ancestors: is this a change on one of the nearest ancestors? */
@@ -443,13 +493,13 @@ export function createClickJudge(
       const shown = added(m);
       if (matching(shown, MENU_SELECTOR)) return pageLevelAllowed(g, now);
       if (matching(shown, ANNOUNCEMENT_SELECTOR)) {
-        if (isBackground(m, g.start)) return false;
+        if (isBackground(m, g.start, now)) return false;
         const quick = g.clickAt !== undefined && now - g.clickAt <= PAGE_LEVEL_GRACE_MS;
         return quick || nearClick(g, m, now);
       }
     }
-    if (ancestorChange(g, m, now)) return !isBackground(m, g.start);
-    if (!visible(m, false) || isBackground(m, g.start)) return false;
+    if (ancestorChange(g, m, now)) return !isBackground(m, g.start, now);
+    if (!visible(m, false) || isBackground(m, g.start, now)) return false;
     return nearClick(g, m, now);
   };
 
@@ -481,7 +531,7 @@ export function createClickJudge(
       if (m.type === "childList") {
         for (const n of Array.from(m.addedNodes ?? [])) {
           const key = `+${env.kindOf(n)}`;
-          if (recent(m.target, key, now)) born.set(n, { container: weak(m.target), key });
+          if (recent(m.target, key, now)) born.set(n, { container: weak(m.target), key, at: now });
         }
       }
       let credited = false;
@@ -525,6 +575,7 @@ export function createClickJudge(
       active: null,
       hovered: [],
       surfaces: new Set(env.visibleSurfaces()),
+      touchedSurfaces: new Set(),
       worked: false,
     } as unknown as Gesture;
     setSubject(g, subject);
@@ -541,6 +592,8 @@ export function createClickJudge(
 
   const outcome = (g: Gesture): boolean => {
     if (g.worked) return true;
+    // A surface the hold touched that has since faded in (or out).
+    for (const s of g.touchedSurfaces) if (env.isShown(s) !== g.surfaces.has(s)) return true;
     const now = g.superseded ?? { href: env.href(), active: env.activeElement() };
     return now.href !== g.href || now.active !== g.active;
   };
