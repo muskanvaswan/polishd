@@ -12,9 +12,14 @@ card) counted as dead on every press, even when the press worked.
   control is held for a second. It records as a dead click only if nothing
   happened: no DOM change, no navigation, no focus move. If the page
   responded, it's an ordinary click. Elements with a React `onClick` count as
-  controls straight away. Ambient activity doesn't hide real dead clicks: a
-  running animation, a ticking clock, or the button the visitor clicks next
-  doesn't make the earlier click count as working.
+  controls straight away.
+- **Background activity doesn't hide real dead clicks.** A change only counts
+  when the click plausibly caused it: inside the clicked component, an overlay
+  opening, or content or open/closed state changing elsewhere. Text, class and
+  style changes elsewhere never count. A node that kept changing before the
+  click (a ticking clock, an autoplaying carousel, a streaming feed) is
+  background and counts for nothing. The click, key press or scroll that comes
+  next takes the credit for what follows it. Polishd's own UI is ignored.
 - **Near misses.** A dead click beside a control names it in `meta.near`: a
   full-width row whose button is only its text, or the gap next to a tab. The
   click no longer carries the button's text as its own label, so it reads as
@@ -25,8 +30,16 @@ card) counted as dead on every press, even when the press worked.
 - **Errors are diagnosable.** Each `js_error` carries Next's `digest` when
   there is one, which is the key to the full error in your server logs when
   production redacts the message. It also carries the top stack frame
-  (`frame`, `file:line:col`) and the click from the two seconds before it
-  (`lastComponent`, `lastLabel`, `lastSelector`).
+  (`frame`, `file:line:col`) and the click from the two seconds before it:
+  `after` (its component, label or selector), `afterMs` (how long before,
+  to the nearest 100ms) and `afterSelector`.
+- **Selectors you can find in the source.** A selector used to keep each
+  element's first class, which with Tailwind is usually a generic utility
+  (`main.text-white>section.mb-8>div.fixed`). It now keeps the most
+  distinctive class, skips variants (`lg:sticky`) and arbitrary values, never
+  ends in an empty class, and stops at the nearest `data-component` or id.
+  Element stats group by selector, so an element's history before this
+  release sits in a separate row.
 - **Dashboard telemetry reports its version.** The once-per-session
   `install_state` event now includes the polishd `version`, and reports again
   when a tab reloads onto a newer one.

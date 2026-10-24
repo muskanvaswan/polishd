@@ -88,13 +88,32 @@ test("errorContextMeta: digest, frame, and the click just before", () => {
     digest: "2941833417",
     stack: "Error: An error occurred\n    at f (https://site.test/_next/static/chunks/a.js:1:777)",
   });
-  assert.deepEqual(errorContextMeta(error, click, 10_400), {
+  assert.deepEqual(errorContextMeta(error, click, 10_430), {
     digest: "2941833417",
     frame: "/_next/static/chunks/a.js:1:777",
-    lastComponent: "settings",
-    lastLabel: "Save",
-    lastSelector: "form>button.save",
+    after: "settings",
+    afterMs: 400,
+    afterSelector: "form>button.save",
   });
+});
+
+test("`after` names the click by component, else label, else selector", () => {
+  const reason = { message: "rejected" };
+  assert.deepEqual(errorContextMeta(reason, { ts: 0, label: "Save # items", selector: "button.save" }, 40), {
+    after: "Save # items",
+    afterMs: 0,
+    afterSelector: "button.save",
+  });
+  assert.deepEqual(errorContextMeta(reason, { ts: 0, selector: "div.row" }, 1950), {
+    after: "div.row",
+    afterMs: 2000,
+  });
+});
+
+test("afterMs is rounded to 100ms, so repeats of one error still group", () => {
+  const reason = { message: "rejected" };
+  const delays = [1210, 1249, 1190].map((ms) => errorContextMeta(reason, click, click.ts + ms).afterMs);
+  assert.deepEqual(delays, [1200, 1200, 1200]);
 });
 
 test("a click outside the window — or after the error — isn't attributed", () => {
@@ -104,9 +123,9 @@ test("a click outside the window — or after the error — isn't attributed", (
   assert.deepEqual(errorContextMeta(reason, click, click.ts - 1), {});
   assert.deepEqual(errorContextMeta(reason, null, click.ts), {});
   assert.deepEqual(
-    errorContextMeta(reason, { ts: 0, label: "Only a label" }, 500),
-    { lastLabel: "Only a label" },
-    "absent parts are left out, not sent empty",
+    errorContextMeta(reason, { ts: 0 }, 500),
+    {},
+    "a click with nothing to name it by is left out, not sent empty",
   );
 });
 
@@ -121,5 +140,16 @@ test("with no stack, the frame falls back to the browser's own blame", () => {
 test("values stay inside ingest's per-value cap", () => {
   const huge = { ts: 0, component: "c".repeat(400), label: "l".repeat(400), selector: "s".repeat(900) };
   const meta = errorContextMeta({ digest: "d".repeat(900) }, huge, 0);
-  for (const value of Object.values(meta)) assert.ok(value.length <= 300);
+  for (const value of Object.values(meta)) {
+    if (typeof value === "string") assert.ok(value.length <= 300);
+  }
+});
+
+test("an exotic thrown value never makes the error listener throw", () => {
+  const hostile = new Proxy({}, {
+    get() {
+      throw new Error("no reading me");
+    },
+  });
+  assert.deepEqual(errorContextMeta(hostile, click, click.ts), {});
 });

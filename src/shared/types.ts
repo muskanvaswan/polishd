@@ -42,7 +42,11 @@ export interface PolishdEvent {
   ts: number;
   /** Pathname the event occurred on, e.g. "/posts/my-note". No query string. */
   path: string;
-  /** Best-effort CSS selector path to the target element. */
+  /**
+   * Best-effort CSS selector path to the target element, at most four levels,
+   * anchored at the nearest `data-component` or hand-written id, each other
+   * level its tag plus its most distinctive plain class.
+   */
   selector?: string;
   /** `data-component` hint, walked up from the target. Key to synthesis. */
   component?: string;
@@ -60,10 +64,13 @@ export interface PolishdEvent {
   value?: number;
   /**
    * Small, typed extras keyed by event type (e.g. vital name, error message).
-   * - dead_click: `near`, the label of the control the click narrowly missed
+   * Every key is optional: events from older clients carry fewer of them.
+   * - dead_click: `near`, the label of the control the click landed next to
+   *   or inside
    * - js_error: `message`, `source`, `line`, `origin`, `kind`; plus `digest`
-   *   (Next's error digest), `frame` (top stack frame, `file:line:col`) and
-   *   `lastComponent`/`lastLabel`/`lastSelector` (the click ≤2s before it)
+   *   (Next's error digest), `frame` (top stack frame, `file:line:col`),
+   *   `after` (data-component, label or selector of the click ≤2s before it),
+   *   `afterMs` (how long before, rounded to 100ms) and `afterSelector`
    * - install_state: `hasModel`, `provider`, `model`, `version`
    */
   meta?: Record<string, string | number | boolean | null>;

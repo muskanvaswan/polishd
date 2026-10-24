@@ -365,6 +365,8 @@ export function PolishdTelemetryConsent() {
     <div
       role="dialog"
       aria-label="Polishd telemetry consent"
+      // polishd's own UI: its appearing or changing is never a click's response.
+      data-polishd-ui=""
       className="fixed bottom-4 right-4 z-50 w-[340px] max-w-[calc(100vw-2rem)] rounded-xl border border-[#2e2e2e] bg-[#111] p-4 shadow-2xl"
     >
       <p className="text-[13px] font-medium text-white">Help improve polishd?</p>

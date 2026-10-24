@@ -154,8 +154,8 @@ test("geometry: distance to a rect, and the probe rings", () => {
   assert.equal(distanceToRect({ x: 23, y: 24 }, r), 5);
   const points = probePoints({ x: 0, y: 0 });
   assert.equal(points.length, 24);
-  assert.deepEqual(points[0], { x: 12, y: 0 }, "nearest ring first");
-  assert.ok(points.every((p) => Math.round(Math.hypot(p.x, p.y)) <= 40));
+  assert.deepEqual(points[0], { x: 8, y: 0 }, "nearest ring first");
+  assert.ok(points.every((p) => Math.round(Math.hypot(p.x, p.y)) <= 24));
 });
 
 test("withoutLabel strips the contained control's text from the click's label", () => {

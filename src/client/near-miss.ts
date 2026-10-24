@@ -45,8 +45,8 @@ export const COMPONENT_MAX_VIEWPORT_SHARE = 0.25;
 const SCAN_BUDGET = 300;
 /** More controls than this inside the clicked element and none of them is "the" one. */
 const MAX_CONTAINED = 3;
-/** Rings hit-tested around the click point, in CSS px. */
-const PROBE_RADII = [12, 24, 40];
+/** Rings hit-tested around the click point, in CSS px: bordering, not merely nearby. */
+const PROBE_RADII = [8, 16, 24];
 /** Eight compass directions per ring. */
 const DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
   [1, 0], [-1, 0], [0, 1], [0, -1],

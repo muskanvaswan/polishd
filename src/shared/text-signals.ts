@@ -55,11 +55,15 @@ export const PROSE_MIN_CHARS = 40;
 export const normalizeLabel = (label: string | undefined): string | undefined =>
   label === undefined ? undefined : label.replace(/\d+/g, "#");
 
-/** Tag names of a stored selector path: "div.card>p.intro>span" → ["div","p","span"]. */
+/**
+ * Tag names of a stored selector path: "div.card>p.intro>span" → ["div","p","span"].
+ * Each level leads with its tag, then a class (`.`), an id (`#`) or a
+ * `data-component` anchor (`[`).
+ */
 export const selectorTags = (selector: string): string[] =>
   selector
     .split(">")
-    .map((seg) => seg.split(/[.#]/)[0].trim().toLowerCase())
+    .map((seg) => seg.split(/[.#[]/)[0].trim().toLowerCase())
     .filter(Boolean);
 
 /**

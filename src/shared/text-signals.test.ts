@@ -21,6 +21,11 @@ const PROSE = "This sentence is comfortably past the prose length threshold.";
 
 test("selectorTags strips classes, ids, and case", () => {
   assert.deepEqual(selectorTags("div.card>p.intro>span#hl"), ["div", "p", "span"]);
+  assert.deepEqual(
+    selectorTags('section[data-component="hero.v2"]>div.media>button'),
+    ["section", "div", "button"],
+    "a data-component anchor, even one with a dot in its name",
+  );
   assert.deepEqual(selectorTags("MAIN.page>DIV"), ["main", "div"]);
   assert.deepEqual(selectorTags(""), []);
 });
