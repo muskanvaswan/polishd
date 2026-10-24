@@ -817,9 +817,12 @@ export async function finishSnapshot(id: string): Promise<{ ok: true; snapshot: 
   const dropped = pending.shots.filter((_, i) => redundant.has(i));
   const kept = pending.shots.filter((_, i) => !redundant.has(i));
 
-  // One picture per value: the first rendering that showed it.
+  // One picture per value: from the earliest rendering that showed it (the
+  // gallery's default view first), whatever order the cells were recorded in.
+  const order = (p: PolishdSnapshotPreview) =>
+    SNAPSHOT_RENDERINGS.findIndex((r) => r.device === p.device && r.theme === p.theme);
   const seen = new Set<string>();
-  const previews = pending.previews.filter((p) => {
+  const previews = [...pending.previews].sort((a, b) => order(a) - order(b)).filter((p) => {
     if (seen.has(p.key)) return false;
     seen.add(p.key);
     return true;

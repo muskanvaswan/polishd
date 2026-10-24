@@ -227,14 +227,19 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
   const serviceBase = plan.engine.kind === "service" ? plan.engine.url : "";
   const serviceOrigin = serviceBase ? new URL(serviceBase).origin : "";
 
-  const units: ShotSlot[] = plan.routes.flatMap((route) =>
-    plan.renderings.map((r) => ({ route, device: r.device, theme: r.theme })),
+  // Rendering-major: every page's default view (desktop, light) first, so
+  // the gallery's first screen fills in first, and the cells in flight
+  // together are usually different pages.
+  const units: ShotSlot[] = plan.renderings.flatMap((r) =>
+    plan.routes.map((route) => ({ route, device: r.device, theme: r.theme })),
   );
   const total = units.length;
   let done = 0;
   /** A message that ends the run; cells already stored are still recorded. */
   let stop: string | null = null;
   const found = new Set<string>();
+  /** Values being looked for by a cell in flight — not sent again until it answers. */
+  const searching = new Set<string>();
   const memo: BlobAccessMemo = { known: null };
 
   // Recording reads and rewrites the server's pending record, so record calls
@@ -248,7 +253,7 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
 
   const findFor = (route: string): FindTarget[] =>
     plan.targets
-      .filter((t) => t.pages.includes(route) && !found.has(t.key))
+      .filter((t) => t.pages.includes(route) && !found.has(t.key) && !searching.has(t.key))
       .slice(0, 16)
       .map((t) => ({ key: t.key, ref: t.ref }));
 
@@ -279,7 +284,17 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
   };
 
   const shootRemote = async (slot: ShotSlot): Promise<"done" | "fallback"> => {
-    const res = await shootWithService(serviceBase, slot, findFor(slot.route));
+    const find = findFor(slot.route);
+    for (const t of find) searching.add(t.key);
+    try {
+      return await shootAndStore(slot, find);
+    } finally {
+      for (const t of find) searching.delete(t.key);
+    }
+  };
+
+  const shootAndStore = async (slot: ShotSlot, find: FindTarget[]): Promise<"done" | "fallback"> => {
+    const res = await shootWithService(serviceBase, slot, find);
     if (!res.ok) {
       const { failure } = res;
       if (failure.kind === "rate_limited" || failure.kind === "rejected") {
