@@ -82,6 +82,7 @@ import TopFeaturesTable from "./features";
 import JourneyList from "./journeys";
 import TopPagesTable from "./pages";
 import SettingsView from "./settings";
+import ShowMore from "./show-more";
 import SummaryCard from "./summary";
 import OverviewStatTiles from "./metric-trends";
 import { InfoTip, border, card, divider, labelCls as label } from "./ui";
@@ -572,31 +573,83 @@ function ElementsCard({ elements }: { elements: ElementStat[] }) {
   );
 }
 
+/** Errors shown before the rest collapse behind "Show more". */
+const ERRORS_VISIBLE = 3;
+
+/** "1.2k" past a thousand — the badge is a glance, not a ledger. */
+function compactCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return `${Math.round(n / 1000)}k`;
+}
+
+function ErrorRow({ e, first }: { e: RecentError; first: boolean }) {
+  const others = e.paths.length - 1;
+  return (
+    <div className={first ? "" : divider}>
+      <div className="flex items-start gap-3 px-5 py-3">
+        <div className="min-w-0 flex-1">
+          {/* Errors the page can't claim as its own are dimmed rather
+              than hidden: the classification is a judgement about
+              where the code came from, so it's shown, not enforced. */}
+          <div
+            className={`break-words font-mono text-[13px] ${e.origin ? "text-[#8a6a6a]" : "text-red-400"}`}
+          >
+            {e.message}
+          </div>
+          <div className="mt-0.5 text-[11px] text-[#555]">
+            {e.path}
+            {others > 0 && (
+              <span title={e.paths.slice(0, 10).join("\n")}>
+                {` +${others} more ${others === 1 ? "page" : "pages"}`}
+              </span>
+            )}
+            {e.component ? ` · ${e.component}` : ""}
+            {e.origin === "foreign" ? " · not your code" : ""}
+            {e.origin === "unknown" ? " · unattributable" : ""}
+          </div>
+        </div>
+        {e.count > 1 && (
+          <span
+            title={`Seen ${e.count.toLocaleString()} times`}
+            className={`mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${
+              e.origin ? "bg-[#2a1f1f] text-[#b08a8a]" : "bg-red-500 text-white"
+            }`}
+          >
+            {compactCount(e.count)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RecentErrors({ errors }: { errors: RecentError[] }) {
   if (errors.length === 0) return null;
+  const visible = errors.slice(0, ERRORS_VISIBLE);
+  const overflow = errors.slice(ERRORS_VISIBLE);
+  const key = (e: RecentError) => `${e.message}|${e.component ?? ""}|${e.origin ?? ""}`;
   return (
-    <Section title="Recent errors">
-      <div className={card}>
-        {errors.map((e, i) => (
-          <div key={i} className={i > 0 ? divider : ""}>
-            <div className="px-5 py-3">
-              {/* Errors the page can't claim as its own are dimmed rather
-                  than hidden: the classification is a judgement about
-                  where the code came from, so it's shown, not enforced. */}
-              <div
-                className={`font-mono text-[13px] ${e.origin ? "text-[#8a6a6a]" : "text-red-400"}`}
-              >
-                {e.message}
-              </div>
-              <div className="mt-0.5 text-[11px] text-[#555]">
-                {e.path}
-                {e.component ? ` · ${e.component}` : ""}
-                {e.origin === "foreign" ? " · not your code" : ""}
-                {e.origin === "unknown" ? " · unattributable" : ""}
-              </div>
-            </div>
-          </div>
+    <Section
+      title={
+        <>
+          Recent errors
+          <InfoTip
+            anchor="left"
+            text="Repeats of the same error are grouped into one row, most recently seen first. The badge counts every time it was thrown, across all pages."
+          />
+        </>
+      }
+    >
+      <div className={`${card} overflow-hidden`}>
+        {visible.map((e, i) => (
+          <ErrorRow key={key(e)} e={e} first={i === 0} />
         ))}
+        <ShowMore count={overflow.length} label="errors">
+          {overflow.map((e) => (
+            <ErrorRow key={key(e)} e={e} first={false} />
+          ))}
+        </ShowMore>
       </div>
     </Section>
   );
