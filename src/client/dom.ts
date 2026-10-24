@@ -14,6 +14,8 @@ import {
   PROSE_TAGS,
 } from "../shared/text-signals";
 
+export { componentOf, labelOf, selectorOf } from "./target";
+
 export const isInteractive = (el: Element | null): boolean => {
   let node: Element | null = el;
   for (let depth = 0; node && depth < 4; depth++) {
@@ -74,42 +76,6 @@ export const isTextTarget = (el: Element | null): boolean => {
  */
 export const isSelectionGesture = (el: Element | null): boolean =>
   !isInteractive(el) && isTextTarget(el);
-
-/** Walk up for the nearest `data-component`, the key synthesis signal. */
-export const componentOf = (el: Element | null): string | undefined => {
-  let node: Element | null = el;
-  for (let depth = 0; node && depth < 8; depth++) {
-    const c = node.getAttribute("data-component");
-    if (c) return c;
-    node = node.parentElement;
-  }
-  return undefined;
-};
-
-/** Compact, stable-ish selector path (tag + id + first class), capped. */
-export const selectorOf = (el: Element | null): string | undefined => {
-  if (!el) return undefined;
-  const parts: string[] = [];
-  let node: Element | null = el;
-  for (let depth = 0; node && depth < 4 && node.tagName !== "BODY"; depth++) {
-    let part = node.tagName.toLowerCase();
-    if (node.id) {
-      parts.unshift(`${part}#${node.id}`);
-      break;
-    }
-    const cls = (node.getAttribute("class") || "").trim().split(/\s+/)[0];
-    if (cls) part += `.${cls}`;
-    parts.unshift(part);
-    node = node.parentElement;
-  }
-  return parts.join(">");
-};
-
-export const labelOf = (el: Element | null): string | undefined => {
-  const t = (el as HTMLElement | null)?.innerText || (el as HTMLElement | null)?.textContent || "";
-  const trimmed = t.replace(/\s+/g, " ").trim();
-  return trimmed ? trimmed.slice(0, 80) : undefined;
-};
 
 /**
  * Coarse device buckets keyed off CSS-pixel width. Aligns with common

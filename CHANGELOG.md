@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Runtime JavaScript errors are captured again
+
+Uncaught runtime errors never reached the dashboard. A runtime throw fires its
+`error` event on `window`, and the capture listener read that target as an
+element to find its component. That threw a `TypeError` of its own
+(`node.getAttribute is not a function`, in the browser console), and the
+original error was lost. Only unhandled promise rejections and failed resource
+loads were being recorded. Runtime errors now store with no component, and a
+failed `<img>` or `<script>` is still attributed to the component it sits in.
+
 ### Download the Design tab as a brand kit
 
 The Design tab reverse-engineers a site's design system, drift and all. A new
