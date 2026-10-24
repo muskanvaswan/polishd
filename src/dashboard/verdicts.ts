@@ -14,6 +14,14 @@
  * and strict about what it means: an entry with an unknown id or verdict is
  * reported, never guessed at.
  *
+ * The paste is untrusted text — the owner copies an agent's output back — and
+ * a dismissal's reason is replayed into every later model prompt. So only
+ * `id`, `verdict`, `reason` and `files` are read (anything else is dropped),
+ * a reason is flattened to one line and clipped, a block is capped in length,
+ * and a verdict only counts for a finding that the prompt listed and that's
+ * still in the current summary or review. The server checks the last part
+ * again (actions.ts) and takes the finding's wording from its own copy.
+ *
  * Pure, with type-only imports, so the tests exercise it directly.
  */
 import type { FixPromptFinding } from "./fix-prompt";
@@ -26,6 +34,26 @@ export interface AgentVerdict {
   verdict: VerdictKind;
   reason: string;
   files: string[];
+}
+
+/** A verdict block is one entry per finding; this is far past any real one. */
+export const MAX_VERDICTS = 20;
+/** An agent's reason, as stored: room for a sentence, not a payload. */
+export const MAX_VERDICT_REASON = 200;
+/** A pasted reply longer than this isn't read. */
+const MAX_PASTE_CHARS = 100_000;
+
+/**
+ * An agent's reason, made safe to replay: control characters and line breaks
+ * gone, whitespace collapsed, clipped to `MAX_VERDICT_REASON`.
+ */
+export function cleanVerdictReason(reason: unknown): string {
+  if (typeof reason !== "string") return "";
+  const flat = reason
+    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flat.length > MAX_VERDICT_REASON ? `${flat.slice(0, MAX_VERDICT_REASON - 1)}…` : flat;
 }
 
 export interface ParsedVerdicts {
@@ -75,6 +103,9 @@ function verdictKind(v: unknown): VerdictKind | null {
 /** Read the verdict block out of whatever the agent replied. */
 export function parseVerdicts(text: string): ParsedVerdicts {
   const problems: string[] = [];
+  if (text.length > MAX_PASTE_CHARS) {
+    return { verdicts: [], problems: ["That's too long to be a verdict block — paste just the JSON list."] };
+  }
   // The last block that reads as verdicts; failing that, the last array at all,
   // so a malformed block is reported rather than missed.
   const arrays = [...fencedBlocks(text), text].map(arrayIn).filter((a) => a !== null);
@@ -88,8 +119,11 @@ export function parseVerdicts(text: string): ParsedVerdicts {
     };
   }
 
+  if (entries.length > MAX_VERDICTS) {
+    problems.push(`Only the first ${MAX_VERDICTS} entries are read.`);
+  }
   const byId = new Map<string, AgentVerdict>();
-  entries.forEach((raw, i) => {
+  entries.slice(0, MAX_VERDICTS).forEach((raw, i) => {
     const entry = (raw ?? {}) as Record<string, unknown>;
     const label = `Entry ${i + 1}`;
     const id = typeof entry.id === "string" ? entry.id.trim().toUpperCase() : "";
@@ -103,12 +137,16 @@ export function parseVerdicts(text: string): ParsedVerdicts {
       return;
     }
     if (byId.has(id)) problems.push(`${id} appears twice; the last one is used.`);
+    // Only these four fields are read; anything else the agent added is dropped.
     byId.set(id, {
       id,
       verdict,
-      reason: typeof entry.reason === "string" ? entry.reason.replace(/\s+/g, " ").trim() : "",
+      reason: cleanVerdictReason(entry.reason),
       files: Array.isArray(entry.files)
-        ? entry.files.filter((f): f is string => typeof f === "string" && f.trim().length > 0)
+        ? entry.files
+            .filter((f): f is string => typeof f === "string" && /^[\w@~.()[\]/-]{1,200}$/.test(f.trim()))
+            .map((f) => f.trim())
+            .slice(0, 10)
         : [],
     });
   });
@@ -119,30 +157,42 @@ export function parseVerdicts(text: string): ParsedVerdicts {
 export type VerdictPlan =
   | { verdict: AgentVerdict; finding: FixPromptFinding; action: "dismiss"; reason: string }
   | { verdict: AgentVerdict; finding: FixPromptFinding; action: "none" }
+  /** The finding was listed, but is no longer in the summary or review (ignored, or regenerated away). */
+  | { verdict: AgentVerdict; finding: FixPromptFinding; action: "gone" }
+  /** No finding had this id in the prompt. */
   | { verdict: AgentVerdict; action: "unknown" };
 
 /**
  * The reason a dismissal is stored with. It's replayed to the model on every
- * later review, so it says who decided and why.
+ * later review, so it says who decided and why — and nothing else: the files
+ * stay out, since they're for the person reading the preview, not the model.
  */
-export function dismissalReason(v: AgentVerdict): string {
-  const what = v.verdict === "not_real" ? "Not real" : "Deliberate";
-  const why = v.reason ? `: ${v.reason}` : "";
-  const files = v.files.length ? ` (${v.files.slice(0, 3).join(", ")})` : "";
-  return `${what}, per the coding agent${why}${files}`;
+export function dismissalReason(verdict: "not_real" | "deliberate", reason: string): string {
+  const what = verdict === "not_real" ? "Not real" : "Deliberate";
+  const why = cleanVerdictReason(reason);
+  return `${what}, per the coding agent${why ? `: ${why}` : ""}`;
 }
 
+const sameFinding = (a: FixPromptFinding, b: FixPromptFinding) =>
+  a.source === b.source && a.evidence.trim() === b.evidence.trim();
+
 /**
- * Match verdicts to the findings the prompt listed. `findings` must be the
- * numbering the agent saw: the prompt as it was copied, not as it would read
- * now, since an ignore or a regenerate in between renumbers it.
+ * Match verdicts to findings. `seen` is the numbering the agent saw — the
+ * prompt as it was copied, since an ignore or a regenerate in between
+ * renumbers it — and `current` is what the summary and review hold now. A
+ * verdict counts only for a finding in both.
  */
-export function planVerdicts(verdicts: AgentVerdict[], findings: FixPromptFinding[]): VerdictPlan[] {
-  const byId = new Map(findings.map((f) => [f.id, f]));
+export function planVerdicts(
+  verdicts: AgentVerdict[],
+  seen: FixPromptFinding[],
+  current: FixPromptFinding[] = seen,
+): VerdictPlan[] {
+  const byId = new Map(seen.map((f) => [f.id, f]));
   return verdicts.map((verdict): VerdictPlan => {
     const finding = byId.get(verdict.id);
     if (!finding) return { verdict, action: "unknown" };
+    if (!current.some((c) => sameFinding(c, finding))) return { verdict, finding, action: "gone" };
     if (verdict.verdict === "fixed") return { verdict, finding, action: "none" };
-    return { verdict, finding, action: "dismiss", reason: dismissalReason(verdict) };
+    return { verdict, finding, action: "dismiss", reason: dismissalReason(verdict.verdict, verdict.reason) };
   });
 }

@@ -11,9 +11,9 @@
  * first party in the loop that can see the source.
  *
  * So each finding also carries what the agent needs to judge it: how many
- * events and sessions are behind it, how that kind of finding is detected and
- * what the detector can't see, and handles to search the source for when no
- * file was matched. The prompt says when the two reviews are far apart in time
+ * events and sessions are behind it (the loss's `signal`, filled server-side),
+ * how that kind of finding is detected and what the detector can't see, and
+ * handles to search the source for, read off the citation itself. The prompt says when the two reviews are far apart in time
  * or out of date. And it asks the agent to end with a verdict block that the
  * Overview reads back, so a finding the agent showed isn't real, or is
  * deliberate, isn't reported again.
@@ -27,7 +27,6 @@ import type {
   PolishdDesignIssue,
   PolishdDesignReview,
   PolishdLossItem,
-  PolishdLossSignal,
   PolishdSummary,
 } from "../ai/types";
 
@@ -281,25 +280,27 @@ const DETECTION: Record<FindingKind, { name: string; line: string }> = {
 
 const KIND_ORDER: FindingKind[] = ["dead-click", "rage-click", "error", "page", "engagement", "design"];
 
-/** What kind of finding a loss is: from its signal, narrowed by what its text says. */
+/** Which detector a `signal.kind` names: `dead_click`, `rage-click`, `js_error`… */
+function signalKind(kind: string): FindingKind | null {
+  const k = kind.toLowerCase();
+  if (/dead/.test(k)) return "dead-click";
+  if (/rage/.test(k)) return "rage-click";
+  if (/error|exception/.test(k)) return "error";
+  if (/scroll|page/.test(k)) return "page";
+  if (/view|engage|monitor|component|hover/.test(k)) return "engagement";
+  return null;
+}
+
+/** What kind of finding a loss is: its signal's, or failing that, what its text says. */
 function lossKinds(loss: PolishdLossItem): FindingKind[] {
+  const fromSignal = loss.signal ? signalKind(loss.signal.kind) : null;
+  if (fromSignal) return [fromSignal];
   const text = loss.issue.toLowerCase();
   const said: FindingKind[] = [];
   if (/dead[- ]?clicks?/.test(text)) said.push("dead-click");
   if (/rage[- ]?clicks?/.test(text)) said.push("rage-click");
   if (/\b(errors?|exceptions?|throws?|crash(es)?)\b/.test(text)) said.push("error");
-
-  const s = loss.signal;
-  if (!s) return said;
-  if (s.kind === "error") return ["error"];
-  if (s.kind === "page") return ["page"];
-  const seen: FindingKind[] = [];
-  if ((s.deadClicks ?? 0) > 0) seen.push("dead-click");
-  if ((s.rageClicks ?? 0) > 0) seen.push("rage-click");
-  const both = seen.filter((k) => said.includes(k));
-  if (both.length) return both;
-  if (seen.length) return seen;
-  return s.kind === "component" ? ["engagement"] : said;
+  return said;
 }
 
 function detectionSection(kinds: Set<FindingKind>): string[] {
@@ -314,33 +315,28 @@ function detectionSection(kinds: Set<FindingKind>): string[] {
 
 // ── Volumes and search handles ───────────────────────────────────────────────
 
-/** The counts behind a loss, as one line, or null when it carries none. */
-function volume(s: PolishdLossSignal): string | null {
-  const from = s.sessions !== undefined ? ` from ${plural(s.sessions, "session")}` : "";
-  const on = s.pages !== undefined && s.pages > 0 ? `, on ${plural(s.pages, "page")}` : "";
-  if (s.kind === "error") {
-    if (s.occurrences === undefined) return null;
-    const where = s.paths?.length ? `, on ${s.paths.map(code).join(", ")}` : "";
-    return `${plural(s.occurrences, "occurrence")}${where}`;
-  }
-  if (s.kind === "page") {
-    const parts = [
-      s.sessions !== undefined && plural(s.sessions, "session"),
-      s.pageViews !== undefined && plural(s.pageViews, "page view"),
-      s.rageClicks && plural(s.rageClicks, "rage click"),
-      s.deadClicks && plural(s.deadClicks, "dead click"),
-      s.jsErrors && plural(s.jsErrors, "JS error"),
-      s.scrollDepth !== undefined && `${s.scrollDepth}% average scroll depth`,
-    ].filter(Boolean);
-    return parts.length ? parts.join(" · ") : null;
-  }
-  const counts = [
-    s.deadClicks && plural(s.deadClicks, "dead click"),
-    s.rageClicks && plural(s.rageClicks, "rage click"),
-    s.clicks && plural(s.clicks, "working click"),
-  ].filter(Boolean);
-  if (counts.length === 0) return null;
-  return `${counts.join(" · ")}${from}${on}`;
+/** `dead_click` → "dead click"/"dead clicks"; a JS error keeps its capitals. */
+function kindNoun(kind: string, count: number): string {
+  const words = kind
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\bjs\b/i, "JS")
+    .replace(/s$/, "");
+  return count === 1 ? words : `${words}s`;
+}
+
+/** Pages, three at most, then how many more. */
+function pageList(pages: string[]): string {
+  const shown = pages.slice(0, 3).map(code).join(", ");
+  return pages.length > 3 ? `${shown} and ${pages.length - 3} more` : shown;
+}
+
+/** The count behind a loss, as one line: "23 dead clicks across 9 sessions on `/pricing`". */
+function volume(s: NonNullable<PolishdLossItem["signal"]>): string | null {
+  if (!s.kind?.trim() || !Number.isFinite(s.count)) return null;
+  const sessions = Number.isFinite(s.sessions) ? ` across ${plural(s.sessions, "session")}` : "";
+  const pages = s.pages?.length ? ` on ${pageList(s.pages)}` : "";
+  return `${n(s.count)} ${kindNoun(s.kind, s.count)}${sessions}${pages}`;
 }
 
 /** Tailwind-style utilities and generated class names: everywhere, so useless to search for. */
@@ -374,30 +370,38 @@ function textHandle(text: string): string {
   return t.length > 60 ? `text starting ${code(t.slice(0, 60).trimEnd())}` : `the text ${code(t)}`;
 }
 
-/** What to grep for to find the code behind a loss, beyond its citation. */
+/** A CSS selector as the capture writes it: `div.card>span`, `button#buy`. */
+const SELECTOR = /^[a-z][a-z0-9-]*(?:[.#][^\s>.#]+)*(?:\s*>\s*[a-z][a-z0-9-]*(?:[.#][^\s>.#]+)*)*$/i;
+/** A component name: one identifier with a hyphen or an inner capital. */
+const COMPONENT = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)+|[A-Za-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+)$/;
+
+/**
+ * What to grep for to find the code behind a loss, beyond its citation. The
+ * citation is copied from the digest, so its shape says what it is: a page
+ * path names a route file, a selector its ids and meaningful classes, a
+ * component name its `data-component`, anything else the element's visible
+ * text, which is how the digest labels an element that has some.
+ */
 function lossHandles(loss: PolishdLossItem): string[] {
-  const s = loss.signal;
-  if (!s) return [];
-  const out: string[] = [];
-  if (s.component) out.push(code(`data-component="${s.component}"`));
-  if (s.kind === "page") {
-    const path = loss.evidence.trim();
-    const route = path === "/" ? "app/page.*" : `app${path.replace(/\/$/, "")}/page.*`;
-    out.push(`the route's page file, ${code(route)} (allow for route groups and [dynamic] segments)`);
+  const evidence = loss.evidence.trim();
+  if (!evidence) return [];
+  if (evidence.startsWith("/") && !/\s/.test(evidence)) {
+    const route = evidence === "/" ? "app/page.*" : `app${evidence.replace(/\/$/, "")}/page.*`;
+    return [`the route's page file, ${code(route)} (allow for route groups and [dynamic] segments)`];
   }
-  if (s.kind === "error") {
+  if (COMPONENT.test(evidence)) return [code(`data-component="${evidence}"`)];
+  if (SELECTOR.test(evidence) && /[.#>]/.test(evidence)) return selectorHandles(evidence);
+  if (lossKinds(loss).includes("error")) {
     // The message names what threw: a property, a function, a module.
-    for (const m of loss.evidence.matchAll(/'([A-Za-z_$][\w$.]*)'|\b([a-z]+[A-Z][\w$]*)\b/g)) {
+    const names: string[] = [];
+    for (const m of evidence.matchAll(/'([A-Za-z_$][\w$.]*)'|\b([a-z]+[A-Z][\w$]*)\b/g)) {
       const name = m[1] ?? m[2];
-      if (name && !out.some((h) => h.includes(name))) out.push(code(name));
-      if (out.length >= 3) break;
+      if (name && !names.includes(name)) names.push(name);
     }
+    return names.slice(0, 3).map(code);
   }
-  if (s.text && s.text.trim().toLowerCase() !== loss.evidence.trim().toLowerCase()) {
-    out.push(textHandle(s.text));
-  }
-  if (s.selector) out.push(...selectorHandles(s.selector));
-  return out;
+  // Prose that isn't a selector: the element's visible label.
+  return /\s/.test(evidence) ? [textHandle(evidence)] : [];
 }
 
 /** px and hex values in a design citation, with each px size's rem spelling. */
@@ -429,7 +433,7 @@ function analyticsSection(summary: PolishdSummary, kinds: Set<FindingKind>): str
     ...keepList(summary.wins),
     "### Problems to fix",
     "",
-    "Evidence is a selector, component name or page path from the captured analytics. Volume is what the analytics held for it when the summary was generated. Source is the file Polishd matched it to, where it found one.",
+    "Evidence is a selector, component name, label or page path from the captured analytics. Volume is the count behind it when the summary was generated. Source is the file Polishd matched it to, where it found one.",
     "",
   ];
   losses.forEach((loss, i) => {

@@ -10,21 +10,19 @@ were behind a finding, couldn't find the element when no file was matched, and
 didn't know the design review was 70 days older than the analytics. Prompts
 now carry:
 
-- **Volume.** Each analytics problem lists the counts behind it when the
-  summary was generated: *14 dead clicks from 9 sessions, on 2 pages*, or a
-  page's sessions, views, friction and scroll depth, or an error's occurrences
-  and pages. The element stats now count the distinct sessions with a rage or
-  dead click on each element to support this.
+- **Volume.** Each analytics problem shows the count behind it when the
+  summary recorded one: *23 dead clicks across 9 sessions on `/pricing`*.
 - **How it was detected, and the blind spot.** One line per kind of finding
   present. A dead click is a click on something with no interactive tag, role
   or inline `onclick`, so a `div` with a React `onClick` counts as one; the
   agent is told to check for a handler first. Rage clicks, JS errors,
   page-level signals, component engagement and design measurements have
   lines of their own.
-- **Search handles.** Beyond the selector: the element's `data-component`
-  name, its visible text, its meaningful class names (utility and generated
-  classes are skipped; a CSS-module class names its `.module.*` file), or a
-  page's route file. Design values are listed in px and rem.
+- **Search handles.** Read off the citation: a component name's
+  `data-component`, a label's visible text, a selector's meaningful class
+  names and ids (utility and generated classes are skipped; a CSS-module
+  class names its `.module.*` file), or a page's route file. Design values
+  are listed in px and rem.
 - **How current it is.** A note up front when the two reviews are two weeks
   or more apart, when either is a month old, or when the data has changed
   since a review was generated.
@@ -38,13 +36,20 @@ now carry:
 shown against the finding it refers to, matched by the prompt as last copied,
 and findings marked `not_real` or `deliberate` are ignored with the agent's
 reason. Before, the agent's "left it, it's deliberate" stayed in its chat and
-the next review reported the same thing again.
+the next review reported the same thing again. The paste is untrusted input:
+only `id`, `verdict`, `reason` and `files` are read, a verdict counts only
+for a finding still in the current summary or review (checked again on the
+server, which takes the finding's wording from its own copy), reasons are
+flattened and clipped to 200 characters, and blocks are capped at 20 entries.
+Dismissal reasons, the owner's and the agent's alike, are now quoted in later
+prompts as notes about the site, never instructions.
 
 Design review issues now have the **Ignore** control the summary's losses
 have: an ignored issue leaves every later review, its reason is replayed into
-the review prompt, and the cached review is marked stale. Dismissals are keyed
-by the values the evidence cites, so "15px and 17px" and "17px/15px" are the
-same issue.
+the review prompt, and the cached review is marked stale. The model rewords
+design evidence on every regenerate, so a dismissal is keyed by the colors the
+evidence cites (or, without colors, its sizes, then its pages): "#444444 on
+#0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A" are the same issue.
 
 ### The design review stops redesigning the site
 
@@ -56,13 +61,16 @@ It now judges the site's own system on its own terms, raises at most three
 issues and none for a coherent system, and fixes outliers with values the site
 already uses.
 
-Its suggestions are also checked once parsed. One that would remove a value
-the same review lists as a strength is withheld, with the reason shown on the
-card and in the fix prompt. That covers naming it as the value to collapse or
-replace, and proposing a scale that spans it but skips it. A review once
-praised 22px and 28px headings, then proposed a 12/14/16/20/24px scale.
-Suggestions that propose a new scale or palette are withheld too. A value a
-suggestion introduces that the site doesn't render yet is labelled as new.
+Its suggestions are also checked once parsed. One that clearly removes a
+value the same review lists as a strength is withheld, with the reason shown
+on the card and in the fix prompt. That covers naming it as the value to
+collapse or replace, and proposing a scale that spans it but skips it. A
+review once praised 22px and 28px headings, then proposed a 12/14/16/20/24px
+scale. The check is deliberately narrow: only values written with a unit or
+`#` count as praised, the strength and the suggestion must be about the same
+kind of value, and an ordinary fix such as 9px → 10px is never touched. A
+value a suggestion introduces that the site doesn't render yet is labelled as
+new.
 
 ### Runtime JavaScript errors are captured again
 

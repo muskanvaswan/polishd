@@ -270,6 +270,7 @@ export default function OverviewPanel({
       {pasting && (
         <VerdictImport
           findings={copied.size > 0 ? [...copied.values()] : fixPromptFindings(input, "all")}
+          current={fixPromptFindings(input, "all")}
           fromCopy={copied.size > 0}
           onRecorded={onVerdictsRecorded}
           onClose={() => setPasting(false)}
@@ -534,12 +535,15 @@ const VERDICT_LABEL: Record<VerdictKind, string> = {
  */
 function VerdictImport({
   findings,
+  current,
   fromCopy,
   onRecorded,
   onClose,
 }: {
   /** The findings the verdict ids refer to. */
   findings: FixPromptFinding[];
+  /** The findings the cards hold now; a verdict for anything else is skipped. */
+  current: FixPromptFinding[];
   /** True when they're the prompt as last copied, not as it would read now. */
   fromCopy: boolean;
   onRecorded: (recorded: { finding: FixPromptFinding; ignored: PolishdIgnoredLoss }[]) => void;
@@ -551,30 +555,39 @@ function VerdictImport({
   const [pending, start] = useTransition();
 
   const parsed = useMemo(() => parseVerdicts(text), [text]);
-  const plans = useMemo(() => planVerdicts(parsed.verdicts, findings), [parsed, findings]);
+  const plans = useMemo(
+    () => planVerdicts(parsed.verdicts, findings, current),
+    [parsed, findings, current],
+  );
   const toRecord = plans.filter((p) => p.action === "dismiss");
 
   const record = () =>
     start(async () => {
       setError(null);
+      // Only the citation, verdict and reason travel; the server looks the
+      // finding up itself and writes the stored reason.
       const res = await recordVerdictsAction(
         toRecord.map((p) => ({
           source: p.finding.source,
-          issue: p.finding.issue,
           evidence: p.finding.evidence,
-          reason: p.reason,
+          verdict: p.verdict.verdict as "not_real" | "deliberate",
+          reason: p.verdict.reason,
         })),
       );
       if (!res.ok) {
         setError(res.message);
         return;
       }
-      // Recorded in order, stopping at the first write the store refused.
-      onRecorded(res.recorded.map((r, i) => ({ finding: toRecord[i].finding, ignored: r.ignored })));
+      onRecorded(
+        res.recorded.flatMap((r) => {
+          const plan = toRecord.find((p) => p.finding.source === r.source && p.finding.evidence === r.evidence);
+          return plan ? [{ finding: plan.finding, ignored: r.ignored }] : [];
+        }),
+      );
       const missed = toRecord.length - res.recorded.length;
       setDone(
         `Ignored ${res.recorded.length} ${res.recorded.length === 1 ? "finding" : "findings"} with the agent's reasons — they're out of the next prompt and won't be reported again.` +
-          (missed > 0 ? ` ${missed} couldn't be saved; try again.` : ""),
+          (missed > 0 ? ` ${missed} weren't saved: no longer in the current review, or the store refused the write.` : ""),
       );
       setText("");
     });
@@ -618,6 +631,13 @@ function VerdictImport({
               <span className="min-w-0">
                 {p.action === "unknown" ? (
                   <span className="text-amber-400">No finding with this id in the prompt — skipped.</span>
+                ) : p.action === "gone" ? (
+                  <>
+                    {p.finding.issue}
+                    <span className="block text-[11px] text-amber-400">
+                      No longer in the current review (ignored, or regenerated away) — skipped.
+                    </span>
+                  </>
                 ) : (
                   <>
                     {p.finding.issue}

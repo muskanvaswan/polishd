@@ -94,7 +94,11 @@ test("the full prompt carries both halves, every finding, and the site context",
   assert.match(prompt, /Source: `src\/components\/PlanToggle\.tsx`/);
   assert.match(prompt, /Tracked in: https:\/\/github\.com\/acme\/site\/issues\/12 \(#12\)/);
   assert.match(prompt, /\*\*A2\.\*\* Feature cards look clickable/);
-  assert.match(prompt, /Source: not matched to a file — search the codebase/);
+  // Unmatched, but its selector holds a class to search for.
+  assert.match(
+    prompt,
+    /  - Search for: class `feature-card`\n  - Source: not matched to a file — start from the evidence and the handles above/,
+  );
 
   assert.match(prompt, /\*\*D1\.\*\* Body text uses two near-identical sizes\./);
   assert.match(prompt, /Suggested fix: Collapse 15px into the 16px body size\./);
@@ -146,7 +150,11 @@ test("evidence containing backticks stays one code span", () => {
       losses: [{ issue: "Odd selector.", evidence: "a[title=`x`]", verified: false }],
     },
   };
-  assert.match(buildFixPrompt(odd, "analytics")!, /Evidence: `` a\[title=`x`\] ``/);
+  const prompt = buildFixPrompt(odd, "analytics")!;
+  assert.match(prompt, /Evidence: `` a\[title=`x`\] ``/);
+  // Nothing to derive a handle from: the plain instruction stands.
+  assert.match(prompt, /  - Source: not matched to a file — search the codebase for the evidence/);
+  assert.doesNotMatch(prompt, /Search for:/);
 });
 
 test("reviews far apart in time, or old, or behind their data, say so up front", () => {
@@ -189,48 +197,49 @@ test("an analytics finding carries its volume, kind and search handles", () => {
       losses: [
         {
           issue: "Feature cards look clickable but aren't.",
-          evidence: "div.feature-card>span",
+          evidence: "div.feature-card>span.flex",
           verified: false,
-          signal: {
-            kind: "element",
-            clicks: 0,
-            rageClicks: 0,
-            deadClicks: 14,
-            sessions: 9,
-            pages: 2,
-            selector: "div.feature-card>span.flex",
-            text: "Compare plans",
-          },
+          signal: { kind: "dead_click", count: 23, sessions: 9, pages: ["/~polishd/analytics"] },
         },
         {
-          issue: "Visitors abandon the pricing page.",
-          evidence: "/pricing",
-          verified: false,
-          signal: { kind: "page", sessions: 600, pageViews: 900, deadClicks: 20, scrollDepth: 41 },
-        },
-        {
-          issue: "The plan toggle draws rage clicks.",
+          issue: "Visitors hammer the plan toggle.",
           evidence: "plan-toggle",
           location: "src/components/PlanToggle.tsx",
           verified: true,
-          signal: { kind: "component", clicks: 210, rageClicks: 31, deadClicks: 0, sessions: 1, component: "plan-toggle" },
+          signal: { kind: "rage_click", count: 1, sessions: 1, pages: ["/pricing", "/", "/plans", "/compare"] },
+        },
+        {
+          issue: "The pricing page loses visitors.",
+          evidence: "/pricing",
+          verified: false,
+        },
+        {
+          issue: "Nobody clicks the comparison link.",
+          evidence: "Compare plans side by side",
+          verified: false,
         },
       ],
     },
   };
   const prompt = buildFixPrompt(withSignals, "analytics")!;
 
-  assert.match(prompt, /\*\*A1\.\*\* Feature cards[^\n]*\n  - Evidence: `div\.feature-card>span`\n  - Kind: dead click\n  - Volume: 14 dead clicks from 9 sessions, on 2 pages\n/);
-  // Utility classes aren't handles; the visible text and the real class are.
-  assert.match(prompt, /  - Search for: the text `Compare plans` · class `feature-card`\n/);
-  assert.match(prompt, /  - Source: not matched to a file — start from the evidence and the handles above/);
+  assert.match(
+    prompt,
+    /\*\*A1\.\*\* Feature cards[^\n]*\n  - Evidence: `div\.feature-card>span\.flex`\n  - Kind: dead click\n  - Volume: 23 dead clicks across 9 sessions on `\/~polishd\/analytics`\n/,
+  );
+  // Utility classes aren't handles; the real class is.
+  assert.match(prompt, /  - Search for: class `feature-card`\n  - Source: not matched to a file — start from the evidence and the handles above/);
 
-  assert.match(prompt, /  - Kind: page-level signal\n  - Volume: 600 sessions · 900 page views · 20 dead clicks · 41% average scroll depth/);
-  assert.match(prompt, /the route's page file, `app\/pricing\/page\.\*`/);
+  assert.match(
+    prompt,
+    /  - Kind: rage click\n  - Volume: 1 rage click across 1 session on `\/pricing`, `\/`, `\/plans` and 1 more\n  - Search for: `data-component="plan-toggle"`\n  - Source: `src\/components\/PlanToggle\.tsx`/,
+  );
 
-  assert.match(prompt, /  - Kind: rage click\n  - Volume: 31 rage clicks · 210 working clicks from 1 session/);
-  assert.match(prompt, /  - Search for: `data-component="plan-toggle"`/);
-  assert.match(prompt, /  - Source: `src\/components\/PlanToggle\.tsx`/);
+  // No signal, no volume line — and the citation's shape still gives handles.
+  const a3 = prompt.slice(prompt.indexOf("**A3.**"), prompt.indexOf("**A4.**"));
+  assert.doesNotMatch(a3, /Volume:/);
+  assert.match(a3, /the route's page file, `app\/pricing\/page\.\*`/);
+  assert.match(prompt, /\*\*A4\.\*\*[^\n]*\n  - Evidence: [^\n]*\n  - Search for: the text `Compare plans side by side`/);
 });
 
 test("each kind of finding present gets one line on how it was detected and its blind spot", () => {

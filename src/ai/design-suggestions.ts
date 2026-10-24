@@ -8,17 +8,20 @@
  * praised, which a coding agent will then carry out faithfully. The prompt
  * asks for better; this checks the reply once it's parsed:
  *
- *   - A suggestion that removes a value the same review lists under strengths
- *     is withheld, with the reason. It can remove one by naming it as the thing
- *     to collapse, replace or drop, or by proposing a scale that spans it but
- *     skips it (12/14/16/20/24px has no room for a praised 22px).
- *   - A suggestion that proposes a new scale or palette (a list of three or
- *     more values, two of them ones the site doesn't use) is withheld too.
- *   - Any other value a suggestion names that the metrics don't contain is
- *     reported as new, so no one mistakes it for a value the site already has.
+ *   - A suggestion that clearly removes a value the same review lists under
+ *     strengths is withheld, with the reason. "Clearly" means it names the
+ *     value as the thing to collapse, replace or drop, or proposes a scale
+ *     that spans the value but skips it (12/14/16/20/24px has no room for a
+ *     praised 22px), and the strength and the suggestion are about the same
+ *     kind of value. Nothing else is withheld.
+ *   - Any value a kept suggestion names that the metrics don't contain is
+ *     reported as new, so no one mistakes it for a value the site already
+ *     has. A suggestion that's mostly new values reads as the redesign it is.
  *
- * The issue survives a withheld suggestion: the problem can be real when the
- * fix isn't.
+ * Extraction from strengths is conservative: only values written with a unit
+ * or a `#` count, since a strength is prose and a stray number in it is not a
+ * value the review praised. The issue survives a withheld suggestion: the
+ * problem can be real when the fix isn't.
  *
  * Pure, with type-only imports, so the tests exercise it directly.
  */
@@ -99,11 +102,11 @@ interface RawToken {
 /**
  * Every px and hex value in `text`. A unit written once at the end of a list
  * covers the list (`12/14/16px` is three px values), but not anything after
- * it (`16px/400` is a size and a weight). A list with no unit at all counts
- * as px when it looks like a scale: three or more whole numbers between 4 and
- * 200 that aren't all font weights.
+ * it (`16px/400` is a size and a weight). With `bareScales`, a list with no
+ * unit at all counts as px when it looks like a scale: three or more whole
+ * numbers between 4 and 200 that aren't all font weights.
  */
-export function valueMentions(text: string): ValueMention[] {
+export function valueMentions(text: string, { bareScales = true } = {}): ValueMention[] {
   const tokens: RawToken[] = [];
   for (const m of text.matchAll(TOKEN)) {
     const start = m.index ?? 0;
@@ -152,6 +155,7 @@ export function valueMentions(text: string): ValueMention[] {
       members = list.slice(0, lastPx + 1);
     } else {
       const scaleLike =
+        bareScales &&
         list.length >= 3 &&
         list.every((t) => Number.isInteger(t.value) && t.value >= 4 && t.value <= 200) &&
         !list.every((t) => t.value % 100 === 0);
@@ -240,7 +244,7 @@ function praisedValues(strengths: string[], known: KnownDesignValues): Praised[]
   const out: Praised[] = [];
   for (const s of strengths) {
     const sentenceKind = kindOf(s);
-    for (const m of valueMentions(s)) {
+    for (const m of valueMentions(s, { bareScales: false })) {
       out.push({
         key: m.key,
         unit: m.unit,
@@ -293,10 +297,9 @@ export function checkSuggestion(
     }
   }
 
-  // 2. Proposing a scale or palette: one that skips a praised value inside its
-  //    own range, or one the site mostly doesn't use. Only a px scale can skip
-  //    a value — colors have no order, and a list of text colors that leaves
-  //    out the praised background isn't removing it.
+  // 2. Proposing a scale that skips a praised value inside its own range.
+  //    Only a px scale can skip a value — colors have no order, and a list of
+  //    text colors that leaves out the praised background isn't removing it.
   const byList = new Map<number, ValueMention[]>();
   for (const m of mentions) {
     if (isSource(m)) continue;
@@ -332,12 +335,6 @@ export function checkSuggestion(
         withheld: `it proposes ${listText(members)} and leaves out ${left.key}, which this review lists as a strength`,
       };
     }
-    const fresh = members.filter((m) => !isKnown(m, kind, known));
-    if (fresh.length >= 2) {
-      return {
-        withheld: `it proposes a new ${unit === "hex" ? "palette" : "scale"} (${listText(members)}) instead of reusing the site's values`,
-      };
-    }
   }
 
   // 3. Kept: say which values it would introduce.
@@ -354,16 +351,33 @@ export function checkSuggestion(
 const PATH = /(?<![\w/])\/[\w\-./[\]]*/g;
 
 /**
- * The key a dismissed design issue is filed under: the values and page paths
- * its evidence cites, in order, so "15px and 17px" and "17px/15px" are the
- * same dismissal. Evidence with no values falls back to its own text.
+ * The key a dismissed design issue is filed under. Design evidence is free
+ * text the model rewrites on every regenerate — "#444444 on #0a0a0a (2.03:1
+ * contrast at 11px)" comes back as "low-contrast #444 text on #0A0A0A" — so
+ * the key is the set of values it cites, not its wording.
+ *
+ * Which values: the colors, when it cites any, since a color issue is about
+ * its colors and the size or page it mentions in passing comes and goes
+ * between rewrites. Otherwise its px values; otherwise its page paths;
+ * otherwise, with nothing to normalize, the text itself. Ratios and counts
+ * never count: they're derived, and reworded freely.
  */
 export function designEvidenceKey(evidence: string): string {
-  const parts = new Set<string>();
-  for (const m of valueMentions(evidence)) parts.add(m.key);
+  const mentions = valueMentions(evidence);
+  const colors = new Set(mentions.filter((m) => m.unit === "hex").map((m) => m.key));
+  if (colors.size) return [...colors].sort().join(" ");
+  const sizes = new Set(mentions.filter((m) => m.unit === "px").map((m) => m.key));
+  if (sizes.size) return [...sizes].sort().join(" ");
+  const paths = new Set<string>();
   for (const m of evidence.matchAll(PATH)) {
     const path = m[0].replace(/[.,]+$/, "");
-    if (path.length > 1 || evidence.trim() === "/") parts.add(path.toLowerCase());
+    if (path.length > 1 || evidence.trim() === "/") paths.add(path.toLowerCase());
   }
-  return parts.size ? [...parts].sort().join(" ") : evidence.trim().toLowerCase();
+  if (paths.size) return [...paths].sort().join(" ");
+  return evidence.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Whether a design issue was already dismissed, under any rewording of its evidence. */
+export function isDismissedDesignIssue(evidence: string, dismissedKeys: ReadonlySet<string>): boolean {
+  return dismissedKeys.size > 0 && dismissedKeys.has(designEvidenceKey(evidence));
 }

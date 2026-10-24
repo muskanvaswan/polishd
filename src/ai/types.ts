@@ -127,49 +127,15 @@ export interface PolishdLossItem {
   location?: string;
   /** True when the citation was matched to a file in the codebase. */
   verified: boolean;
-  /** What the analytics held for the cited target when the summary was generated. */
-  signal?: PolishdLossSignal;
+  /**
+   * The aggregated count behind the citation, filled server-side when the
+   * summary is generated: how many events of `kind`, across how many
+   * sessions, on which pages. Absent on older summaries.
+   */
+  signal?: { kind: string; count: number; sessions: number; pages: string[] };
   /** GitHub issue filed for this problem (manually or automatically). */
   issueUrl?: string;
   issueNumber?: number;
-}
-
-/**
- * The row of the analytics a loss's citation names, read when the summary was
- * generated: the counts behind the claim, and the handles a coding agent can
- * search the source for. Lets the agent weigh "14 dead clicks from 9 sessions"
- * differently from "14 dead clicks from one visitor", and find the element
- * when no file was matched. Absent when the citation names no single row (a
- * loss about the site as a whole), and on summaries from older versions.
- */
-export interface PolishdLossSignal {
-  /** Which part of the analytics the citation names. */
-  kind: "element" | "component" | "page" | "error";
-  clicks?: number;
-  rageClicks?: number;
-  deadClicks?: number;
-  jsErrors?: number;
-  /** Times the error was recorded. */
-  occurrences?: number;
-  /**
-   * Distinct sessions behind the counts. For an element, the sessions with a
-   * rage or dead click on it; for a page, the sessions that viewed it; for a
-   * component, the sessions that interacted with it.
-   */
-  sessions?: number;
-  pageViews?: number;
-  /** Distinct pages it was seen on. */
-  pages?: number;
-  /** Average scroll depth on a page, 0–100, where it was measured. */
-  scrollDepth?: number;
-  /** The DOM selector the capture recorded. */
-  selector?: string;
-  /** Its visible text, as captured. */
-  text?: string;
-  /** Its `data-component` name. */
-  component?: string;
-  /** Pages an error was seen on, most recent first. */
-  paths?: string[];
 }
 
 /**
@@ -205,20 +171,29 @@ export type IgnoreLossResult =
 export type UnignoreLossResult = { ok: true } | { ok: false; message: string };
 
 /**
- * One finding to dismiss from a coding agent's verdict block: which review it
- * came from, and the finding as the prompt stated it.
+ * One finding to dismiss from a coding agent's verdict block. Only the
+ * citation, verdict and reason travel: the server looks the finding up in the
+ * current summary or review by its citation, and takes the problem's wording
+ * from there, so a pasted block can't put text of its own into later prompts
+ * beyond the bounded reason.
  */
 export interface PolishdVerdictDismissal {
   source: "analytics" | "design";
-  issue: string;
   evidence: string;
-  /** The verdict and the agent's reason, as it'll be replayed to the model. */
+  verdict: "not_real" | "deliberate";
+  /** The agent's reason, as it wrote it. Sanitized and clipped server-side. */
   reason: string;
 }
 
 /** Result of recording a verdict block's dismissals. */
 export type RecordVerdictsResult =
-  | { ok: true; recorded: { source: "analytics" | "design"; ignored: PolishdIgnoredLoss }[] }
+  | {
+      ok: true;
+      /** Each dismissal stored, with the citation it was sent under. */
+      recorded: { source: "analytics" | "design"; evidence: string; ignored: PolishdIgnoredLoss }[];
+      /** Verdicts whose finding isn't in the current summary or review. */
+      skipped: number;
+    }
   | { ok: false; message: string };
 
 /** A generated narrative summary, cached in the store. */

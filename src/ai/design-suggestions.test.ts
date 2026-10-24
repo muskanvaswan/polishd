@@ -13,13 +13,14 @@ import { test } from "node:test";
 import {
   checkSuggestion,
   designEvidenceKey,
+  isDismissedDesignIssue,
   kindOf,
   valueMentions,
   type KnownDesignValues,
 } from "./design-suggestions.ts";
 
 const known: KnownDesignValues = {
-  type: new Set(["12px", "14px", "15px", "16px", "17px", "22px", "28px"]),
+  type: new Set(["9px", "10px", "12px", "14px", "15px", "16px", "17px", "22px", "28px"]),
   radius: new Set(["8px", "9999px"]),
   spacing: new Set(["8px", "16px", "24px"]),
   color: new Set(["#0a0a0a", "#ffffff", "#888888", "#e4e4e4"]),
@@ -123,9 +124,38 @@ test("a praised value of a different kind doesn't block an unrelated scale", () 
   assert.ok(out.suggestion);
 });
 
-test("a scale or palette the site mostly doesn't use is withheld as a redesign", () => {
+test("a legitimate outlier fix is kept, even next to praised values of its kind", () => {
+  const strengths = [
+    "Consistent 10px captions and 12px labels across every page.",
+    "Headings hold to 22px and 28px.",
+  ];
+  for (const suggestion of [
+    "9px → 10px",
+    "Bump the one-off 9px label to the 10px caption size.",
+    "Move the 9px badge text onto the existing 10px caption style.",
+  ]) {
+    const out = checkSuggestion("A 9px label is a one-off.", suggestion, strengths, known);
+    assert.equal(out.withheld, undefined, suggestion);
+    assert.equal(out.suggestion, suggestion);
+    assert.equal(out.newValues, undefined, suggestion);
+  }
+});
+
+test("strengths only praise values written as values", () => {
+  // Bare numbers in a strength are prose, not praised sizes.
+  const out = checkSuggestion(
+    "Type sizes are loose.",
+    "Use a 12/14/16/24px type scale.",
+    ["A tidy 16, 20 and 22 rhythm in headings, 3 families at most."],
+    known,
+  );
+  assert.equal(out.withheld, undefined);
+});
+
+test("a scale or palette the site mostly doesn't use is flagged, not dropped", () => {
   const scale = checkSuggestion("Type sizes are loose.", "Adopt a 13/18/21/26px type ramp.", [], known);
-  assert.match(scale.withheld!, /new scale \(13\/18\/21\/26px\)/);
+  assert.equal(scale.withheld, undefined);
+  assert.deepEqual(scale.newValues, ["13px", "18px", "21px", "26px"]);
 
   const palette = checkSuggestion(
     "Grays drift.",
@@ -133,7 +163,8 @@ test("a scale or palette the site mostly doesn't use is withheld as a redesign",
     [],
     known,
   );
-  assert.match(palette.withheld!, /new palette/);
+  assert.equal(palette.withheld, undefined);
+  assert.deepEqual(palette.newValues, ["#111111", "#333333", "#555555", "#777777"]);
 });
 
 test("a kept suggestion reports any value the site doesn't render yet", () => {
@@ -152,8 +183,21 @@ test("a kept suggestion reports any value the site doesn't render yet", () => {
 });
 
 test("design dismissals key on the values cited, not their wording", () => {
-  assert.equal(designEvidenceKey("15px and 17px"), designEvidenceKey("17px / 15px"));
-  assert.equal(designEvidenceKey("#FFF on /pricing"), "#ffffff /pricing");
+  assert.equal(designEvidenceKey("15px and 17px"), designEvidenceKey("17px / 15px on /blog"));
+  assert.equal(designEvidenceKey("#FFF on /pricing"), "#ffffff");
+  assert.equal(designEvidenceKey("/pricing and /about"), "/about /pricing");
   assert.notEqual(designEvidenceKey("#888 on #0a0a0a"), designEvidenceKey("#888"));
-  assert.equal(designEvidenceKey("  Inconsistent Icons "), "inconsistent icons");
+  assert.equal(designEvidenceKey("  Inconsistent   Icons "), "inconsistent icons");
+});
+
+test("a dismissed design issue is still recognised when a regenerate rewords it", () => {
+  const dismissed = new Set([
+    designEvidenceKey("#444444 on #0a0a0a (2.03:1 contrast at 11px) and #555555 on #0a0a0a (2.6:1 at 12px)"),
+  ]);
+  // Same colors, new wording: shorthand hex, other case, ratios and sizes dropped.
+  assert.ok(isDismissedDesignIssue("Low-contrast captions: #555 and #444 text on #0A0A0A", dismissed));
+  assert.ok(isDismissedDesignIssue("#0a0a0a background under #444444 / #555555 copy at 11px", dismissed));
+  // A different pairing is a different issue.
+  assert.ok(!isDismissedDesignIssue("#444444 on #ffffff (9.7:1)", dismissed));
+  assert.ok(!isDismissedDesignIssue("#444444 on #0a0a0a", new Set()));
 });

@@ -28,7 +28,6 @@ import {
   withoutIgnored,
 } from "./ignored";
 import { attachGithubIssues } from "./issues";
-import { lossSignal } from "./loss-signal";
 import { callModel } from "./providers";
 import { coverageGaps, loadProjectProfile } from "./profile";
 import { collectTargeted, findInSource } from "./scan";
@@ -148,15 +147,13 @@ function citationTokens(s: string): string[] {
 /**
  * Hold losses to their evidence bar. A loss survives only if its citation
  * actually appears in the prompt we sent (so it can't be invented), and is
- * then matched to a source file when the codebase is on disk, and to the row
- * of the analytics it names — the counts and handles the fix prompt passes on.
- * Anything the owner has dismissed is dropped here, before the cap — so a
- * dismissal frees its slot for the next real problem instead of leaving a gap.
+ * then matched to a source file when the codebase is on disk. Anything the
+ * owner has dismissed is dropped here, before the cap — so a dismissal frees
+ * its slot for the next real problem instead of leaving a gap.
  */
 function verifyLosses(
   raw: RawLoss[],
   promptText: string,
-  data: PolishdDashboardData,
   sourceDirs: string | undefined,
   ignored: Set<string>,
 ): PolishdLossItem[] {
@@ -175,7 +172,6 @@ function verifyLosses(
       evidence,
       location: location ?? undefined,
       verified: location !== null,
-      signal: lossSignal(evidence, data),
     });
     if (out.length >= 4) break;
   }
@@ -325,7 +321,7 @@ export async function generateSummary(
   // Link losses to their GitHub issues — filing new ones when the owner
   // enabled auto-filing, attaching already-filed ones either way.
   const losses = await attachGithubIssues(
-    verifyLosses(parsed.losses, grounding, data, settings.sourceDirs, ignoredKeys(ignored)),
+    verifyLosses(parsed.losses, grounding, settings.sourceDirs, ignoredKeys(ignored)),
   );
   const summary: PolishdSummary = {
     text: parsed.story,

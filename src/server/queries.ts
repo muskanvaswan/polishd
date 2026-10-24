@@ -134,8 +134,6 @@ export interface ElementStat {
   clicks: number;
   rageClicks: number;
   deadClicks: number;
-  /** Distinct sessions with a rage or dead click on this element. */
-  frictionSessions: number;
   /** Composite score; higher = worse. */
   score: number;
   /** Client timestamp of the most recent interaction with this element, ms. */
@@ -549,8 +547,6 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
        SUM(CASE WHEN type = 'click'      THEN 1 ELSE 0 END)             AS clicks,
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)             AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)             AS "deadClicks",
-       COUNT(DISTINCT CASE WHEN type IN ('rage_click', 'dead_click')
-                           THEN session_id END)                         AS "frictionSessions",
        MAX(ts)                                                          AS "lastTs"
      FROM ${polishdEventsSource()}
      WHERE type IN ('click', 'rage_click', 'dead_click') AND component IS NULL
@@ -570,7 +566,6 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
         clicks,
         rageClicks,
         deadClicks,
-        frictionSessions: num(r, "frictionSessions"),
         score: Math.round((rageClicks * 3 + deadClicks * 2) * 10) / 10,
         lastInteraction: num(r, "lastTs"),
       };

@@ -313,11 +313,12 @@ its half. A prompt carries:
 - every problem, labelled `A1`, `D1`…, with the evidence it was found from,
   the source file it was matched to, the suggested fix, and the GitHub issue
   already filed for it. An analytics problem also carries the volume behind it
-  (*14 dead clicks from 9 sessions, on 2 pages*) and handles to search the
-  source for: its `data-component` name, its visible text, its meaningful
-  class names, or the route's page file. A design problem names its values in
-  px and rem, says which values its fix would introduce, and says when
-  Polishd withheld the model's fix (see [Design review](#design-review));
+  when the summary recorded one (*23 dead clicks across 9 sessions on
+  `/pricing`*), and handles to search the source for, read off its citation:
+  a `data-component` name, the element's visible text, its meaningful class
+  names, or the route's page file. A design problem names its values in px
+  and rem, says which values its fix would introduce, and says when Polishd
+  withheld the model's fix (see [Design review](#design-review));
 - one line per kind of finding on how it was detected and what that detector
   can't see. A dead click, for example, is a click on something with no
   interactive tag or role, so a `div` with a React `onClick` counts as one; the
@@ -338,7 +339,11 @@ Findings it marked `not_real` or `deliberate` are then ignored with its
 reasons, exactly as if you had clicked **Ignore** on each card, so the next
 review doesn't report them again. Ids are matched against the prompt as you
 last copied it, since ignoring or regenerating in between renumbers the
-problems.
+problems, and a verdict only counts for a finding still in the current
+summary or review. The paste is treated as untrusted: only the id, verdict,
+reason and files are read, the reason is flattened to one line and clipped,
+the problem's wording comes from Polishd's own copy, and later prompts quote
+the reason as a note about the site, never as an instruction.
 
 ## AI summary
 
@@ -501,12 +506,15 @@ cite a token that actually appears in the metrics (a hex value, a px size, a
 page path), and its fix should move the outlier onto a value the site already
 uses.
 
-Its fixes are then checked against the review itself. A fix that would remove
-a value the same review praised (a review that admires 22px and 28px headings,
-then proposes a 12/14/16/20/24px type scale), or that proposes a new scale or
-palette, is withheld and the card says why. Any value a fix introduces that the
-site doesn't render yet is labelled new. Issues can be ignored like the
-summary's losses, with a reason the model reads on every later review. It
+Its fixes are then checked against the review itself. A fix that clearly
+removes a value the same review praised is withheld, and the card says why:
+one that names the value as the thing to collapse or replace, or a review
+that admires 22px and 28px headings, then proposes a 12/14/16/20/24px type
+scale. Nothing else is withheld. Any value a fix introduces that the site
+doesn't render yet is labelled new. Issues can be ignored like the summary's
+losses, with a reason the model reads on every later review; the dismissal
+holds when a regenerate rewords the evidence, as long as it cites the same
+colors (or, without colors, the same sizes). It
 follows the summary's token-thrift rules: the
 model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
