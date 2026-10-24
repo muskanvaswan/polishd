@@ -1055,11 +1055,6 @@ export interface PolishdDashboardData {
   journeys: Awaited<ReturnType<typeof getSessionJourneys>>;
   errors: Awaited<ReturnType<typeof getRecentErrors>>;
   monitored: Awaited<ReturnType<typeof getMonitoredComponents>>;
-  /**
-   * Rage clicks, dead clicks and errors folded per target, with sessions,
-   * pages and capture context. Read by the AI layer, not the tables.
-   */
-  friction: FrictionIndex;
 }
 
 /**
@@ -1084,7 +1079,6 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     journeys,
     errors,
     monitored,
-    friction,
   ] = await Promise.all([
     getOverview(),
     getCaptureHealth(),
@@ -1096,7 +1090,6 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     getSessionJourneys(6),
     getRecentErrors(20),
     getMonitoredComponents(),
-    getFriction(),
   ]);
   return {
     overview,
@@ -1109,7 +1102,6 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     journeys,
     errors,
     monitored,
-    friction,
   };
 }
 
@@ -1173,23 +1165,23 @@ const FRICTION_ROW_CAP = 10_000;
 /**
  * Rage clicks, dead clicks and errors, folded per element, component, page
  * and error message — with distinct sessions, the pages each happened on, and
- * the context capture attached (`meta.near` on a dead click; `meta.digest`,
- * `frame`, `after`, `afterMs` on an error). See friction.ts.
+ * the context capture attached (`meta.near`, `meta.handle`; on an error
+ * `digest`, `frame`, `after`, `afterMs`, `afterSelector`). See friction.ts.
  *
- * One grouped query: events of one kind, on one page, target and session
- * collapse to a row. Only dead clicks and errors are also split by `meta`;
- * a rage click's meta says nothing the index reads. Past the row cap the
- * most recent friction wins, and the index says it was capped.
+ * Deliberately not part of `loadPolishdDashboardData`: only the AI summary
+ * reads it, so it runs when a summary is generated, never on a dashboard
+ * render. One grouped query — events of one kind, on one page, target,
+ * session and meta collapse to a row. Past the row cap the most recent
+ * friction wins, and the index says it was capped.
  */
 export async function getFriction(): Promise<FrictionIndex> {
   if (!(await storeReady())) return EMPTY_FRICTION;
-  const metaExpr = `CASE WHEN type = 'rage_click' THEN NULL ELSE meta END`;
   const rows = await query(
-    `SELECT type, path, selector, component, session_id, ${metaExpr} AS meta,
+    `SELECT type, path, selector, component, session_id, meta,
             MAX(text) AS text, COUNT(*) AS n, MAX(id) AS last_id
      FROM ${polishdEventsSource()}
      WHERE type IN ('rage_click', 'dead_click', 'js_error')
-     GROUP BY type, path, selector, component, session_id, ${metaExpr}
+     GROUP BY type, path, selector, component, session_id, meta
      ORDER BY last_id DESC LIMIT ?`,
     [FRICTION_ROW_CAP + 1],
   );

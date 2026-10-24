@@ -25,7 +25,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { readGithubBlobs, readGithubTree, type GithubTree } from "./github";
+import {
+  readGithubBlobs,
+  readGithubTree,
+  type GithubRequestOptions,
+  type GithubTree,
+} from "./github";
 import {
   EMPTY_SCAN,
   MATCH_MAX_FILE_BYTES,
@@ -33,6 +38,7 @@ import {
   ROOT_DOCS,
   appRootCandidates,
   buildScan,
+  collectMatchReads,
   chooseRoots,
   clipFile,
   fingerprintOf,
@@ -156,13 +162,14 @@ async function repoAppRoot(
   tree: GithubTree,
   shaOf: Map<string, string>,
   known?: string,
+  request?: GithubRequestOptions,
 ): Promise<string> {
   const candidates = appRootCandidates(tree.files.map((f) => f.path));
   if (known !== undefined && candidates.includes(known)) return known;
   if (candidates.length <= 1) return candidates[0] ?? "";
   const manifestPath = (dir: string) => (dir ? `${dir}/package.json` : "package.json");
   const checked = candidates.slice(0, MAX_MANIFEST_READS);
-  const blobs = await readGithubBlobs(checked.map((dir) => shaOf.get(manifestPath(dir))!));
+  const blobs = await readGithubBlobs(checked.map((dir) => shaOf.get(manifestPath(dir))!), request);
   return pickAppRoot(checked, (dir) => blobs.get(shaOf.get(manifestPath(dir))!));
 }
 
@@ -237,36 +244,57 @@ export interface SourceSnapshot {
   files: string[];
   /** File contents, or null when unread (over budget) or unreadable. */
   read: (path: string) => string | null;
-  /** True when some files weren't read (GitHub, over budget). */
+  /**
+   * True when some code that should have been searched couldn't be read (over
+   * the GitHub budget, a failed or timed-out request): a single content match
+   * is then not proof of a unique one.
+   */
   partial: boolean;
 }
 
-/** The source on disk, read lazily and once per file, or null when there is none. */
+/**
+ * The source on disk, read lazily and once per file, or null when there is
+ * none. Sizes are taken up front: files over the cap are never searched (by
+ * policy, as on GitHub), and one that can't even be stat'ed makes the
+ * snapshot partial.
+ */
 export function diskSnapshot(sourceDirs?: string): SourceSnapshot | null {
   const projectRoot = process.cwd();
   const roots = resolveRoots(projectRoot, sourceDirs);
   if (!roots.length) return null;
   const files = [...new Set(listFiles(projectRoot, roots).map((abs) => relative(projectRoot, abs)))];
   if (!files.length) return null;
+  const searchable = new Set<string>();
+  let partial = false;
+  for (const f of files) {
+    try {
+      if (statSync(join(projectRoot, f)).size <= MATCH_MAX_FILE_BYTES) searchable.add(f);
+    } catch {
+      partial = true; // raced deletion, unreadable
+    }
+  }
   const cache = new Map<string, string | null>();
   return {
     origin: "disk",
     files,
-    partial: false,
+    partial,
     read: (path) => {
+      if (!searchable.has(path)) return null;
       if (cache.has(path)) return cache.get(path)!;
       let text: string | null = null;
       try {
-        const abs = join(projectRoot, path);
-        if (statSync(abs).size <= MATCH_MAX_FILE_BYTES) text = readFileSync(abs, "utf8");
+        text = readFileSync(join(projectRoot, path), "utf8");
       } catch {
-        /* raced deletion, unreadable — no content */
+        /* vanished since the listing — no content */
       }
       cache.set(path, text);
       return text;
     },
   };
 }
+
+/** One request while matching: short, since the whole match has a budget. */
+const MATCH_REQUEST_TIMEOUT_MS = 5_000;
 
 /**
  * The connected repo's code, for matching, or null when it isn't connected
@@ -280,34 +308,38 @@ export function diskSnapshot(sourceDirs?: string): SourceSnapshot | null {
  */
 export async function githubSnapshot(
   sourceDirs: string | undefined,
-  opts: { hints?: string[]; knownRoot?: string; readContent?: boolean } = {},
+  opts: {
+    hints?: string[];
+    knownRoot?: string;
+    readContent?: boolean;
+    /** The caller's overall budget; reads still pending when it fires go unread. */
+    signal?: AbortSignal;
+  } = {},
 ): Promise<SourceSnapshot | null> {
+  const request = { signal: opts.signal, timeoutMs: MATCH_REQUEST_TIMEOUT_MS };
   let tree: GithubTree | null;
+  let root: string;
   try {
-    tree = await readGithubTree();
+    tree = await readGithubTree(request);
+    if (!tree) return null;
+    root = await repoAppRoot(tree, new Map(tree.files.map((f) => [f.path, f.sha])), opts.knownRoot, request);
   } catch {
     return null; // a matching enrichment never fails the summary
   }
-  if (!tree) return null;
-
   const shaOf = new Map(tree.files.map((f) => [f.path, f.sha]));
-  const root = await repoAppRoot(tree, shaOf, opts.knownRoot);
   const prefix = root ? `${root}/` : "";
   const { code } = repoCandidates(tree.files, root, sourceDirs);
   if (!code.length) return null;
   const files = code.map((f) => prefix + f.path);
 
-  const content = new Map<string, string>();
+  let content = new Map<string, string>();
   let partial = false;
   if (opts.readContent !== false) {
     const plan = planMatchReads(code, opts.hints ?? []);
-    partial = plan.partial;
     const reads = plan.reads.map((f) => prefix + f.path);
-    const blobs = await readGithubBlobs(reads.map((p) => shaOf.get(p)!));
-    for (const p of reads) {
-      const text = blobs.get(shaOf.get(p)!);
-      if (text !== undefined) content.set(p, text);
-    }
+    const blobs = await readGithubBlobs(reads.map((p) => shaOf.get(p)!), request);
+    // A read that failed or ran out of time is as unread as one never planned.
+    ({ content, partial } = collectMatchReads(reads, (p) => blobs.get(shaOf.get(p)!), plan.partial));
   }
   return {
     origin: "github",

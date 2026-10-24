@@ -33,7 +33,7 @@ export interface FrictionRow {
   /** A sample of the target's visible text, when it had any. */
   text: string | null;
   session: string;
-  /** Parsed meta; only dead clicks and errors carry any worth reading. */
+  /** Parsed meta (`near`, `handle`, the error fields), when the event had any. */
   meta?: Record<string, unknown> | null;
   /** How many events the row stands for. */
   n: number;
@@ -69,6 +69,11 @@ export interface ClickFriction {
    * clients, or clicks with no control nearby.
    */
   near: { label: string; count: number }[];
+  /**
+   * The greppable selector path capture recorded for the target
+   * (`meta.handle`), the most frequent one. Absent from older clients.
+   */
+  handle?: string;
 }
 
 /** Friction on one page, per kind. */
@@ -92,6 +97,10 @@ export interface ErrorFriction {
    * with how many throws followed it and the median gap between them.
    */
   after?: { label: string; count: number; medianMs?: number };
+  /** Selector of that preceding interaction (`meta.afterSelector`), most recent. */
+  afterSelector?: string;
+  /** Greppable selector path for the throw site (`meta.handle`), most frequent. */
+  handle?: string;
 }
 
 export interface FrictionIndex {
@@ -168,6 +177,17 @@ function ranked(counts: Map<string, number>, max: number): { label: string; coun
     .map(([label, count]) => ({ label, count }));
 }
 
+/** Count a row's `meta.handle`, when capture recorded one. */
+function tallyHandle(handles: Map<string, number>, row: FrictionRow): void {
+  const h = metaString(row.meta, "handle", 200);
+  if (h) handles.set(h, (handles.get(h) ?? 0) + row.n);
+}
+
+const topHandle = (handles: Map<string, number>): { handle?: string } => {
+  const [top] = ranked(handles, 1);
+  return top ? { handle: top.label } : {};
+};
+
 /**
  * Fold the grouped friction rows into per-target tallies.
  *
@@ -185,6 +205,7 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
       dead: Acc;
       rage: Acc;
       near: Map<string, number>;
+      handles: Map<string, number>;
     }
   >();
   const pages = new Map<string, { dead: Acc; rage: Acc; error: Acc }>();
@@ -194,8 +215,10 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
       tally: Acc;
       digest?: string;
       frame?: string;
+      afterSelector?: string;
       after: Map<string, number>;
       afterMs: Map<string, number[]>;
+      handles: Map<string, number>;
     }
   >();
 
@@ -211,10 +234,17 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
       const raw = row.meta?.message;
       const message = typeof raw === "string" && raw ? raw : "Unknown error";
       let e = errors.get(message);
-      if (!e) errors.set(message, (e = { tally: acc(), after: new Map(), afterMs: new Map() }));
+      if (!e) {
+        errors.set(
+          message,
+          (e = { tally: acc(), after: new Map(), afterMs: new Map(), handles: new Map() }),
+        );
+      }
       add(e.tally, row);
       e.digest ??= metaString(row.meta, "digest", 80);
       e.frame ??= metaString(row.meta, "frame", 160);
+      e.afterSelector ??= metaString(row.meta, "afterSelector", 160);
+      tallyHandle(e.handles, row);
       const after = metaString(row.meta, "after", 80);
       if (after) {
         e.after.set(after, (e.after.get(after) ?? 0) + row.n);
@@ -238,12 +268,21 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
     if (!c) {
       clicks.set(
         mapKey,
-        (c = { by, selector: row.selector, text: row.text, dead: acc(), rage: acc(), near: new Map() }),
+        (c = {
+          by,
+          selector: row.selector,
+          text: row.text,
+          dead: acc(),
+          rage: acc(),
+          near: new Map(),
+          handles: new Map(),
+        }),
       );
     }
     c.selector ??= row.selector;
     c.text ??= row.text;
     add(c[kind], row);
+    tallyHandle(c.handles, row);
     if (kind === "dead") {
       const near = metaString(row.meta, "near", 80);
       if (near) c.near.set(near, (c.near.get(near) ?? 0) + row.n);
@@ -260,6 +299,7 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
         dead: finish(c.dead),
         rage: finish(c.rage),
         near: ranked(c.near, MAX_NEAR),
+        ...topHandle(c.handles),
       }))
       .sort((a, b) => b.dead.count + b.rage.count - (a.dead.count + a.rage.count)),
     pages: [...pages.entries()].map(([path, p]) => ({
@@ -276,6 +316,8 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
         tally: finish(e.tally),
         ...(e.digest ? { digest: e.digest } : {}),
         ...(e.frame ? { frame: e.frame } : {}),
+        ...(e.afterSelector ? { afterSelector: e.afterSelector } : {}),
+        ...topHandle(e.handles),
         ...(top
           ? { after: { ...top, ...(medianMs !== undefined ? { medianMs } : {}) } }
           : {}),

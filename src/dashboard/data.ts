@@ -18,7 +18,6 @@ import {
   getCaptureHealth,
   getDeviceBreakdown,
   getElementStats,
-  getFriction,
   getMetricTrends,
   getMonitoredComponents,
   getOverview,
@@ -52,7 +51,6 @@ export const loadTopUsed = swept(() => getTopInteractions(12));
 export const loadJourneys = swept(() => getSessionJourneys(6));
 export const loadErrors = swept(() => getRecentErrors(20));
 export const loadMonitored = swept(getMonitoredComponents);
-export const loadFriction = swept(getFriction);
 
 /**
  * The full analytics payload, assembled from the same cached parts the
@@ -71,7 +69,6 @@ export const loadDashboardData = cache(async (): Promise<PolishdDashboardData> =
     journeys,
     errors,
     monitored,
-    friction,
   ] = await Promise.all([
     loadOverview(),
     loadHealth(),
@@ -83,7 +80,6 @@ export const loadDashboardData = cache(async (): Promise<PolishdDashboardData> =
     loadJourneys(),
     loadErrors(),
     loadMonitored(),
-    loadFriction(),
   ]);
   return {
     overview,
@@ -96,6 +92,5 @@ export const loadDashboardData = cache(async (): Promise<PolishdDashboardData> =
     journeys,
     errors,
     monitored,
-    friction,
   };
 });

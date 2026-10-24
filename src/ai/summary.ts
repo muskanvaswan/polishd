@@ -17,8 +17,22 @@
  *   4. The system prompt is tight and the output is capped to a paragraph.
  */
 import { getMeta, setMeta } from "../server/store";
-import { loadPolishdDashboardData, type PolishdDashboardData } from "../server/queries";
-import { buildDigest, fingerprintDigest } from "./digest";
+import type { FrictionIndex } from "../server/friction";
+import {
+  getFriction,
+  loadPolishdDashboardData,
+  type PolishdDashboardData,
+} from "../server/queries";
+import { settleWithin } from "./deadline";
+import {
+  buildDigest,
+  citedInPrompt,
+  citedTarget,
+  digestParts,
+  fingerprintDigest,
+  lossSignal,
+  type DigestTarget,
+} from "./digest";
 import {
   ignoreKey,
   ignoredFingerprint,
@@ -31,7 +45,6 @@ import { attachGithubIssues } from "./issues";
 import { callModel } from "./providers";
 import { coverageGaps, loadProjectProfile } from "./profile";
 import { collectTargeted, diskSnapshot, githubSnapshot, type SourceSnapshot } from "./scan";
-import { lossSignal } from "./signal";
 import { knownNames, matchSource, sourceNeedles, type Needle } from "./source-match";
 import { resolveSettings } from "./settings";
 import type {
@@ -80,13 +93,14 @@ const SYSTEM_PROMPT =
   "identifier means.\n\n" +
   "How each signal is detected, and what it cannot see — read every number " +
   "through this:\n" +
-  "- Dead click: a click on an element that carries no interactive marker in " +
-  "the DOM (no link, button or form-control tag, interactive ARIA role, or " +
-  "onclick attribute on it or a few ancestors up), excluding clicks on text " +
-  "being read or selected. It is a structural guess, not an observed failure. " +
-  "Handlers a framework attaches (React's onClick and the like) leave no such " +
-  "marker, so a drawer or modal backdrop that closes on click, an overlay, or " +
-  "a clickable card all count as dead even when the click worked. A dead click " +
+  "- Dead click: a click on something that isn't recognisably a control (no " +
+  "link, button or form-control tag, interactive ARIA role or click handler " +
+  "on it or a few ancestors up) and isn't text being read or selected. " +
+  "Depending on the capture version it was also checked for a response — " +
+  "counted only if nothing on the page changed within about a second — or " +
+  "not, in which case it is a structural guess: a drawer or modal backdrop " +
+  "that closes on click, an overlay, or a clickable card whose handler the " +
+  "DOM doesn't show can all be counted even though the click worked. A dead click " +
   "on a wrapper, bar or row next to a small control is a near miss — the user " +
   "aimed for the control and hit beside it — which points at a small hit " +
   "target, not a broken control. Where the digest says dead clicks landed " +
@@ -97,7 +111,8 @@ const SYSTEM_PROMPT =
   "- Element labels are the clicked element's visible text — for a wrapper " +
   "that includes its children's text, so a label naming a button on a dead " +
   "click usually means the click landed on the wrapper around or beside the " +
-  "button. <tag.class> shows what was actually clicked.\n" +
+  "button. <tag.class> shows what was actually clicked; a handle, where " +
+  "shown, is a selector path to it. Numbers in labels may appear as #.\n" +
   "- Scroll depth is only measured where there is meaningful room to scroll; " +
   "a page or component with no scroll figure fit on one screen — treat that " +
   "as no signal, never as disengagement, and don't celebrate 100% scroll on " +
@@ -167,21 +182,47 @@ function parseStructured(text: string): { story: string; wins: string[]; losses:
   return { story: text.trim(), wins: [], losses: [] };
 }
 
-/**
- * Tokens of a citation, for checking it appears in the prompt we sent. Loose
- * on purpose — `div.fixed` is a fine thing to cite — because all it decides
- * is whether the model made the citation up. Matching it to a source file is
- * a stricter job (source-match.ts).
- */
-function groundingTokens(s: string): string[] {
-  return s
-    .toLowerCase()
-    .split(/[^\w/-]+/)
-    .filter((t) => t.length >= 4 && !/^(button|input|click|clicks|page|pages|http|https|with|from|that)$/.test(t));
-}
-
 /** The longest a loss list gets. */
 const MAX_LOSSES = 4;
+
+/**
+ * How long matching losses to source files may take, every request included.
+ * It runs after the paid model call, so it must never be what a host timeout
+ * cuts off: past this, losses are kept unmatched.
+ */
+const MATCH_BUDGET_MS = 8_000;
+
+/**
+ * Hold losses to their evidence bar. A loss survives only if its citation
+ * actually appears in the prompt we sent (so it can't be invented) — a
+ * token of it, or, for a label too short to have one, an exact copy of a
+ * label the digest printed. Anything the owner has dismissed is dropped here,
+ * before the cap — so a dismissal frees its slot for the next real problem
+ * instead of leaving a gap.
+ *
+ * Survivors carry the `signal` of the digest line they cite. They're not yet
+ * matched to source (`verified: false`); `matchLosses` does that.
+ */
+function groundLosses(
+  raw: RawLoss[],
+  promptText: string,
+  targets: DigestTarget[],
+  ignored: Set<string>,
+): PolishdLossItem[] {
+  const kept: PolishdLossItem[] = [];
+  for (const l of raw) {
+    if (typeof l.issue !== "string" || !l.issue.trim()) continue;
+    const evidence = typeof l.evidence === "string" ? l.evidence.trim() : "";
+    if (!evidence) continue; // no citation, no loss
+    if (ignored.has(ignoreKey(evidence))) continue; // reviewed and dismissed
+    if (!citedInPrompt(evidence, promptText, targets)) continue; // not in the data we sent
+    const issue = l.issue.trim();
+    const signal = lossSignal(evidence, issue, targets);
+    kept.push({ issue, evidence, verified: false, ...(signal ? { signal } : {}) });
+    if (kept.length >= MAX_LOSSES) break;
+  }
+  return kept;
+}
 
 /**
  * Where a summary's losses get matched to files: the disk when the source is
@@ -193,6 +234,7 @@ async function matchSnapshot(
   needles: Needle[][],
   sourceDirs: string | undefined,
   profile: PolishdProjectProfile | null,
+  signal: AbortSignal,
 ): Promise<SourceSnapshot | null> {
   const all = needles.flat();
   if (!all.length) return null;
@@ -202,59 +244,46 @@ async function matchSnapshot(
     hints: all.filter((n) => n.kind === "component" || n.kind === "identifier").map((n) => n.value),
     knownRoot: profile?.github?.root,
     readContent: all.some((n) => n.kind !== "route"),
+    signal,
   });
 }
 
 /**
- * Hold losses to their evidence bar. A loss survives only if its citation
- * actually appears in the prompt we sent (so it can't be invented). Anything
- * the owner has dismissed is dropped here, before the cap — so a dismissal
- * frees its slot for the next real problem instead of leaving a gap.
- *
- * Survivors are then annotated, never dropped: matched to a source file
- * (`verified` only on a single, specific match; several equal matches come
- * back as `candidates`), and given the `signal` the aggregates hold for their
- * evidence.
+ * Match each loss to the file that renders what it cites. Annotates, never
+ * drops: `verified` only on a single, specific match; several equal matches
+ * (or any content match in a repo that couldn't be read whole) come back as
+ * `candidates`. The digest line a loss cites lends its capture handle as an
+ * extra needle.
  */
-async function verifyLosses(
-  raw: RawLoss[],
-  promptText: string,
+async function matchLosses(
+  losses: PolishdLossItem[],
   data: PolishdDashboardData,
+  friction: FrictionIndex,
+  targets: DigestTarget[],
   profile: PolishdProjectProfile | null,
   sourceDirs: string | undefined,
-  ignored: Set<string>,
 ): Promise<PolishdLossItem[]> {
-  const hay = promptText.toLowerCase();
-  const kept: { issue: string; evidence: string }[] = [];
-  for (const l of raw) {
-    if (typeof l.issue !== "string" || !l.issue.trim()) continue;
-    const evidence = typeof l.evidence === "string" ? l.evidence.trim() : "";
-    if (!evidence) continue; // no citation, no loss
-    if (ignored.has(ignoreKey(evidence))) continue; // reviewed and dismissed
-    const tokens = groundingTokens(evidence);
-    if (!tokens.length || !tokens.some((t) => hay.includes(t))) continue; // not in the data we sent
-    kept.push({ issue: l.issue.trim(), evidence });
-    if (kept.length >= MAX_LOSSES) break;
-  }
-  if (!kept.length) return [];
-
-  const known = knownNames(data, profile);
-  const needles = kept.map((l) => sourceNeedles(l.evidence, known));
-  const snapshot = await matchSnapshot(needles, sourceDirs, profile);
-  return kept.map((l, i): PolishdLossItem => {
-    let match = snapshot ? matchSource(needles[i], snapshot.files, snapshot.read) : {};
-    if (snapshot?.partial && match.location && match.needle?.kind === "label") {
-      // Text is the needle most likely repeated elsewhere, and part of the
-      // repo went unread: one hit among what was read isn't the only one.
-      match = { candidates: [match.location], needle: match.needle };
-    }
-    const signal = lossSignal(l.evidence, l.issue, data);
+  if (!losses.length) return losses;
+  const known = knownNames(data, profile, friction);
+  const needles = losses.map((l) =>
+    sourceNeedles(l.evidence, known, { handle: citedTarget(l.evidence, targets)?.handle }),
+  );
+  const snapshot = await matchSnapshot(
+    needles,
+    sourceDirs,
+    profile,
+    AbortSignal.timeout(MATCH_BUDGET_MS),
+  );
+  if (!snapshot) return losses;
+  return losses.map((l, i): PolishdLossItem => {
+    const match = matchSource(needles[i], snapshot.files, snapshot.read, {
+      partial: snapshot.partial,
+    });
     return {
       ...l,
       ...(match.location ? { location: match.location } : {}),
       verified: !!match.location,
       ...(match.candidates ? { candidates: match.candidates } : {}),
-      ...(signal ? { signal } : {}),
     };
   });
 }
@@ -291,12 +320,18 @@ function fingerprintInputs(
  */
 function composePrompt(
   data: PolishdDashboardData,
+  friction: FrictionIndex,
   profile: PolishdProjectProfile | null,
   context: string | undefined,
   sourceDirs: string | undefined,
   ignored: PolishdIgnoredLoss[],
-): { user: string; grounding: string; fingerprint: string } {
-  const digest = buildDigest(data, context);
+): { user: string; grounding: string; fingerprint: string; targets: DigestTarget[] } {
+  // The prompt gets the friction context; the fingerprint is taken from the
+  // base digest, which a dashboard render can compute without loading it.
+  // Every friction event moves a count in the base digest too, so it still
+  // notices new data.
+  const { lines, targets } = digestParts(data, context, friction);
+  const digest = lines.join("\n");
   const sections: string[] = [];
 
   if (profile) {
@@ -322,7 +357,8 @@ function composePrompt(
   return {
     user: dismissed ? [...sections, dismissed, digest].join("\n\n") : grounding,
     grounding,
-    fingerprint: fingerprintInputs(digest, profile, ignored),
+    fingerprint: fingerprintInputs(buildDigest(data, context), profile, ignored),
+    targets,
   };
 }
 
@@ -351,20 +387,26 @@ export async function generateSummary(
   }
 
   const [profile, ignored] = await Promise.all([loadProjectProfile(), loadIgnoredLosses()]);
-  const { user, grounding, fingerprint } = composePrompt(
+
+  // The fingerprint needs only the base digest, so an unchanged summary is
+  // returned before the friction index is ever queried.
+  if (!opts.force) {
+    const cached = await loadSummary();
+    const current = fingerprintInputs(buildDigest(data, settings.context), profile, ignored);
+    if (cached && cached.fingerprint === current) {
+      return { ok: true, summary: cached, regenerated: false };
+    }
+  }
+
+  const friction = await getFriction();
+  const { user, grounding, fingerprint, targets } = composePrompt(
     data,
+    friction,
     profile,
     settings.context,
     settings.sourceDirs,
     ignored,
   );
-
-  if (!opts.force) {
-    const cached = await loadSummary();
-    if (cached && cached.fingerprint === fingerprint) {
-      return { ok: true, summary: cached, regenerated: false };
-    }
-  }
 
   const system = settings.instructions
     ? `${SYSTEM_PROMPT}\n\nAdditional instructions from the site owner: ${settings.instructions}`
@@ -399,28 +441,38 @@ export async function generateSummary(
   }
 
   const parsed = parseStructured(reply.text);
-  // Link losses to their GitHub issues — filing new ones when the owner
-  // enabled auto-filing, attaching already-filed ones either way.
-  const losses = await attachGithubIssues(
-    await verifyLosses(
-      parsed.losses,
-      grounding,
-      data,
-      profile,
-      settings.sourceDirs,
-      ignoredKeys(ignored),
-    ),
-  );
   const summary: PolishdSummary = {
     text: parsed.story,
     wins: parsed.wins,
-    losses,
+    losses: groundLosses(parsed.losses, grounding, targets, ignoredKeys(ignored)),
     provider: settings.provider,
     model: settings.model,
     generatedAt: Date.now(),
     fingerprint,
     usage: reply.usage,
   };
+  // The model's answer is what cost money: keep it before anything slower or
+  // fallible runs, so a host timeout during matching can't discard it.
+  await setMeta(SUMMARY_KEY, JSON.stringify(summary));
+
+  let losses = summary.losses ?? [];
+  try {
+    losses = await settleWithin(
+      matchLosses(losses, data, friction, targets, profile, settings.sourceDirs),
+      MATCH_BUDGET_MS + 2_000,
+      losses,
+    );
+  } catch {
+    /* matching is an enrichment: keep the losses unmatched */
+  }
+  // Link losses to their GitHub issues — filing new ones when the owner
+  // enabled auto-filing, attaching already-filed ones either way.
+  try {
+    losses = await attachGithubIssues(losses);
+  } catch {
+    /* keep them unlinked; the next summary tries again */
+  }
+  summary.losses = losses;
   await setMeta(SUMMARY_KEY, JSON.stringify(summary));
   return { ok: true, summary, regenerated: true };
 }

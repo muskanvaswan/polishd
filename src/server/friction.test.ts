@@ -111,3 +111,16 @@ test("the cap flag passes through; empty input is an empty index", () => {
   assert.equal(foldFriction([], true).capped, true);
   assert.deepEqual(foldFriction([]), { clicks: [], pages: [], errors: [], capped: false });
 });
+
+test("handles are kept per target and per error, most frequent first; afterSelector is pinned", () => {
+  const idx = foldFriction([
+    row({ type: "rage_click", session: "a", selector: "div.x", meta: { handle: "div#toolbar>button.export" }, n: 3 }),
+    row({ type: "dead_click", session: "b", selector: "div.x", meta: { handle: "div#toolbar>div.x" } }),
+    row({ type: "js_error", session: "c", meta: { message: "boom", handle: "div#cart>button.pay", afterSelector: "div#cart>button.pay" } }),
+  ]);
+  assert.equal(idx.clicks[0].handle, "div#toolbar>button.export");
+  assert.equal(idx.errors[0].handle, "div#cart>button.pay");
+  assert.equal(idx.errors[0].afterSelector, "div#cart>button.pay");
+  const old = foldFriction([row({ type: "dead_click", session: "a", selector: "div.x" })]);
+  assert.equal("handle" in old.clicks[0], false, "older clients: no field at all");
+});

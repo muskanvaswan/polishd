@@ -15,6 +15,7 @@ import {
   appRootCandidates,
   buildScan,
   chooseRoots,
+  collectMatchReads,
   pickAppRoot,
   planMatchReads,
   planReads,
@@ -214,11 +215,22 @@ test("files named after a cited identifier are read before anything else", () =>
   assert.ok(reads.length <= 120);
 });
 
-test("generated-size files are never read for matching, and that counts as partial", () => {
+test("generated-size files are never read for matching — by policy, not as a gap", () => {
   const { reads, partial } = planMatchReads(
     [{ path: "app/page.tsx", size: 100 }, { path: "lib/data.ts", size: 2_000_000 }],
     [],
   );
   assert.deepEqual(reads.map((r) => r.path), ["app/page.tsx"]);
+  assert.equal(partial, false);
+});
+
+test("a planned read that came back empty-handed makes the match partial", () => {
+  const planned = ["app/page.tsx", "app/pricing/page.tsx", "components/Export.tsx"];
+  const got = new Map([["app/page.tsx", "<a>Export</a>"]]); // the rest: 403, timeout, rate limit
+  const { content, partial } = collectMatchReads(planned, (p) => got.get(p), false);
+  assert.deepEqual([...content.keys()], ["app/page.tsx"]);
   assert.equal(partial, true);
+  const whole = collectMatchReads(["app/page.tsx"], (p) => got.get(p), false);
+  assert.equal(whole.partial, false);
+  assert.equal(collectMatchReads([], () => undefined, true).partial, true, "a budget cut stays partial");
 });

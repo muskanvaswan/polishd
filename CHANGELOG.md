@@ -18,19 +18,27 @@ the numbers, and say when a pattern looks like a backdrop or a near miss.
   backdrops. When capture records them, it adds where dead clicks landed and
   what came just before an error, with its stack frame and digest.
 - **Each finding carries its volume.** `signal` (event kind, count, sessions,
-  pages) is looked up in the analytics after the model answers, never taken
-  from its prose.
+  pages) is the cited digest line's own numbers, looked up after the model
+  answers and never taken from its prose. The kind follows what the finding is
+  about: a bounce on `/pricing` gets the page's views, not its one dead click.
+  A citation that could mean two lines gets no signal.
 - **Source matching stopped guessing.** It used to match any token of four
   letters or more. A backdrop cited as `div.fixed>div.absolute` was "verified"
   against whichever file first said `fixed`. Matching now searches only for
   names the author chose: component names, routes (`/pricing` →
-  `app/pricing/page.tsx`), ids and custom classes, and visible labels, numbers
-  included (`Show 9 more` finds `` `Show ${hidden} more` ``). Utility classes
-  and tag names are never matched. When several files match equally, the loss
-  lists them as `candidates` and stays unverified instead of picking one.
+  `app/pricing/page.tsx`, even when a component is also called `pricing`), ids
+  and custom classes, and visible labels, numbers included (`Show 9 more` finds
+  `` `Show ${hidden} more` ``). Short labels like "Log in" match only as exact
+  JSX text. Utility classes, tag names and comments never match. When several
+  files match equally, the loss lists them as `candidates` and stays
+  unverified instead of picking one.
 - **Matching works on Vercel.** When the source isn't on disk, findings are
-  matched against the connected GitHub repo, within a fixed read budget.
-  Before, every finding came back "not matched to source".
+  matched against the connected GitHub repo. Before, every finding came back
+  "not matched to source". The read is bounded by a file budget, a timeout on
+  each request and on the whole match. Repeat reads come from a cache keyed by
+  commit and blob. If any file couldn't be read, only routes verify. The
+  summary is saved before matching starts, so a slow repo can't cost the model's
+  answer.
 
 ### Runtime JavaScript errors are captured again
 

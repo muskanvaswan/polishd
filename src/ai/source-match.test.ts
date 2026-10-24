@@ -13,7 +13,8 @@ import { test } from "node:test";
 import {
   isUtilityClass,
   knownNames,
-  labelPattern,
+  isShortLabel,
+  labelMatches,
   matchSource,
   routeFiles,
   routeSegments,
@@ -141,14 +142,12 @@ test("knownNames gathers components, labels and paths from the data and profile"
       monitored: [{ name: "pricing-table" }],
       topUsed: [{ label: "hero-cta", isComponent: true }, { label: "a.px-3", isComponent: false }],
       pages: [{ path: "/" }],
-      friction: {
-        clicks: [{ key: "nav", by: "component", text: "Docs" }],
-        pages: [{ path: "/blog" }],
-        errors: [],
-        capped: false,
-      },
     } as never,
     { coveredIdentifiers: ["site-header"] },
+    {
+      clicks: [{ key: "nav", by: "component", text: "Docs" }],
+      pages: [{ path: "/blog" }],
+    } as never,
   );
   assert.deepEqual(known.components.sort(), ["hero-cta", "nav", "pricing-table", "site-header"]);
   assert.deepEqual(known.labels.sort(), ["Docs", "Show 9 more"]);
@@ -157,26 +156,44 @@ test("knownNames gathers components, labels and paths from the data and profile"
 
 // ── Labels ───────────────────────────────────────────────────────────────────
 
-test("a number in a label matches the expression that renders it", () => {
-  const re = labelPattern("Show 9 more")!;
-  assert.match("`Show ${hidden} more`", re);
-  assert.match(">\n  Show {items.length - 3} more\n</button>", re);
-  assert.match("'Show 9 more'", re);
-  assert.doesNotMatch("Show more", re);
+test("a number in a label — or the # capture folds it to — matches the expression that renders it", () => {
+  for (const label of ["Show 9 more", "Show # more"]) {
+    assert.equal(labelMatches(label, "`Show ${hidden} more`"), true, label);
+    assert.equal(labelMatches(label, ">\n  Show {items.length - 3} more\n</button>"), true, label);
+    assert.equal(labelMatches(label, "'Show 9 more'"), true, label);
+    assert.equal(labelMatches(label, "Show more"), false, label);
+  }
+  assert.equal(labelMatches("#", "<b>{n}</b>"), false, "nothing but a number is no text");
 });
 
 test("a whole label doesn't match a longer string that merely starts with it", () => {
-  const whole = labelPattern("Show 9 more", true)!;
-  assert.match("`Show ${hidden} more`", whole);
-  assert.doesNotMatch("`Show ${fit.hidden} more ${label} ↓`", whole);
+  assert.equal(labelMatches("Show 9 more", "`Show ${hidden} more`", true), true);
+  assert.equal(labelMatches("Show 9 more", "`Show ${fit.hidden} more ${label} ↓`", true), false);
 });
 
 test("a one-word label only matches where it's written as text", () => {
-  const re = labelPattern("Save")!;
-  assert.match("<button>Save</button>", re);
-  assert.match('{busy ? "Saving…" : "Save"}', re);
-  assert.doesNotMatch("function saveDraft() { save(); }", re);
-  assert.equal(labelPattern("OK"), null);
+  assert.equal(labelMatches("Save", "<button>Save</button>"), true);
+  assert.equal(labelMatches("Save", '{busy ? "Saving…" : "Save"}'), true);
+  assert.equal(labelMatches("Save", "function saveDraft() { save(); }"), false);
+});
+
+test("short labels match only as exact JSX text", () => {
+  for (const label of ["Log in", "Buy now", "Pay", "OK"]) assert.equal(isShortLabel(label), true, label);
+  for (const label of ["Export", "Sign up now", "Show # more"]) assert.equal(isShortLabel(label), false, label);
+  assert.equal(labelMatches("Log in", "<button>\n  Log in\n</button>"), true);
+  assert.equal(labelMatches("OK", "<Button onClick={close}>OK</Button>"), true);
+  assert.equal(labelMatches("Log in", 'const cta = "Log in";'), false, "a string isn't rendered text");
+  assert.equal(labelMatches("Pay", "<p>Pay later with Klarna</p>"), false, "part of longer text");
+  assert.equal(labelMatches("OK", "if (res.ok) return <span>{ok}</span>"), false);
+});
+
+test("in a string, a label matches case-sensitively and never an id or class value", () => {
+  assert.equal(labelMatches("Pricing", 'const tabs = ["Pricing", "Docs"]'), true);
+  assert.equal(labelMatches("Pricing", '<section id="pricing">'), false);
+  assert.equal(labelMatches("Pricing", '<section id="Pricing">'), false);
+  assert.equal(labelMatches("Pricing", '<a className="Pricing">x</a>'), false);
+  // Rendered text may be upper-cased by CSS, so JSX text still matches in any case.
+  assert.equal(labelMatches("PRICING", "<a href=\"/pricing\">Pricing</a>"), true);
 });
 
 // ── Matching ─────────────────────────────────────────────────────────────────
@@ -292,4 +309,75 @@ test("labels and names quoted in comments don't count as the element", () => {
   const m = matchSource(sourceNeedles("Show 9 more", known), files.files, files.read);
   assert.equal(m.location, "src/features.tsx");
   assert.equal(stripComments(files.read("src/notes.tsx")!).includes("https://example.com/x"), true);
+});
+
+// ── Routes beat components; partial reads don't verify ───────────────────────
+
+test("a cited path verifies to its route file, not a component sharing its name", () => {
+  const files = tree({
+    "app/pricing/page.tsx": `import { Pricing } from "../../components/Pricing";\nexport default () => <Pricing />;`,
+    "components/Pricing.tsx": `export function Pricing() { return <section data-component="pricing">…</section>; }`,
+  });
+  const known: KnownNames = { components: ["pricing"], labels: [], paths: ["/pricing"] };
+  const needles = sourceNeedles("/pricing", known);
+  assert.deepEqual(needles, [
+    { kind: "component", value: "pricing", narrowOnly: true },
+    { kind: "route", value: "/pricing" },
+  ]);
+  const m = matchSource(needles, files.files, files.read);
+  assert.equal(m.location, "app/pricing/page.tsx");
+  assert.equal(m.needle?.kind, "route");
+});
+
+test("with part of the repo unread, a single content match is a candidate, not a verification", () => {
+  const known: KnownNames = { components: ["features-more"], labels: ["Export"], paths: [] };
+  for (const evidence of ["features-more", "Export", "button.export-btn", "SignupForm"]) {
+    const files = tree({
+      "app/page.tsx": `<button className="export-btn" data-component="features-more">Export</button>; <SignupForm />`,
+    });
+    const full = matchSource(sourceNeedles(evidence, known), files.files, files.read);
+    assert.equal(full.location, "app/page.tsx", evidence);
+    const partial = matchSource(sourceNeedles(evidence, known), files.files, files.read, { partial: true });
+    assert.equal(partial.location, undefined, evidence);
+    assert.deepEqual(partial.candidates, ["app/page.tsx"], evidence);
+  }
+  // A route is decided from the complete listing, so it still verifies.
+  const routes = matchSource(sourceNeedles("/", NONE), ["app/page.tsx"], () => null, { partial: true });
+  assert.equal(routes.location, "app/page.tsx");
+});
+
+// ── Selector shapes from current capture ─────────────────────────────────────
+
+test("a data-component anchor in a selector or handle decides; an ancestor id only narrows", () => {
+  assert.deepEqual(sourceNeedles('section[data-component="hero"]>div.flex>button.px-3', NONE), [
+    { kind: "component", value: "hero" },
+  ]);
+  assert.deepEqual(sourceNeedles("div#settings>div.flex>button", NONE), [
+    { kind: "identifier", value: "settings", form: "literal", narrowOnly: true },
+  ]);
+  const files = tree({
+    "components/Hero.tsx": `<section data-component="hero"><button className="px-3">Go</button></section>`,
+    "components/Other.tsx": `<div className="px-3" />`,
+  });
+  const m = matchSource(
+    sourceNeedles("Show 9 more", NONE, { handle: 'section[data-component="hero"]>button.px-3' }),
+    files.files,
+    files.read,
+  );
+  assert.equal(m.location, "components/Hero.tsx");
+});
+
+test("variant prefixes, state classes and plugin utilities are not author names", () => {
+  for (const c of [
+    "tabular-nums", "transform-gpu", "no-scrollbar", "prose-lg", "prose-invert", "fade-in-0",
+    "zoom-in-95", "slide-in-from-top-2", "animate-in", "peer-checked", "aria-expanded",
+    "data-state", "group-hover", "is-active", "has-error", "focus-visible",
+    "peer-checked:bg-white", "aria-expanded:rotate-180", "data-[state=open]:flex",
+    "supports-[backdrop-filter]:bg-white/60", "group-hover/item:visible",
+  ]) {
+    assert.equal(isUtilityClass(c), true, c);
+  }
+  for (const c of ["filter-bar", "export-btn", "toggle-bar", "checkout-summary"]) {
+    assert.equal(isUtilityClass(c), false, c);
+  }
 });

@@ -191,8 +191,10 @@ const MATCH_MAX_BYTES = 1_500_000;
  * Which repo files to read for matching, in order, under the match budget.
  * Files named after something the citations name come first — `SignupForm`
  * is most likely defined in `SignupForm.tsx` — then any path mentioning one,
- * then the profile scan's order. `partial` says some code went unread, so a
- * single match among what was read may not be the only one in the repo.
+ * then the profile scan's order. `partial` says the budget left some code
+ * unread, so a single match among what was read may not be the only one in
+ * the repo. Files over the size cap are generated or vendored and are never
+ * searched, on disk or here; leaving them out isn't partial.
  */
 export function planMatchReads(
   code: Candidate[],
@@ -212,7 +214,7 @@ export function planMatchReads(
 
   const reads: Candidate[] = [];
   let bytes = 0;
-  let partial = ranked.length < code.length;
+  let partial = false;
   for (const { f } of ranked) {
     if (reads.length >= MATCH_MAX_FILES || bytes + f.size > MATCH_MAX_BYTES) {
       partial = true;
@@ -222,6 +224,27 @@ export function planMatchReads(
     bytes += f.size;
   }
   return { reads, partial };
+}
+
+/**
+ * The contents a match can search, from the files it planned to read and
+ * what the reads returned. `partial` if the plan left files out or any read
+ * came back empty-handed (an error, a timeout, a rate limit): one hit among
+ * what was read is then no proof it's the only one.
+ */
+export function collectMatchReads(
+  planned: string[],
+  got: (path: string) => string | undefined,
+  plannedPartial: boolean,
+): { content: Map<string, string>; partial: boolean } {
+  const content = new Map<string, string>();
+  let partial = plannedPartial;
+  for (const path of planned) {
+    const text = got(path);
+    if (text === undefined) partial = true;
+    else content.set(path, text);
+  }
+  return { content, partial };
 }
 
 /** Clip a file to the per-file cap, preferring its head (imports + exports). */

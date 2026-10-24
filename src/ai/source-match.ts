@@ -31,6 +31,7 @@
  * connected GitHub repo — see scan.ts).
  */
 
+import type { FrictionIndex } from "../server/friction";
 import type { PolishdDashboardData } from "../server/queries";
 import type { PolishdProjectProfile } from "./types";
 
@@ -71,20 +72,21 @@ export interface KnownNames {
  * elements' text.
  */
 export function knownNames(
-  data: Pick<PolishdDashboardData, "elements" | "monitored" | "topUsed" | "pages" | "friction">,
+  data: Pick<PolishdDashboardData, "elements" | "monitored" | "topUsed" | "pages">,
   profile: Pick<PolishdProjectProfile, "coveredIdentifiers"> | null,
+  friction?: Pick<FrictionIndex, "clicks" | "pages">,
 ): KnownNames {
   const components = new Set<string>(profile?.coveredIdentifiers ?? []);
   for (const m of data.monitored) components.add(m.name);
   for (const t of data.topUsed) if (t.isComponent) components.add(t.label);
   const labels = new Set<string>();
   for (const e of data.elements) if (e.sampleText?.trim()) labels.add(e.sampleText.trim());
-  for (const c of data.friction?.clicks ?? []) {
+  for (const c of friction?.clicks ?? []) {
     if (c.by === "component") components.add(c.key);
     if (c.text?.trim()) labels.add(c.text.trim());
   }
   const paths = new Set<string>(data.pages.map((p) => p.path));
-  for (const p of data.friction?.pages ?? []) paths.add(p.path);
+  for (const p of friction?.pages ?? []) paths.add(p.path);
   return { components: [...components], labels: [...labels], paths: [...paths] };
 }
 
@@ -125,7 +127,10 @@ const UTILITY_WORDS = new Set(
     "subpixel-antialiased sr-only not-sr-only prose group peer table flow-root list-item " +
     "dark light hover focus active disabled visited checked first last odd even group-hover " +
     "sm md lg xl 2xl print motion-safe motion-reduce rtl ltr placeholder file marker selection " +
-    "backdrop before after open clearfix active show fade collapsed " +
+    "backdrop before after open clearfix active show fade collapsed closed " +
+    "tabular-nums lining-nums oldstyle-nums proportional-nums slashed-zero ordinal " +
+    "diagonal-fractions stacked-fractions no-scrollbar scrollbar-hide scrollbar-none " +
+    "animate-in animate-out focus-visible focus-within forced-colors " +
     // Bootstrap's component classes — framework names, not the author's
     "nav nav-link nav-item nav-tabs nav-pills nav-fill nav-justified card card-body " +
     "card-title card-text card-header card-footer card-img-top form-control form-group " +
@@ -162,13 +167,20 @@ const UTILITY_PREFIX = new RegExp(
       // Bootstrap & co. — framework classes, not the author's names
       "d", "mx", "my", "px", "py", "fs", "fw", "lh", "btn", "navbar", "input-group", "badge",
       "alert", "dropdown", "offcanvas", "list-group", "table", "bg-gradient",
+      // variant prefixes that survive as class names (`peer-checked`, `aria-expanded`),
+      // state classes (`is-active`, `has-error`), plugin utilities
+      "peer", "group", "aria", "data", "supports", "is", "has", "not", "focus", "motion",
+      "contrast", "prose", "fade-in", "fade-out", "zoom-in", "zoom-out", "slide-in", "slide-out",
+      "spin-in", "spin-out", "scrollbar", "transform", "backface", "perspective",
+      "line", "normal", "ordinal", "tabular", "forced-color", "print", "portrait", "landscape",
     ].join("|") +
     ")-",
 );
 
 /** Is this class name a styling utility rather than a name the author chose? */
 export function isUtilityClass(token: string): boolean {
-  const t = token.replace(/^(?:[\w-]+:)+/, "").replace(/^!/, ""); // variants, !important
+  // Variants (`hover:`, `peer-checked:`, `data-[state=open]:`), then `!important`.
+  const t = token.replace(/^(?:[^:\s]+:)+/, "").replace(/^!/, "");
   if (!t) return true;
   if (UTILITY_WORDS.has(t)) return true;
   if (UTILITY_PREFIX.test(t)) return true;
@@ -231,21 +243,27 @@ function looksLikeSelector(s: string): boolean {
 }
 
 /**
- * Needles from one selector: ids and custom classes, never tags or
- * utilities. Only the clicked element's own step (the last one) can decide a
- * match; its ancestors' only narrow one.
+ * Needles from one selector path: a `[data-component="…"]` anchor, ids and
+ * custom classes — never tags or utilities. A data-component anchor decides
+ * wherever it sits (it's the component the source names, at most a few
+ * levels up); otherwise only the clicked element's own step (the last) can
+ * decide a match, and its ancestors' steps only narrow one.
  */
-function selectorNeedles(selector: string): Needle[] {
+export function selectorNeedles(selector: string): Needle[] {
   const out: Needle[] = [];
-  const segs = selector.split(/\s*>\s*|\s+/).filter(Boolean);
+  const segs = selector.split(">").map((s) => s.trim()).filter(Boolean);
   segs.forEach((seg, i) => {
     const narrowOnly = i < segs.length - 1 ? { narrowOnly: true } : {};
-    for (const m of seg.matchAll(/#([\w-]+)/g)) {
+    for (const m of seg.matchAll(/\[data-component\s*=\s*["']?([^"'\]]+)["']?\]/g)) {
+      out.push({ kind: "component", value: m[1].trim() });
+    }
+    const bare = seg.replace(/\[[^\]]*\]/g, ""); // attribute values aren't classes
+    for (const m of bare.matchAll(/#([\w-]+)/g)) {
       if (!isGeneratedId(m[1]) && m[1].length >= 4) {
         out.push({ kind: "identifier", value: m[1], form: "literal", ...narrowOnly });
       }
     }
-    for (const m of seg.matchAll(/\.([\w-]+)/g)) {
+    for (const m of bare.matchAll(/\.([\w-]+)/g)) {
       if (isDistinctiveName(m[1])) {
         out.push({ kind: "identifier", value: m[1], form: "literal", ...narrowOnly });
       }
@@ -269,18 +287,26 @@ function looksLikePhrase(s: string): boolean {
  * the evidence holds nothing an author chose — a bare utility selector like
  * `div.fixed>div.absolute` matches no file, by design.
  */
-export function sourceNeedles(evidence: string, known: KnownNames): Needle[] {
+export function sourceNeedles(
+  evidence: string,
+  known: KnownNames,
+  opts: { handle?: string } = {},
+): Needle[] {
   const e = unwrap(evidence);
   if (!e) return [];
   const ne = norm(e);
   const out: Needle[] = [];
+  // A cited page path is the route's file. A component that happens to share
+  // a path segment (`data-component="pricing"` for `/pricing`) can narrow
+  // that, never stand in for it.
+  const isPath = e.startsWith("/");
 
   // Components the analytics know, cited outright or inside a longer string.
   for (const c of known.components) {
     if (!c || c.length < 2) continue;
     const whole = new RegExp(`(?<![\\w-])${escapeRegExp(c)}(?![\\w-])`);
     if (norm(c) === ne || (c.length >= 4 && whole.test(e))) {
-      out.push({ kind: "component", value: c });
+      out.push({ kind: "component", value: c, ...(isPath ? { narrowOnly: true } : {}) });
     }
   }
 
@@ -292,8 +318,11 @@ export function sourceNeedles(evidence: string, known: KnownNames): Needle[] {
   }
 
   // Quoted text inside the citation: `button "Show 9 more"`, aria-label="Close".
-  for (const m of e.matchAll(/["“]([^"”]{2,80})["”]|=\s*'([^']{2,80})'/g)) {
-    out.push({ kind: "label", value: (m[1] ?? m[2]).trim() });
+  // Not in a selector, whose quoted values are attributes (handled below).
+  if (!looksLikeSelector(e)) {
+    for (const m of e.matchAll(/["“]([^"”]{2,80})["”]|=\s*'([^']{2,80})'/g)) {
+      out.push({ kind: "label", value: (m[1] ?? m[2]).trim() });
+    }
   }
 
   // Labels the analytics recorded, cited outright or inside the citation. The
@@ -307,7 +336,9 @@ export function sourceNeedles(evidence: string, known: KnownNames): Needle[] {
     }
   }
 
-  if (looksLikeSelector(e)) {
+  if (isPath) {
+    // A path is all it says; its words aren't identifiers or text.
+  } else if (looksLikeSelector(e)) {
     out.push(...selectorNeedles(e));
   } else {
     for (const tok of e.match(/[A-Za-z_$][\w$-]*/g) ?? []) {
@@ -321,6 +352,10 @@ export function sourceNeedles(evidence: string, known: KnownNames): Needle[] {
       out.push({ kind: "label", value: e });
     }
   }
+
+  // The greppable path capture recorded for the cited target, when it did:
+  // the same kind of needles a cited selector gives.
+  if (opts.handle) out.push(...selectorNeedles(opts.handle));
 
   return dedupe(out).sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
 }
@@ -430,35 +465,59 @@ export function routeFiles(path: string, files: string[]): string[] {
 
 // ── Content patterns ─────────────────────────────────────────────────────────
 
-/** A number in rendered text may be any expression in the source. */
+/**
+ * A number in rendered text may be any expression in the source. Capture
+ * folds digit runs to `#` in click labels ("Show # more"), so `#` is one too.
+ */
 const DYNAMIC = String.raw`(?:\d+|\{[^{}]{1,80}\}|\$\{[^{}]{1,80}\})`;
 
-/** Where written text starts and ends: a tag boundary, a quote, an expression brace. */
-const TEXT_OPEN = String.raw`(?:>|["'\x60]|\})\s*`;
-const TEXT_CLOSE = String.raw`\s*(?:<|["'\x60]|\{)`;
+/** JSX text: between a tag (or an expression) and the next one. */
+const JSX_OPEN = String.raw`(?:>|\})\s*`;
+const JSX_CLOSE = String.raw`\s*(?:<|\{)`;
 
 /**
- * Visible text as it would be written in JSX or a string. `whole` anchors it
- * at both ends — the label is the element's entire text, so `Show 9 more`
- * shouldn't find `Show {n} more {label}` — which one word always needs, or
- * "Save" would match every file with a save function.
+ * A string literal — but not an attribute value that names rather than
+ * says something (`id="pricing"`, `className="…"`, `href="#…"`).
  */
-export function labelPattern(label: string, whole = false): RegExp | null {
+const LITERAL_OPEN = String.raw`(?<!\b(?:id|className|class|key|href|src|name|type|role|htmlFor|for|rel|target|method|action|as|ref|variant|size|data-[\w-]+)\s*=\s*\{?\s*)(["'\x60])\s*`;
+const LITERAL_CLOSE = String.raw`\s*\1`;
+
+/** A label with no word of four letters or more: "Log in", "Buy now", "Pay", "OK". */
+export function isShortLabel(label: string): boolean {
+  return !label.split(/\s+/).some((w) => w.replace(/[^\p{L}]/gu, "").length >= 4);
+}
+
+/**
+ * The ways visible text can be written in the source. Rendered text can be
+ * upper-cased by CSS, so JSX text matches in any case; a string literal must
+ * match case and mustn't be an id or class value, or the label "Pricing"
+ * finds every `id="pricing"`.
+ *
+ * `whole` anchors the label at both ends — it's the element's entire text, so
+ * `Show 9 more` shouldn't find `Show {n} more {label}`. A short label is only
+ * ever matched whole and as JSX text: "Pay" in a string is anybody's word.
+ */
+export function labelPatterns(label: string, whole = false): RegExp[] {
   const words = label.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
-  if (!words.length) return null;
+  if (!words.length) return [];
+  if (!words.some((w) => /[\p{L}]/u.test(w))) return []; // "#", "2/3": no text to find
   const parts = words.map((w) =>
     w
-      .split(/(\d+)/)
+      .split(/(\d+|#+)/)
       .map((piece, i) => (i % 2 ? DYNAMIC : escapeRegExp(piece)))
       .join(""),
   );
-  if (words.length === 1) {
-    const w = words[0];
-    if (w.length < 3 || /^\d+$/.test(w)) return null;
-    return new RegExp(`${TEXT_OPEN}${parts[0]}${TEXT_CLOSE}`, "i");
-  }
   const body = parts.join(String.raw`\s+`);
-  return new RegExp(whole ? `${TEXT_OPEN}${body}${TEXT_CLOSE}` : body, "i");
+  const jsx = new RegExp(`${JSX_OPEN}${body}${JSX_CLOSE}`, "i");
+  if (isShortLabel(label)) return [jsx];
+  const literal = new RegExp(`${LITERAL_OPEN}${body}${LITERAL_CLOSE}`);
+  if (words.length === 1 || whole) return [jsx, literal];
+  return [new RegExp(body, "i")];
+}
+
+/** Does any way of writing the label occur in the text? */
+export function labelMatches(label: string, text: string, whole = false): boolean {
+  return labelPatterns(label, whole).some((re) => re.test(text));
 }
 
 function componentDefinition(name: string): RegExp {
@@ -490,10 +549,10 @@ function filesFor(
 ): string[] {
   if (needle.kind === "route") return routeFiles(needle.value, files);
 
-  const search = (re: RegExp) =>
+  const search = (re: RegExp | ((text: string) => boolean)) =>
     files.filter((f) => {
       const text = read(f);
-      return text !== null && re.test(text);
+      return text !== null && (typeof re === "function" ? re(text) : re.test(text));
     });
 
   if (needle.kind === "component") {
@@ -506,11 +565,9 @@ function filesFor(
   if (needle.kind === "label") {
     // The label as the element's whole text first; as part of a longer
     // string only when nothing renders it whole.
-    const whole = labelPattern(needle.value, true);
-    const hits = whole ? search(whole) : [];
+    const hits = search((text) => labelMatches(needle.value, text, true));
     if (hits.length) return hits;
-    const part = labelPattern(needle.value);
-    return part ? search(part) : [];
+    return search((text) => labelMatches(needle.value, text));
   }
 
   const hits = search(needle.form === "word" ? wordPattern(needle.value) : literalPattern(needle.value));
@@ -539,11 +596,17 @@ export function stripComments(source: string): string {
  * matches anything sets the candidates; the others can only narrow them.
  * Exactly one file left → that's the location. More than one → candidates,
  * and no location: picking one would be a guess dressed as a verification.
+ *
+ * `partial` says some files couldn't be read (over budget, a failed or timed
+ * out request). Then one hit among what was read isn't proof it's the only
+ * one, so a content match comes back as a candidate, never a location. A
+ * route still verifies: it's decided from the complete file listing.
  */
 export function matchSource(
   needles: Needle[],
   files: string[],
   read: (path: string) => string | null,
+  opts: { partial?: boolean } = {},
 ): SourceMatch {
   if (!needles.length || !files.length) return {};
   const stripped = new Map<string, string | null>();
@@ -571,7 +634,10 @@ export function matchSource(
     const narrowed = candidates.filter((f) => hits.includes(f));
     if (narrowed.length) candidates = narrowed;
   }
-  if (candidates.length === 1) return { location: candidates[0], needle: decided.needle };
+  const verifiable = !opts.partial || decided.needle.kind === "route";
+  if (candidates.length === 1 && verifiable) {
+    return { location: candidates[0], needle: decided.needle };
+  }
   return {
     candidates: [...candidates].sort().slice(0, MAX_CANDIDATES),
     needle: decided.needle,
