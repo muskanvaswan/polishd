@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+### The fix prompt carries what a coding agent needs to judge a finding
+
+A fix prompt gave the agent each finding's claim and citation, and little to
+weigh them by. Working through one, an agent couldn't tell how many visitors
+were behind a finding, couldn't find the element when no file was matched, and
+didn't know the design review was 70 days older than the analytics. Prompts
+now carry:
+
+- **Volume.** Each analytics problem lists the counts behind it when the
+  summary was generated: *14 dead clicks from 9 sessions, on 2 pages*, or a
+  page's sessions, views, friction and scroll depth, or an error's occurrences
+  and pages. The element stats now count the distinct sessions with a rage or
+  dead click on each element to support this.
+- **How it was detected, and the blind spot.** One line per kind of finding
+  present. A dead click is a click on something with no interactive tag, role
+  or inline `onclick`, so a `div` with a React `onClick` counts as one; the
+  agent is told to check for a handler first. Rage clicks, JS errors,
+  page-level signals, component engagement and design measurements have
+  lines of their own.
+- **Search handles.** Beyond the selector: the element's `data-component`
+  name, its visible text, its meaningful class names (utility and generated
+  classes are skipped; a CSS-module class names its `.module.*` file), or a
+  page's route file. Design values are listed in px and rem.
+- **How current it is.** A note up front when the two reviews are two weeks
+  or more apart, when either is a month old, or when the data has changed
+  since a review was generated.
+- **A verdict block.** The agent is asked to finish with fenced JSON, one
+  entry per problem: `{ "id": "A1", "verdict": "fixed" | "not_real" |
+  "deliberate", "reason": "…", "files": [] }`.
+
+### Verdicts come back, and design issues can be ignored
+
+**Paste verdicts** on the Overview reads that block back. Each verdict is
+shown against the finding it refers to, matched by the prompt as last copied,
+and findings marked `not_real` or `deliberate` are ignored with the agent's
+reason. Before, the agent's "left it, it's deliberate" stayed in its chat and
+the next review reported the same thing again.
+
+Design review issues now have the **Ignore** control the summary's losses
+have: an ignored issue leaves every later review, its reason is replayed into
+the review prompt, and the cached review is marked stale. Dismissals are keyed
+by the values the evidence cites, so "15px and 17px" and "17px/15px" are the
+same issue.
+
+### The design review stops redesigning the site
+
+The review was asked whether the site read as "one deliberate brand, or an
+accumulation of one-off decisions", allowed up to five issues, and was shown
+"collapse 15px and 17px into 16px" as the model fix. It took that as licence to
+consolidate everything, proposing palettes and type scales the code never had.
+It now judges the site's own system on its own terms, raises at most three
+issues and none for a coherent system, and fixes outliers with values the site
+already uses.
+
+Its suggestions are also checked once parsed. One that would remove a value
+the same review lists as a strength is withheld, with the reason shown on the
+card and in the fix prompt. That covers naming it as the value to collapse or
+replace, and proposing a scale that spans it but skips it. A review once
+praised 22px and 28px headings, then proposed a 12/14/16/20/24px scale.
+Suggestions that propose a new scale or palette are withheld too. A value a
+suggestion introduces that the site doesn't render yet is labelled as new.
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its

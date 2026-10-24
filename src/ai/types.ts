@@ -127,9 +127,49 @@ export interface PolishdLossItem {
   location?: string;
   /** True when the citation was matched to a file in the codebase. */
   verified: boolean;
+  /** What the analytics held for the cited target when the summary was generated. */
+  signal?: PolishdLossSignal;
   /** GitHub issue filed for this problem (manually or automatically). */
   issueUrl?: string;
   issueNumber?: number;
+}
+
+/**
+ * The row of the analytics a loss's citation names, read when the summary was
+ * generated: the counts behind the claim, and the handles a coding agent can
+ * search the source for. Lets the agent weigh "14 dead clicks from 9 sessions"
+ * differently from "14 dead clicks from one visitor", and find the element
+ * when no file was matched. Absent when the citation names no single row (a
+ * loss about the site as a whole), and on summaries from older versions.
+ */
+export interface PolishdLossSignal {
+  /** Which part of the analytics the citation names. */
+  kind: "element" | "component" | "page" | "error";
+  clicks?: number;
+  rageClicks?: number;
+  deadClicks?: number;
+  jsErrors?: number;
+  /** Times the error was recorded. */
+  occurrences?: number;
+  /**
+   * Distinct sessions behind the counts. For an element, the sessions with a
+   * rage or dead click on it; for a page, the sessions that viewed it; for a
+   * component, the sessions that interacted with it.
+   */
+  sessions?: number;
+  pageViews?: number;
+  /** Distinct pages it was seen on. */
+  pages?: number;
+  /** Average scroll depth on a page, 0–100, where it was measured. */
+  scrollDepth?: number;
+  /** The DOM selector the capture recorded. */
+  selector?: string;
+  /** Its visible text, as captured. */
+  text?: string;
+  /** Its `data-component` name. */
+  component?: string;
+  /** Pages an error was seen on, most recent first. */
+  paths?: string[];
 }
 
 /**
@@ -149,13 +189,37 @@ export interface PolishdIgnoredLoss {
   ignoredAt: number;
 }
 
-/** Result of dismissing a loss. */
+/**
+ * A design issue the owner dismissed. Same shape and the same three effects as
+ * an ignored loss, against the design review: kept out of every review that
+ * renders, and replayed into every later review's prompt.
+ */
+export type PolishdIgnoredDesignIssue = PolishdIgnoredLoss;
+
+/** Result of dismissing a loss or a design issue. */
 export type IgnoreLossResult =
   | { ok: true; ignored: PolishdIgnoredLoss }
   | { ok: false; message: string };
 
 /** Result of undoing a dismissal. */
 export type UnignoreLossResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * One finding to dismiss from a coding agent's verdict block: which review it
+ * came from, and the finding as the prompt stated it.
+ */
+export interface PolishdVerdictDismissal {
+  source: "analytics" | "design";
+  issue: string;
+  evidence: string;
+  /** The verdict and the agent's reason, as it'll be replayed to the model. */
+  reason: string;
+}
+
+/** Result of recording a verdict block's dismissals. */
+export type RecordVerdictsResult =
+  | { ok: true; recorded: { source: "analytics" | "design"; ignored: PolishdIgnoredLoss }[] }
+  | { ok: false; message: string };
 
 /** A generated narrative summary, cached in the store. */
 export interface PolishdSummary {
@@ -199,8 +263,19 @@ export interface PolishdDesignIssue {
   issue: string;
   /** The token from the metrics that shows it (hex, px value, page path). */
   evidence: string;
-  /** A concrete fix, when the model offered one. */
+  /** A concrete fix, when the model offered one and it held up. */
   suggestion?: string;
+  /**
+   * Values the suggestion names that the metrics don't contain: new to the
+   * site, where every other value it names is already in use.
+   */
+  newValues?: string[];
+  /**
+   * Why the model's suggestion was dropped, when it was: it would have
+   * removed a value the same review lists as a strength, or proposed a new
+   * scale or palette rather than reusing the site's own values.
+   */
+  suggestionWithheld?: string;
   /** GitHub issue filed for this problem, attached when the tab loads. */
   issueUrl?: string;
   issueNumber?: number;

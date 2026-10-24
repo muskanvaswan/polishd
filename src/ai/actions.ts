@@ -17,7 +17,7 @@ import { requirePolishdAuth } from "./guard";
 import { generateDesignReview } from "./design";
 import { suggestIssueFix } from "./fix";
 import { verifyGithubConnection } from "./github";
-import { ignoreLoss, unignoreLoss } from "./ignored";
+import { ignoreDesignIssue, ignoreLoss, unignoreDesignIssue, unignoreLoss } from "./ignored";
 import { createIssueFromDesignIssue, createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
 import { loadPolishdDashboardData } from "../server/queries";
@@ -38,6 +38,8 @@ import type {
   GenerateSummaryResult,
   IgnoreLossResult,
   ListModelsResult,
+  PolishdVerdictDismissal,
+  RecordVerdictsResult,
   SuggestFixResult,
   UnignoreLossResult,
   VerifyGithubResult,
@@ -158,4 +160,64 @@ export async function unignoreLossAction(evidence: string): Promise<UnignoreLoss
   return (await unignoreLoss(evidence))
     ? { ok: true }
     : { ok: false, message: "Couldn't undo that — the analytics store didn't accept the write." };
+}
+
+/**
+ * The same verdict on one of the design review's issues: it leaves every
+ * review from here on, and the dismissal is replayed into later reviews so the
+ * model doesn't report it again.
+ */
+export async function ignoreDesignIssueAction(
+  issue: Pick<PolishdDesignIssue, "issue" | "evidence">,
+  reason?: string,
+): Promise<IgnoreLossResult> {
+  await requirePolishdAuth();
+  const ignored = await ignoreDesignIssue(issue, reason);
+  return ignored
+    ? { ok: true, ignored }
+    : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
+}
+
+/** Undo a design issue's dismissal. */
+export async function unignoreDesignIssueAction(evidence: string): Promise<UnignoreLossResult> {
+  await requirePolishdAuth();
+  return (await unignoreDesignIssue(evidence))
+    ? { ok: true }
+    : { ok: false, message: "Couldn't undo that — the analytics store didn't accept the write." };
+}
+
+/** One verdict block is a handful of findings; more than this isn't one. */
+const MAX_VERDICTS = 20;
+
+/**
+ * Record a coding agent's not-real and deliberate verdicts as dismissals, with
+ * its reasons. One call for the whole block, written in order: each dismissal
+ * rewrites its log, so parallel calls would drop each other's entries.
+ */
+export async function recordVerdictsAction(
+  dismissals: PolishdVerdictDismissal[],
+): Promise<RecordVerdictsResult> {
+  await requirePolishdAuth();
+  if (!Array.isArray(dismissals) || dismissals.length > MAX_VERDICTS) {
+    return { ok: false, message: "That isn't a verdict block from a fix prompt." };
+  }
+  const recorded: Extract<RecordVerdictsResult, { ok: true }>["recorded"] = [];
+  for (const d of dismissals) {
+    if (typeof d?.evidence !== "string" || typeof d.issue !== "string") continue;
+    const reason = typeof d.reason === "string" ? d.reason : undefined;
+    const finding = { issue: d.issue, evidence: d.evidence };
+    const ignored =
+      d.source === "design"
+        ? await ignoreDesignIssue(finding, reason)
+        : d.source === "analytics"
+          ? await ignoreLoss(finding, reason)
+          : null;
+    if (!ignored) {
+      return recorded.length
+        ? { ok: true, recorded }
+        : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
+    }
+    recorded.push({ source: d.source, ignored });
+  }
+  return { ok: true, recorded };
 }

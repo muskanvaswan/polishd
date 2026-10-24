@@ -15,12 +15,20 @@
  * prompt is built from that mirror at the moment of the click — an ignored
  * loss is already gone from it, a regenerated review already in it, a bug
  * filed a second ago already cited.
+ *
+ * The prompt asks the agent to end with a verdict block, and "Paste verdicts"
+ * reads it back: the findings the agent showed aren't real, or are
+ * deliberate, are ignored with its reasons, exactly as if the owner had
+ * clicked Ignore on each card. Verdict ids are matched against the prompt as
+ * it was last copied, since an ignore or a regenerate since then renumbers it.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 
+import { recordVerdictsAction } from "../ai/actions";
 import type {
   PolishdAISettingsPublic,
   PolishdDesignReview,
+  PolishdIgnoredLoss,
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
@@ -32,6 +40,8 @@ import DesignReviewCard from "./design-review-card";
 import {
   buildFixPrompt,
   fixableCounts,
+  fixPromptFindings,
+  type FixPromptFinding,
   type FixPromptInput,
   type FixPromptScope,
 } from "./fix-prompt";
@@ -49,8 +59,26 @@ import {
   labelCls,
   primaryBtn,
 } from "./ui";
+import { parseVerdicts, planVerdicts, type VerdictKind } from "./verdicts";
 
 type Filed = { url: string; number: number };
+type Dismissals = ReadonlyMap<string, PolishdIgnoredLoss>;
+
+/** A set with one key added or removed — state updates stay immutable. */
+function toggled(prev: ReadonlySet<string>, key: string, on: boolean): ReadonlySet<string> {
+  const next = new Set(prev);
+  if (on) next.add(key);
+  else next.delete(key);
+  return next;
+}
+
+/** A map with one key removed. */
+function without<V>(prev: ReadonlyMap<string, V>, key: string): ReadonlyMap<string, V> {
+  if (!prev.has(key)) return prev;
+  const next = new Map(prev);
+  next.delete(key);
+  return next;
+}
 
 export interface OverviewPanelProps {
   overview: OverviewStats;
@@ -90,28 +118,64 @@ export default function OverviewPanel({
   // The cards own what they display; these mirror it for the prompt.
   const [summary, setSummary] = useState(initialSummary);
   const [review, setReview] = useState(initialReview);
+  const [summaryIsStale, setSummaryIsStale] = useState(summaryStale);
+  const [reviewIsStale, setReviewIsStale] = useState(reviewStale);
   const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
+  const [ignoredDesign, setIgnoredDesign] = useState<ReadonlySet<string>>(() => new Set());
   const [filedLosses, setFiledLosses] = useState<ReadonlyMap<string, Filed>>(() => new Map());
   const [filedDesign, setFiledDesign] = useState<ReadonlyMap<string, Filed>>(() => new Map());
+  // Dismissals from a pasted verdict block, handed to the cards to show.
+  const [importedLosses, setImportedLosses] = useState<Dismissals>(() => new Map());
+  const [importedDesign, setImportedDesign] = useState<Dismissals>(() => new Map());
+  /** The findings as the agent saw them: each copied prompt's numbering, by id. */
+  const [copied, setCopied] = useState<ReadonlyMap<string, FixPromptFinding>>(() => new Map());
   /** Set when the clipboard refused a copy: the prompt, to copy by hand. */
   const [manual, setManual] = useState<string | null>(null);
+  const [pasting, setPasting] = useState(false);
+
+  const onSummaryChange = useCallback((next: PolishdSummary) => {
+    setSummary(next);
+    setSummaryIsStale(false);
+  }, []);
+
+  const onReviewChange = useCallback((next: PolishdDesignReview) => {
+    setReview(next);
+    setReviewIsStale(false);
+  }, []);
 
   const onLossChange = useCallback((evidence: string, change: LossChange) => {
     if ("filed" in change) {
       setFiledLosses((prev) => new Map(prev).set(evidence, change.filed));
       return;
     }
-    setIgnored((prev) => {
-      const next = new Set(prev);
-      if (change.ignored) next.add(evidence);
-      else next.delete(evidence);
-      return next;
-    });
+    setIgnored((prev) => toggled(prev, evidence, change.ignored));
+    if (!change.ignored) setImportedLosses((prev) => without(prev, evidence));
   }, []);
 
-  const onIssueFiled = useCallback((evidence: string, filed: Filed) => {
-    setFiledDesign((prev) => new Map(prev).set(evidence, filed));
+  const onIssueChange = useCallback((evidence: string, change: LossChange) => {
+    if ("filed" in change) {
+      setFiledDesign((prev) => new Map(prev).set(evidence, change.filed));
+      return;
+    }
+    setIgnoredDesign((prev) => toggled(prev, evidence, change.ignored));
+    if (!change.ignored) setImportedDesign((prev) => without(prev, evidence));
   }, []);
+
+  const onVerdictsRecorded = useCallback(
+    (recorded: { finding: FixPromptFinding; ignored: PolishdIgnoredLoss }[]) => {
+      for (const { finding, ignored: entry } of recorded) {
+        const add = (prev: Dismissals) => new Map(prev).set(finding.evidence, entry);
+        if (finding.source === "design") {
+          setIgnoredDesign((prev) => toggled(prev, finding.evidence, true));
+          setImportedDesign(add);
+        } else {
+          setIgnored((prev) => toggled(prev, finding.evidence, true));
+          setImportedLosses(add);
+        }
+      }
+    },
+    [],
+  );
 
   const input: FixPromptInput = {
     context: settings.context,
@@ -134,8 +198,12 @@ export default function OverviewPanel({
     },
     review: review && {
       ...review,
-      issues: review.issues?.map((iss) => withFiled(iss, filedDesign.get(iss.evidence))),
+      issues: review.issues
+        ?.filter((iss) => !ignoredDesign.has(iss.evidence))
+        .map((iss) => withFiled(iss, filedDesign.get(iss.evidence))),
     },
+    summaryStale: summaryIsStale,
+    reviewStale: reviewIsStale,
   };
   const counts = fixableCounts(input);
   const githubConnected = settings.hasGithubToken && !!settings.githubRepo;
@@ -150,7 +218,19 @@ export default function OverviewPanel({
         primary={primary}
         component={scope === "all" ? "overview-copy-prompt" : `overview-copy-prompt-${scope}`}
         emptyTitle={emptyTitle(scope, summary !== null, review !== null)}
-        build={() => buildFixPrompt(input, scope)}
+        build={() => {
+          const built = { ...input, now: Date.now() };
+          const text = buildFixPrompt(built, scope);
+          // Remember the numbering the agent is about to see, for its verdicts.
+          if (text) {
+            setCopied((prev) => {
+              const next = new Map(prev);
+              for (const f of fixPromptFindings(built, scope)) next.set(f.id, f);
+              return next;
+            });
+          }
+          return text;
+        }}
         onCopied={() => setManual(null)}
         onFailed={setManual}
       />
@@ -170,10 +250,31 @@ export default function OverviewPanel({
             as it last rendered — with a prompt that hands every problem to your coding agent.
           </p>
         </div>
-        <div className="shrink-0">{copyButton("all", "Copy fix prompt", true)}</div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            data-component="overview-paste-verdicts"
+            onClick={() => setPasting((v) => !v)}
+            aria-expanded={pasting}
+            title="Paste the verdict block your coding agent ended with — findings it showed aren't real, or are deliberate, stop being reported"
+            className={ghostBtn}
+          >
+            Paste verdicts
+          </button>
+          {copyButton("all", "Copy fix prompt", true)}
+        </div>
       </div>
 
       {manual !== null && <ManualCopy text={manual} onClose={() => setManual(null)} />}
+
+      {pasting && (
+        <VerdictImport
+          findings={copied.size > 0 ? [...copied.values()] : fixPromptFindings(input, "all")}
+          fromCopy={copied.size > 0}
+          onRecorded={onVerdictsRecorded}
+          onClose={() => setPasting(false)}
+        />
+      )}
 
       {!overview.ready && (
         <div className="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400">
@@ -208,8 +309,9 @@ export default function OverviewPanel({
           initialProfile={profile}
           initialGaps={gaps}
           sourceAvailable={sourceAvailable}
-          onSummaryChange={setSummary}
+          onSummaryChange={onSummaryChange}
           onLossChange={onLossChange}
+          dismissed={importedLosses}
         />
       </Section>
 
@@ -226,8 +328,9 @@ export default function OverviewPanel({
           model={settings.model}
           scannedPages={scannedPages}
           githubConnected={githubConnected}
-          onReviewChange={setReview}
-          onIssueFiled={onIssueFiled}
+          onReviewChange={onReviewChange}
+          onIssueChange={onIssueChange}
+          dismissed={importedDesign}
         />
       </Section>
 
@@ -413,6 +516,152 @@ function ManualCopy({ text, onClose }: { text: string; onClose: () => void }) {
         aria-label="Fix prompt"
         className={`${inputCls} h-56 resize-y font-mono text-[11px] leading-relaxed`}
       />
+    </div>
+  );
+}
+
+const VERDICT_LABEL: Record<VerdictKind, string> = {
+  fixed: "fixed",
+  not_real: "not real",
+  deliberate: "deliberate",
+};
+
+/**
+ * Where the agent's verdict block comes back in. The paste is read as it's
+ * typed, and every verdict is shown against the finding it matched before
+ * anything is recorded — so a block from an older prompt, whose ids now mean
+ * different findings, is caught by eye rather than recorded blind.
+ */
+function VerdictImport({
+  findings,
+  fromCopy,
+  onRecorded,
+  onClose,
+}: {
+  /** The findings the verdict ids refer to. */
+  findings: FixPromptFinding[];
+  /** True when they're the prompt as last copied, not as it would read now. */
+  fromCopy: boolean;
+  onRecorded: (recorded: { finding: FixPromptFinding; ignored: PolishdIgnoredLoss }[]) => void;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const parsed = useMemo(() => parseVerdicts(text), [text]);
+  const plans = useMemo(() => planVerdicts(parsed.verdicts, findings), [parsed, findings]);
+  const toRecord = plans.filter((p) => p.action === "dismiss");
+
+  const record = () =>
+    start(async () => {
+      setError(null);
+      const res = await recordVerdictsAction(
+        toRecord.map((p) => ({
+          source: p.finding.source,
+          issue: p.finding.issue,
+          evidence: p.finding.evidence,
+          reason: p.reason,
+        })),
+      );
+      if (!res.ok) {
+        setError(res.message);
+        return;
+      }
+      // Recorded in order, stopping at the first write the store refused.
+      onRecorded(res.recorded.map((r, i) => ({ finding: toRecord[i].finding, ignored: r.ignored })));
+      const missed = toRecord.length - res.recorded.length;
+      setDone(
+        `Ignored ${res.recorded.length} ${res.recorded.length === 1 ? "finding" : "findings"} with the agent's reasons — they're out of the next prompt and won't be reported again.` +
+          (missed > 0 ? ` ${missed} couldn't be saved; try again.` : ""),
+      );
+      setText("");
+    });
+
+  return (
+    <div data-component="overview-verdicts" className={`mb-8 ${card} px-4 py-3`}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[12px] leading-relaxed text-[#888]">
+          Paste the agent&apos;s reply, or just its verdict block. Findings it marked{" "}
+          <span className="text-[#bbb]">not real</span> or <span className="text-[#bbb]">deliberate</span>{" "}
+          are ignored with its reasons, so the next review doesn&apos;t report them again.
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="text-[12px] text-[#888] transition-colors hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+      <textarea
+        autoFocus
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setDone(null);
+          setError(null);
+        }}
+        placeholder={'[{ "id": "A1", "verdict": "deliberate", "reason": "…", "files": [] }]'}
+        aria-label="The coding agent's verdicts"
+        className={`${inputCls} h-32 resize-y font-mono text-[11px] leading-relaxed`}
+      />
+
+      {plans.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {plans.map((p) => (
+            <li key={p.verdict.id} className="flex gap-2 text-[12px] leading-snug text-[#bbb]">
+              <span className="w-7 shrink-0 font-mono text-[11px] text-[#888]">{p.verdict.id}</span>
+              <span className="w-[4.5rem] shrink-0 text-[#888]">{VERDICT_LABEL[p.verdict.verdict]}</span>
+              <span className="min-w-0">
+                {p.action === "unknown" ? (
+                  <span className="text-amber-400">No finding with this id in the prompt — skipped.</span>
+                ) : (
+                  <>
+                    {p.finding.issue}
+                    <span className="block text-[11px] text-[#666]">
+                      {p.action === "dismiss"
+                        ? `Will be ignored — “${p.reason}”`
+                        : "Nothing to record — the next review shows whether the fix held."}
+                    </span>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {parsed.problems.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-[11px] text-amber-400">
+          {parsed.problems.map((problem) => (
+            <li key={problem}>{problem}</li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          data-component="overview-record-verdicts"
+          onClick={record}
+          disabled={pending || toRecord.length === 0}
+          className={primaryBtn}
+        >
+          {pending
+            ? "Recording…"
+            : `Ignore ${toRecord.length} ${toRecord.length === 1 ? "finding" : "findings"}`}
+        </button>
+        {!fromCopy && plans.length > 0 && (
+          <span className="text-[11px] text-[#666]">
+            Matched against the findings shown now — no prompt was copied in this visit, so check
+            each is the one the agent saw.
+          </span>
+        )}
+        {done && <span className="text-[11px] text-emerald-400">{done}</span>}
+        {error && <span className="text-[11px] text-red-400">{error}</span>}
+      </div>
     </div>
   );
 }

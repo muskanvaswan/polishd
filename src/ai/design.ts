@@ -12,10 +12,25 @@
  * hundred tokens for the whole site), never raw scans; the digest is
  * fingerprinted and the review cached, so reopening the tab is free and a
  * regenerate with unchanged metrics returns the cached text without a call.
+ *
+ * The review's suggestions go to a coding agent through the fix prompt, which
+ * implements them. So the prompt asks the model to judge the site's system on
+ * its own terms and fix outliers with values it already uses, and the parsed
+ * reply is checked for the ways models drift from that (design-suggestions.ts).
+ * Issues the owner dismissed are filtered and replayed, as for the summary's
+ * losses (ignored.ts).
  */
 import { getMeta, setMeta } from "../server/store";
 import { getDesignData, type PolishdDesignData } from "../server/design";
+import { checkSuggestion, designEvidenceKey, knownDesignValues } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
+import {
+  ignoredDesignKeys,
+  ignoredFingerprint,
+  ignoredSection,
+  loadIgnoredDesignIssues,
+  withoutIgnoredIssues,
+} from "./ignored";
 import { attachGithubIssuesToDesignIssues } from "./issues";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
@@ -23,14 +38,22 @@ import type {
   GenerateDesignReviewResult,
   PolishdDesignIssue,
   PolishdDesignReview,
+  PolishdIgnoredDesignIssue,
 } from "./types";
 
 const DESIGN_REVIEW_KEY = "ai_design_review";
+
+/** At most this many issues per review; the prompt asks for fewer. */
+const MAX_ISSUES = 3;
 
 /**
  * The last generated review, or null. Read-only — never calls a model. Issues
  * whose evidence already has a GitHub issue in the log come back with the link
  * attached, so the tab renders it instead of a "file bug" button.
+ *
+ * Issues the owner has dismissed since it was generated are filtered out here,
+ * so an ignore takes effect on the cached review immediately. The stored copy
+ * keeps them, which is what makes an undo bring the issue back.
  */
 export async function loadDesignReview(): Promise<PolishdDesignReview | null> {
   const raw = await getMeta(DESIGN_REVIEW_KEY);
@@ -41,31 +64,44 @@ export async function loadDesignReview(): Promise<PolishdDesignReview | null> {
   } catch {
     return null;
   }
+  review = withoutIgnoredIssues(review, ignoredDesignKeys(await loadIgnoredDesignIssues()));
   if (review.issues?.length) {
-    review.issues = await attachGithubIssuesToDesignIssues(review.issues);
+    review = { ...review, issues: await attachGithubIssuesToDesignIssues(review.issues) };
   }
   return review;
 }
 
 const SYSTEM_PROMPT =
-  "You are a senior brand and product designer reviewing a shipped website. " +
-  "You receive design tokens reverse-engineered from the rendered pages — the " +
-  "typography, color palette, corner radii and spacing actually in use, plus " +
-  "deterministic findings from rule-based checks. You never see screenshots; " +
-  "judge coherence from the system the numbers describe.\n\n" +
+  "You are a senior product designer reviewing a shipped website. You receive " +
+  "design tokens reverse-engineered from its rendered pages — the typography, " +
+  "color palette, corner radii and spacing actually in use, with how often each " +
+  "is used — plus deterministic findings from rule-based checks. You never see " +
+  "screenshots or source code.\n\n" +
+  "Judge the system the site already has, on its own terms. Values that recur " +
+  "across pages are its decisions, even when they don't follow a textbook scale. " +
+  "A problem is a value that breaks the pattern the rest of the site follows, or " +
+  "a measured failure such as text below WCAG AA contrast. Values marked " +
+  "[one-off] are the likeliest outliers, but a one-off can be deliberate (a hero " +
+  "size, a brand accent). Never redesign: don't propose a new palette, type " +
+  "scale, spacing system or set of radii.\n\n" +
   "Respond with ONLY a JSON object (no markdown fences, no preamble):\n" +
   '{ "assessment": string, "strengths": string[], "issues": [{ "issue": string, "evidence": string, "suggestion": string }] }\n\n' +
-  "assessment: one tight paragraph (3-5 sentences) on how coherent and " +
-  "tasteful the design system reads — does it feel like one deliberate brand, " +
-  "or an accumulation of one-off decisions? Name the strongest and weakest " +
-  "aspects. If the data covers too few pages to be confident, say so.\n" +
-  "strengths: 2-4 things the design gets right (a disciplined palette, a " +
-  "clear type hierarchy, consistent radii…).\n" +
-  "issues: 0-5 specific aesthetic problems, worst first. Each issue must be " +
-  "concrete, evidence must be an exact token copied verbatim from the metrics " +
-  "(a hex color, a px value, a page path), and suggestion must be an " +
-  "actionable fix (e.g. 'collapse 15px and 17px into the 16px body size'). " +
-  "Never invent an issue: if the system is genuinely coherent, return fewer.";
+  "assessment: one tight paragraph (3-5 sentences) on how consistently the site " +
+  "applies its own system — where it holds and where it slips. If the data " +
+  "covers too few pages to be confident, say so.\n" +
+  "strengths: 2-4 things the system does consistently, naming the values that " +
+  "recur (the type sizes, colors or radii).\n" +
+  "issues: 0-3 problems, worst first. Fewer is the default: report an issue " +
+  "only when the metrics show it plainly, and return an empty array when the " +
+  "system is coherent. evidence must be exact tokens copied verbatim from the " +
+  "metrics (a hex color, a px value, a page path). suggestion is one concrete " +
+  "change that moves the outlier onto a value already listed in the metrics, " +
+  "naming that value. Only if no listed value fits, name one new value and " +
+  'write "(new)" after it. A suggestion must never remove or replace a value ' +
+  "you listed under strengths. Never invent an issue. If the prompt lists " +
+  "issues the site owner already reviewed and dismissed, do not report them " +
+  "again — not under a different citation or in different words — and take " +
+  "any reason they gave as true when reading the rest of the metrics.";
 
 /**
  * Render the aggregated design data as a terse, model-readable brief.
@@ -165,7 +201,7 @@ function parseStructured(text: string): {
         const strengths = Array.isArray(obj.strengths)
           ? obj.strengths.filter((s): s is string => typeof s === "string" && s.trim().length > 0).slice(0, 4)
           : [];
-        const issues = Array.isArray(obj.issues) ? (obj.issues as RawIssue[]).slice(0, 8) : [];
+        const issues = Array.isArray(obj.issues) ? (obj.issues as RawIssue[]).slice(0, 6) : [];
         return { assessment, strengths, issues };
       }
     } catch {
@@ -178,28 +214,63 @@ function parseStructured(text: string): {
 /**
  * Hold issues to their evidence bar: the citation must literally appear in
  * the digest we sent, so the model can't critique a color that isn't there.
+ * Dismissed issues are dropped before the cap, so a dismissal frees its slot.
+ *
+ * Then hold each suggestion to the review's own word (design-suggestions.ts):
+ * one that removes a value the review praised, or proposes a new scale, is
+ * withheld with the reason, and any value it introduces is listed as new.
  */
-function verifyIssues(raw: RawIssue[], digest: string): PolishdDesignIssue[] {
+function verifyIssues(
+  raw: RawIssue[],
+  digest: string,
+  data: PolishdDesignData,
+  strengths: string[],
+  ignored: Set<string>,
+): PolishdDesignIssue[] {
   const hay = digest.toLowerCase();
+  const known = knownDesignValues(data);
   const out: PolishdDesignIssue[] = [];
   for (const r of raw) {
     if (typeof r.issue !== "string" || !r.issue.trim()) continue;
     const evidence = typeof r.evidence === "string" ? r.evidence.trim() : "";
     if (!evidence) continue;
+    if (ignored.has(designEvidenceKey(evidence))) continue; // reviewed and dismissed
     const tokens = evidence
       .toLowerCase()
       .split(/[^\w#/.-]+/)
       .filter((t) => t.length >= 3);
     if (!tokens.length || !tokens.some((t) => hay.includes(t))) continue;
+    const issue = r.issue.trim();
+    const suggestion =
+      typeof r.suggestion === "string" && r.suggestion.trim() ? r.suggestion.trim() : undefined;
+    const checked = suggestion ? checkSuggestion(issue, suggestion, strengths, known) : {};
     out.push({
-      issue: r.issue.trim(),
+      issue,
       evidence,
-      suggestion:
-        typeof r.suggestion === "string" && r.suggestion.trim() ? r.suggestion.trim() : undefined,
+      suggestion: checked.suggestion,
+      ...(checked.newValues ? { newValues: checked.newValues } : {}),
+      ...(checked.withheld ? { suggestionWithheld: checked.withheld } : {}),
     });
-    if (out.length >= 5) break;
+    if (out.length >= MAX_ISSUES) break;
   }
   return out;
+}
+
+/**
+ * The exact user message for a review call and its cache fingerprint. The
+ * fingerprint covers the dismissals, so ignoring an issue marks the cached
+ * review stale; with none, it's the digest's own hash, as it always was.
+ */
+function composeReview(
+  digest: string,
+  ignored: PolishdIgnoredDesignIssue[],
+): { user: string; fingerprint: string } {
+  const dismissed = ignoredSection(ignored);
+  const ignoredHash = ignoredFingerprint(ignored);
+  return {
+    user: dismissed ? `${dismissed}\n\n${digest}` : digest,
+    fingerprint: fingerprintDigest(ignoredHash ? `${digest}\nIGNORED:${ignoredHash}` : digest),
+  };
 }
 
 /**
@@ -227,7 +298,8 @@ export async function generateDesignReview(
   }
 
   const digest = buildDesignDigest(data, settings.context);
-  const fingerprint = fingerprintDigest(digest);
+  const ignored = await loadIgnoredDesignIssues();
+  const { user, fingerprint } = composeReview(digest, ignored);
 
   if (!opts.force) {
     const cached = await loadDesignReview();
@@ -242,7 +314,7 @@ export async function generateDesignReview(
 
   let reply;
   try {
-    reply = await callModel(settings, system, digest);
+    reply = await callModel(settings, system, user);
   } catch (err) {
     return {
       ok: false,
@@ -263,7 +335,15 @@ export async function generateDesignReview(
   }
 
   const parsed = parseStructured(reply.text);
-  const issues = verifyIssues(parsed.issues, digest);
+  // Grounded in the digest alone: quoting a dismissal back to the model must
+  // not make its citation fresh evidence (see summary.ts, composePrompt).
+  const issues = verifyIssues(
+    parsed.issues,
+    digest,
+    data,
+    parsed.strengths,
+    ignoredDesignKeys(ignored),
+  );
   const review: PolishdDesignReview = {
     text: parsed.assessment,
     strengths: parsed.strengths,
@@ -297,7 +377,7 @@ export async function loadDesignReviewState(preloaded?: PolishdDesignData): Prom
     preloaded ? Promise.resolve(preloaded) : getDesignData(),
   ]);
   if (!data.ready || data.pages.length === 0) return { review, stale: false };
-  const { settings } = await resolveSettings();
-  const fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
+  const [{ settings }, ignored] = await Promise.all([resolveSettings(), loadIgnoredDesignIssues()]);
+  const { fingerprint } = composeReview(buildDesignDigest(data, settings.context), ignored);
   return { review, stale: review !== null && review.fingerprint !== fingerprint };
 }
