@@ -1,52 +1,74 @@
 /**
  * Polishd — site snapshots (server only).
  *
- * Full-page screenshots of the host site, captured with `allpages` (Playwright
- * underneath). The store's metadata table holds only the index — which
- * snapshots exist, the shots each produced, and the design-metrics fingerprint
- * at capture time — so a snapshot taken before a round of design fixes can
- * later be paired with one taken after, and shots can feed the aesthetic
- * review.
+ * Full-page screenshots of the host site: every scanned route, phone and
+ * desktop, light and dark. The store's metadata table holds only the index —
+ * which snapshots exist, the shots each produced, and the design-metrics
+ * fingerprint at capture time — so a snapshot taken before a round of design
+ * fixes can later be paired with one taken after, and shots can feed the
+ * aesthetic review.
  *
- * The images themselves live in one of two places. On a laptop running
- * `next dev` they sit on disk under `.polishd/snapshots/<id>/`. On Vercel —
- * where the filesystem is read-only and gone by the next invocation — they
- * upload to Vercel Blob instead, switched on by nothing more than the
- * variable a connected Blob store injects: `BLOB_STORE_ID` for a store
- * connected over OIDC, `BLOB_READ_WRITE_TOKEN` for the classic connection.
- * Public and private stores both work. The browser follows
- * the same split: the user's own Chrome or Playwright's Chromium locally,
- * the `@sparticuz/chromium` build (a Chromium compiled to run inside
- * Lambda-shaped Linux containers) as the serverless fallback. Both arrive as
- * optional dependencies, so a standard install needs no extra wiring. Every
- * failure degrades to a message, never a crash — the same contract as the
- * rest of the server layer.
+ * **Who shoots.** In production nothing browser-related runs here. The
+ * dashboard, in the owner's browser, sends each route to Polishd's hosted
+ * screenshot service (service/ in this repo), which shoots the calling origin
+ * and hands the images back; the dashboard then stores them. A site the
+ * service can't reach — `next dev` on localhost — is shot by a browser on this
+ * machine instead (snapshot-local.ts), through the same loop. The dashboard
+ * drives both; this module plans the capture, issues upload targets, checks
+ * and records what comes back, and closes the snapshot.
  *
- * Alongside the full shots, each route call also pictures the Design tab's
- * flagged values in place — a ringed crop of the element carrying a one-off
- * type style, color, radius or off-grid padding (server/value-previews.ts) —
- * stored beside the shots under the same disk-or-Blob rule, and listed in the
- * snapshot as `previews` so hovering the value on the dashboard shows where
- * it renders.
+ * **Where images live.** On Vercel, in Vercel Blob, switched on by the
+ * variable a connected store injects (`BLOB_STORE_ID` over OIDC,
+ * `BLOB_READ_WRITE_TOKEN` classically). The browser uploads straight to the
+ * store with a presigned URL scoped to one pathname, one type and a size cap —
+ * images are too big to pass through a server action (1 MB) or a Vercel
+ * function (4.5 MB). Elsewhere, on disk under `.polishd/snapshots/<id>/`,
+ * sent in chunks small enough for a server action.
  *
- * Capture is chunked into one server call per route: begin → one
- * `captureSnapshotRoute` per route → finish, with the in-flight state parked
- * in the store between calls. A whole-site capture in a single request would
- * have to outlive a serverless host's function time limit — which the package
- * cannot raise on the host's behalf (`maxDuration` must be declared inline in
- * the host's own page module), and which kills the function mid-shoot with no
- * result at all. One route per request keeps every call short enough to fit.
+ * **What's trusted.** The capture in progress is parked in the store, and
+ * every call is checked against it: file names are derived here from the
+ * slot, never taken from the browser; a Blob URL the browser reports is
+ * looked up with the server's own credentials and must be the pathname this
+ * capture signed. Every failure degrades to a message, never a crash.
  */
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import type { Shot as AllpagesShot } from "allpages";
-import type { Browser } from "playwright-core";
 
+import {
+  decideSnapshotMode,
+  parseCaptureBlock,
+  snapshotServiceUrl,
+  type CaptureBlock,
+  type StoredCaptureBlock,
+  type EncodedImage,
+  type ShotResult,
+  type SkipReason,
+  type SnapshotConsent,
+  type SnapshotDevice,
+  type SnapshotEngine,
+  type SnapshotMode,
+  type SnapshotTheme,
+} from "../capture/protocol";
 import type { DesignPreviewTarget } from "../shared/design-values";
-import { blobConfigured, createBlobUploader, isPrivateBlobUrl } from "./snapshot-blob";
+import {
+  blobConfigured,
+  blobPathnameMatches,
+  createBlobUploader,
+  isBlobObjectUrl,
+  isPrivateBlobUrl,
+  snapshotBlobPathname,
+  type BlobAccess,
+} from "./snapshot-blob";
+import {
+  darkModeVerdict,
+  imageMime,
+  parseSnapshotFile,
+  previewMisses,
+  snapshotFileFor,
+  type ShotSlot,
+} from "./snapshot-files";
+import { localCaptureUnavailable, shootLocally } from "./snapshot-local";
 import { getMeta, setMeta, storeReady } from "./store";
-import { captureValuePreviews, type PreviewRendering } from "./value-previews";
 
 /** One captured (or deliberately skipped) screenshot within a snapshot. */
 export interface PolishdSnapshotShot {
@@ -57,15 +79,12 @@ export interface PolishdSnapshotShot {
   /** "light" | "dark". */
   theme: string;
   /**
-   * Image filename inside the snapshot's `shots/` subdirectory — allpages
-   * reports and writes bare names there. Empty when the cell was skipped.
-   * Still the shot's identifier when the image itself lives in Blob storage.
+   * Image filename inside the snapshot's `shots/` directory. Empty when the
+   * cell was skipped. Still the shot's identifier when the image itself lives
+   * in Blob storage.
    */
   file: string;
-  /**
-   * Where the image uploaded, when it did — set only for Blob-stored shots.
-   * Absent on disk-stored shots, whose bytes live under the snapshots root.
-   */
+  /** Where the image uploaded, for Blob-stored shots. */
   url?: string;
   /** Why the cell has no image, when it doesn't. */
   skipped?: string;
@@ -74,8 +93,8 @@ export interface PolishdSnapshotShot {
 /**
  * A cropped picture of one flagged design value in place — the element that
  * carries a one-off type style, color, radius or off-grid padding, ringed,
- * with the component around it. Shot during the capture, from the same
- * rendering as the route's full shots.
+ * with the component around it. Shot from the same rendering as the route's
+ * full shot.
  */
 export interface PolishdSnapshotPreview {
   /** The value pictured — `designValueKey` of its target. */
@@ -83,7 +102,7 @@ export interface PolishdSnapshotPreview {
   route: string;
   device: string;
   theme: string;
-  /** Image filename inside the snapshot's `previews/` subdirectory. */
+  /** Image filename inside the snapshot's `previews/` directory. */
   file: string;
   /** Where the image uploaded, for Blob-stored previews. */
   url?: string;
@@ -93,7 +112,7 @@ export interface PolishdSnapshotPreview {
 export interface PolishdSnapshot {
   id: string;
   capturedAt: number;
-  /** The origin that was shot, e.g. "http://localhost:3000". */
+  /** The origin that was shot, e.g. "https://example.com". */
   origin: string;
   /**
    * The design-metrics fingerprint at capture time (same hash the AI review
@@ -113,6 +132,8 @@ export interface PolishdSnapshot {
    * — rendered only after an interaction, or only at a width it didn't shoot.
    */
   previewMisses?: string[];
+  /** What shot it: Polishd's screenshot service, a browser on this machine, or both. */
+  engines?: ("service" | "local")[];
 }
 
 interface SnapshotIndex {
@@ -122,35 +143,31 @@ interface SnapshotIndex {
 
 const INDEX_KEY = "design_snapshots";
 
-/** Snapshots kept before the oldest is pruned (files and index entry both). */
+/** Snapshots kept before the oldest is pruned (images and index entry both). */
 const MAX_SNAPSHOTS = 6;
 
-/** Cap on routes shot per run, to bound how long the capture action holds. */
+/** Cap on routes shot per run. */
 export const MAX_SNAPSHOT_ROUTES = 12;
 
-/** The device/theme matrix every snapshot shoots. */
-const SNAPSHOT_DEVICES = ["phone", "desktop"] as const;
-const SNAPSHOT_THEMES = ["light", "dark"] as const;
-
 /**
- * Where a flagged value is looked for, in order: the gallery's default view
- * first, so most pictures match the shot the user is already looking at.
+ * The renderings every snapshot shoots, in order: the gallery's default view
+ * first, so most value pictures match the shot the user is already looking at.
  */
-const PREVIEW_RENDERINGS: PreviewRendering[] = [
+export const SNAPSHOT_RENDERINGS: { device: SnapshotDevice; theme: SnapshotTheme }[] = [
   { device: "desktop", theme: "light" },
   { device: "desktop", theme: "dark" },
   { device: "phone", theme: "light" },
   { device: "phone", theme: "dark" },
 ];
-/** Values pictured per route, and the time the pass may add to its call. */
-const MAX_PREVIEWS_PER_ROUTE = 16;
-const PREVIEW_BUDGET_MS = 15_000;
 
-/**
- * Every Blob upload — shots and value previews alike — goes through this, so
- * the store's access mode is worked out once per process rather than once per
- * image. See `createBlobUploader`.
- */
+/** Largest image accepted for storage — well over what the service sends. */
+export const MAX_SNAPSHOT_IMAGE_BYTES = 8 * 1024 * 1024;
+/** How long a presigned upload URL stays valid. */
+const UPLOAD_URL_TTL_MS = 5 * 60_000;
+/** The Blob API version the SDK speaks (`BLOB_API_VERSION` in @vercel/blob 2.x). */
+const BLOB_API_VERSION = "12";
+
+/** Server-side Blob uploads (the local engine's) work out the store's access mode once. */
 const uploadToBlob = createBlobUploader();
 
 /** Where disk-stored snapshot directories live. Sits next to the dev SQLite file. */
@@ -184,8 +201,7 @@ export async function listSnapshots(): Promise<PolishdSnapshot[]> {
  * Read one shot's — or one value preview's — image as a data URL, or null
  * when it doesn't exist. The filename is only accepted when the index lists it
  * for that snapshot, so a caller can never read outside a snapshot directory —
- * and Blob-stored images are only ever fetched from the URL the index recorded
- * at capture time.
+ * and Blob-stored images are only ever fetched from the URL the index recorded.
  */
 export async function readSnapshotImage(
   snapshotId: string,
@@ -203,7 +219,7 @@ export async function readSnapshotImage(
     const bytes = image.url
       ? await readBlobImage(image.url)
       : await readFile(join(snapshotsRoot(), snapshot.id, dir, image.file));
-    return bytes ? `data:image/png;base64,${bytes.toString("base64")}` : null;
+    return bytes ? `data:${imageMime(image.file)};base64,${bytes.toString("base64")}` : null;
   } catch {
     return null; // Directory pruned or deleted by hand — the tile shows a blank.
   }
@@ -227,83 +243,6 @@ async function readBlobImage(url: string): Promise<Buffer | null> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-// ── Storage ──────────────────────────────────────────────────────────────────
-
-/**
- * Move one route's staged PNGs to their real home — Vercel Blob when a store
- * is connected, the snapshots directory otherwise — under a per-route filename
- * prefix: allpages slugs are only unique within a single run, and each route
- * is its own run now. Blob pathnames get a random suffix on top, so a public
- * store's URLs are unguessable; a private store's refuse anonymous reads
- * outright. Either way the dashboard serves images through the auth-gated
- * action rather than handing these URLs to the browser. On a failed upload
- * the pieces already uploaded are deleted, so a half-stored route never
- * survives.
- */
-async function storeRouteShots(
-  id: string,
-  routeIndex: number,
-  stageDir: string,
-  captured: AllpagesShot[],
-): Promise<{ shots: PolishdSnapshotShot[] } | { message: string }> {
-  const prefix = `r${routeIndex}-`;
-  const shots: PolishdSnapshotShot[] = [];
-  const toShot = (s: AllpagesShot, file: string, url?: string): PolishdSnapshotShot => ({
-    route: s.route.path,
-    device: s.device.name,
-    theme: s.theme,
-    file,
-    ...(url ? { url } : {}),
-    ...(s.skipped ? { skipped: s.skipped } : {}),
-  });
-
-  if (!blobConfigured()) {
-    const shotsDir = join(snapshotsRoot(), id, "shots");
-    await mkdir(shotsDir, { recursive: true });
-    for (const s of captured) {
-      if (!s.file) {
-        shots.push(toShot(s, ""));
-        continue;
-      }
-      await copyFile(join(stageDir, "shots", s.file), join(shotsDir, prefix + s.file));
-      shots.push(toShot(s, prefix + s.file));
-    }
-    return { shots };
-  }
-
-  const blob = await loadBlobSdk();
-  if ("message" in blob) return blob;
-  const uploaded: string[] = [];
-  try {
-    for (const s of captured) {
-      if (!s.file) {
-        shots.push(toShot(s, ""));
-        continue;
-      }
-      const bytes = await readFile(join(stageDir, "shots", s.file));
-      // No `token` option: the SDK picks the credential itself — the OIDC
-      // token with BLOB_STORE_ID first, BLOB_READ_WRITE_TOKEN otherwise.
-      const { url } = await uploadToBlob((access) =>
-        blob.put(`polishd/snapshots/${id}/${prefix}${s.file}`, bytes, {
-          access,
-          contentType: "image/png",
-          addRandomSuffix: true,
-        }),
-      );
-      uploaded.push(url);
-      shots.push(toShot(s, prefix + s.file, url));
-    }
-    return { shots };
-  } catch (err) {
-    if (uploaded.length > 0) await blob.del(uploaded).catch(() => {});
-    return {
-      message: `Couldn't upload screenshots to Vercel Blob: ${
-        err instanceof Error ? err.message : "unknown error"
-      }`,
-    };
-  }
-}
-
 /** The Blob SDK, or why it couldn't load. */
 async function loadBlobSdk(): Promise<typeof import("@vercel/blob") | { message: string }> {
   try {
@@ -319,71 +258,15 @@ async function loadBlobSdk(): Promise<typeof import("@vercel/blob") | { message:
 }
 
 /**
- * Store one route's value previews next to its shots — the snapshot's
- * `previews/` directory, or Blob under the same rules as the shots. Names are
- * `v-r<route>-<n>-<device>-<theme>.png`, unique within the snapshot and never
- * mistakable for a shot's. All or nothing, like the shots: a failed upload
- * deletes the pieces already sent.
- */
-async function storeRoutePreviews(
-  id: string,
-  routeIndex: number,
-  route: string,
-  crops: { key: string; device: string; theme: string; bytes: Buffer }[],
-): Promise<PolishdSnapshotPreview[]> {
-  const named = crops.map((c, n) => ({
-    ...c,
-    file: `v-r${routeIndex}-${n}-${c.device}-${c.theme}.png`,
-  }));
-  const toPreview = (c: (typeof named)[number], url?: string): PolishdSnapshotPreview => ({
-    key: c.key,
-    route,
-    device: c.device,
-    theme: c.theme,
-    file: c.file,
-    ...(url ? { url } : {}),
-  });
-
-  if (!blobConfigured()) {
-    const dir = join(snapshotsRoot(), id, "previews");
-    await mkdir(dir, { recursive: true });
-    for (const c of named) await writeFile(join(dir, c.file), c.bytes);
-    return named.map((c) => toPreview(c));
-  }
-
-  const blob = await loadBlobSdk();
-  if ("message" in blob) return [];
-  const uploaded: string[] = [];
-  try {
-    const previews: PolishdSnapshotPreview[] = [];
-    for (const c of named) {
-      const { url } = await uploadToBlob((access) =>
-        blob.put(`polishd/snapshots/${id}/previews/${c.file}`, c.bytes, {
-          access,
-          contentType: "image/png",
-          addRandomSuffix: true,
-        }),
-      );
-      uploaded.push(url);
-      previews.push(toPreview(c, url));
-    }
-    return previews;
-  } catch {
-    if (uploaded.length > 0) await blob.del(uploaded).catch(() => {});
-    return [];
-  }
-}
-
-/**
  * Best-effort removal of a snapshot's images, wherever they were stored.
- * Blob-stored shots carry their URLs in the index; disk-stored ones sit in a
+ * Blob-stored images carry their URLs in the index; disk-stored ones sit in a
  * directory named by the snapshot id. Both paths swallow failure — an orphaned
  * blob costs cents, a prune that crashed the capture would cost the feature.
  */
 async function deleteSnapshotImages(
   snapshot: Pick<PolishdSnapshot, "id" | "shots" | "previews">,
 ): Promise<void> {
-  const urls = [...snapshot.shots, ...(snapshot.previews ?? [])].flatMap((s) =>
+  const urls = [...(snapshot.shots ?? []), ...(snapshot.previews ?? [])].flatMap((s) =>
     s.url ? [s.url] : [],
   );
   if (urls.length > 0) {
@@ -399,77 +282,58 @@ async function deleteSnapshotImages(
   );
 }
 
-// ── Capture ──────────────────────────────────────────────────────────────────
+// ── The capture in progress ──────────────────────────────────────────────────
 
-export interface BeginSnapshotInput {
-  /** The site to shoot, scheme included. */
-  origin: string;
-  /** Paths to shoot — discovery is skipped, these are shot exactly. */
-  routes: string[];
-  /** Design-metrics fingerprint at capture time, for later pairing. */
-  fingerprint: string | null;
-  /** Flagged values to picture in place, each on the pages it was measured on. */
-  targets?: DesignPreviewTarget[];
+/** A recorded cell, with what `finish` needs that the index doesn't keep. */
+interface PendingShot extends PolishdSnapshotShot {
+  hash?: string;
+  reason?: SkipReason;
 }
 
-export type BeginSnapshotResult =
-  | { ok: true; id: string; routes: string[] }
-  | { ok: false; message: string };
-
-export type CaptureRouteResult =
-  | { ok: true; shots: PolishdSnapshotShot[] }
-  | { ok: false; message: string };
-
-export type CaptureSnapshotResult =
-  | { ok: true; snapshot: PolishdSnapshot }
-  | { ok: false; message: string };
-
 /**
- * The capture in progress, parked in the store between per-route calls. This
- * record — not anything the client sends — is what each `captureSnapshotRoute`
- * call trusts for the origin, the route list, and the shots accumulated so
- * far; the client only ever hands back the id. One capture runs at a time: a
- * new begin sweeps an unfinished predecessor, images and all.
+ * The capture in progress, parked in the store between calls. This record —
+ * not anything the browser sends — is what each call trusts for the origin,
+ * the route list and the shots so far; the browser only ever hands back the
+ * id and a slot. One capture runs at a time: a new begin sweeps an unfinished
+ * predecessor, images and all.
  */
 interface PendingSnapshot {
-  v: 1;
+  v: 2;
   id: string;
   origin: string;
   fingerprint: string | null;
   startedAt: number;
-  /** The plan, in order. Route calls are validated against it. */
   routes: string[];
-  /** Routes already captured, so a retried call doesn't shoot twice. */
-  done: string[];
-  shots: PolishdSnapshotShot[];
-  authWalled: string[];
-  /** Stays true only while every route with images rendered identically dark. */
-  noDarkMode: boolean;
-  /** Values to picture; each is dropped from later routes once pictured. */
   targets: DesignPreviewTarget[];
+  storage: "blob" | "disk";
+  /** Who shoots this capture. Each action only serves its own engine's calls. */
+  engine: SnapshotEngine;
+  /** The access mode browser uploads succeeded with, once one has. */
+  blobAccess?: BlobAccess;
+  engines: ("service" | "local")[];
+  shots: PendingShot[];
   previews: PolishdSnapshotPreview[];
-  /** Keys looked for on a route and not found there. */
-  previewMisses: string[];
+  /** Value keys looked for in some rendering. */
+  looked: string[];
 }
 
 const PENDING_KEY = "design_snapshot_pending";
 
-async function loadPending(): Promise<PendingSnapshot | null> {
+/** The parked capture — or, for sweeping only, whatever an older version parked. */
+async function loadPendingRaw(): Promise<Partial<PendingSnapshot> | null> {
   const raw = await getMeta(PENDING_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as PendingSnapshot;
-    if (parsed?.v === 1 && typeof parsed.id === "string") {
-      // Records parked by a version without value previews.
-      parsed.targets ??= [];
-      parsed.previews ??= [];
-      parsed.previewMisses ??= [];
-      return parsed;
-    }
+    const parsed = JSON.parse(raw) as Partial<PendingSnapshot>;
+    return parsed && typeof parsed.id === "string" ? parsed : null;
   } catch {
-    // A corrupt pending record is simply abandoned.
+    return null;
   }
-  return null;
+}
+
+async function loadPending(id: string): Promise<PendingSnapshot | null> {
+  const parsed = await loadPendingRaw();
+  return parsed?.v === 2 && parsed.id === id && parsed.engine ? (parsed as PendingSnapshot) : null;
 }
 
 /** Persist the in-flight capture; null clears it. */
@@ -477,13 +341,49 @@ async function savePending(pending: PendingSnapshot | null): Promise<boolean> {
   return setMeta(PENDING_KEY, pending ? JSON.stringify(pending) : "");
 }
 
+const GONE = {
+  ok: false as const,
+  message: "This capture is no longer in progress — start a new one.",
+};
+
+export type Failure = { ok: false; message: string };
+
+const NOT_THIS_ENGINE = {
+  ok: false as const,
+  message: "That call doesn't belong to this capture's way of shooting — start a new one.",
+};
+
+/** What the dashboard needs to drive a capture. */
+export interface SnapshotPlan {
+  id: string;
+  origin: string;
+  routes: string[];
+  renderings: { device: SnapshotDevice; theme: SnapshotTheme }[];
+  /** Flagged values to picture, each with the pages it was measured on. */
+  targets: DesignPreviewTarget[];
+  engine: SnapshotEngine;
+  storage: "blob" | "disk";
+}
+
+export interface BeginSnapshotInput {
+  /** The site to shoot, scheme included. */
+  origin: string;
+  /** Paths to shoot, exactly. */
+  routes: string[];
+  /** Design-metrics fingerprint at capture time, for later pairing. */
+  fingerprint: string | null;
+  /** Flagged values to picture in place, each on the pages it was measured on. */
+  targets?: DesignPreviewTarget[];
+  engine: SnapshotEngine;
+}
+
 /**
  * Start a capture: run the environment preflight, sweep any unfinished
- * predecessor's images, and park the plan in the store. The returned routes
- * are what the caller should then feed to `captureSnapshotRoute`, one call
- * each, before `finishSnapshot` records the run.
+ * predecessor's images, and park the plan in the store.
  */
-export async function beginSnapshot(input: BeginSnapshotInput): Promise<BeginSnapshotResult> {
+export async function beginSnapshot(
+  input: BeginSnapshotInput,
+): Promise<({ ok: true } & SnapshotPlan) | Failure> {
   if (!(await storeReady())) {
     return {
       ok: false,
@@ -495,8 +395,7 @@ export async function beginSnapshot(input: BeginSnapshotInput): Promise<BeginSna
 
   // The same preflight the dashboard runs before enabling the capture button.
   // Actions are reachable without the dashboard ever rendering, so a doomed
-  // environment must fail here too — with the diagnosis, not a minute of
-  // capture ending in an EROFS.
+  // environment must fail here too.
   const issue = await snapshotCaptureIssue();
   if (issue) return { ok: false, message: issue };
 
@@ -505,216 +404,474 @@ export async function beginSnapshot(input: BeginSnapshotInput): Promise<BeginSna
 
   // A predecessor that never finished (tab closed mid-run) left images
   // behind; sweep them before its record is overwritten.
-  const stale = await loadPending();
-  if (stale) await deleteSnapshotImages(stale);
+  const stale = await loadPendingRaw();
+  if (stale?.id) {
+    await deleteSnapshotImages({ id: stale.id, shots: stale.shots ?? [], previews: stale.previews ?? [] });
+  }
 
   const pending: PendingSnapshot = {
-    v: 1,
+    v: 2,
     id: Date.now().toString(36),
     origin: input.origin,
     fingerprint: input.fingerprint,
     startedAt: Date.now(),
     routes,
-    done: [],
-    shots: [],
-    authWalled: [],
-    noDarkMode: true,
     targets: input.targets ?? [],
+    storage: blobConfigured() ? "blob" : "disk",
+    engine: input.engine,
+    engines: [],
+    shots: [],
     previews: [],
-    previewMisses: [],
+    looked: [],
   };
   if (!(await savePending(pending))) {
     return { ok: false, message: "The store refused to record the capture in progress." };
   }
-  return { ok: true, id: pending.id, routes };
+  return {
+    ok: true,
+    id: pending.id,
+    origin: pending.origin,
+    routes,
+    renderings: SNAPSHOT_RENDERINGS,
+    targets: pending.targets,
+    engine: input.engine,
+    storage: pending.storage,
+  };
 }
 
-/**
- * Shoot one route of the capture `beginSnapshot` started — both devices, both
- * themes — store its images, and append the results to the pending record.
- * Bounded work per call by design: this is the request that has to fit inside
- * a serverless host's function time limit.
- */
-export async function captureSnapshotRoute(
-  id: string,
-  route: string,
-): Promise<CaptureRouteResult> {
-  const pending = await loadPending();
-  if (!pending || pending.id !== id) {
-    return {
-      ok: false,
-      message: "This capture is no longer in progress — start a new one.",
-    };
-  }
-  if (!pending.routes.includes(route)) {
-    return { ok: false, message: `${route} isn't part of this capture.` };
-  }
-  if (pending.done.includes(route)) {
-    // A retry after a lost response — the shots are already recorded.
-    return { ok: true, shots: pending.shots.filter((s) => s.route === route) };
-  }
+function validSlot(pending: PendingSnapshot, slot: ShotSlot): boolean {
+  return (
+    pending.routes.includes(slot.route) &&
+    SNAPSHOT_RENDERINGS.some((r) => r.device === slot.device && r.theme === slot.theme)
+  );
+}
 
-  let run: typeof import("allpages").allpages;
+// ── Uploads from the browser ─────────────────────────────────────────────────
+
+export type UploadTarget =
+  | {
+      kind: "blob";
+      file: string;
+      /** Presigned `PUT` URL: one pathname, one type, a size cap, five minutes. */
+      url: string;
+      /** Headers the Blob API expects alongside it (bar the access mode). */
+      headers: Record<string, string>;
+      /** The store's access mode, once a previous upload found it out. */
+      access: BlobAccess | null;
+    }
+  | { kind: "disk"; file: string };
+
+/**
+ * Where the browser should put one image of the capture. For Blob, a presigned
+ * URL scoped to exactly this image's pathname; for disk, the file name to
+ * stream chunks to. Either way the name is derived here from the slot.
+ */
+export async function snapshotUploadTarget(
+  id: string,
+  slot: ShotSlot,
+  type: string,
+  size: number,
+): Promise<({ ok: true } & UploadTarget) | Failure> {
+  const pending = await loadPending(id);
+  if (!pending) return GONE;
+  if (pending.engine.kind !== "service") return NOT_THIS_ENGINE;
+  if (!validSlot(pending, slot)) return { ok: false, message: "That shot isn't part of this capture." };
+  const file = snapshotFileFor(pending.routes, slot, type);
+  if (!file) return { ok: false, message: "That image isn't part of this capture." };
+  if (!Number.isFinite(size) || size <= 0 || size > MAX_SNAPSHOT_IMAGE_BYTES) {
+    return { ok: false, message: "That image is too large to store." };
+  }
+  if (pending.storage === "disk") return { ok: true, kind: "disk", file };
+
+  const blob = await loadBlobSdk();
+  if ("message" in blob) return { ok: false, message: blob.message };
   try {
-    ({ allpages: run } = await import("allpages"));
+    const pathname = snapshotBlobPathname(id, file);
+    const validUntil = Date.now() + UPLOAD_URL_TTL_MS;
+    // No credentials passed: the SDK uses the OIDC token with BLOB_STORE_ID
+    // first, BLOB_READ_WRITE_TOKEN otherwise — whichever the project has.
+    const token = await blob.issueSignedToken({
+      pathname,
+      operations: ["put"],
+      validUntil,
+      allowedContentTypes: [type],
+      maximumSizeInBytes: MAX_SNAPSHOT_IMAGE_BYTES,
+    });
+    const { presignedUrl } = await blob.presignUrl(token, {
+      operation: "put",
+      pathname,
+      access: pending.blobAccess ?? "public",
+      validUntil,
+      allowedContentTypes: [type],
+      maximumSizeInBytes: MAX_SNAPSHOT_IMAGE_BYTES,
+      // Unguessable URLs for a public store; a private one refuses anonymous
+      // reads anyway. The dashboard serves images through its own auth gate.
+      addRandomSuffix: true,
+    });
+    return {
+      ok: true,
+      kind: "blob",
+      file,
+      url: presignedUrl,
+      headers: {
+        "x-api-version": BLOB_API_VERSION,
+        "x-vercel-blob-store-id": blob.parseStoreIdFromDelegationToken(token.delegationToken),
+        "x-content-type": type,
+      },
+      access: pending.blobAccess ?? null,
+    };
   } catch (err) {
     return {
       ok: false,
-      message: `The allpages screenshot engine failed to load: ${
+      message: `Couldn't prepare an upload to Vercel Blob: ${
         err instanceof Error ? err.message : "unknown error"
       }`,
     };
   }
+}
 
-  const launched = await launchBrowser();
-  if ("message" in launched) return { ok: false, message: launched.message };
-
-  // Every route stages into its own temp directory — the one location
-  // serverless hosts keep writable — and the files only exist for the moments
-  // between capture and `storeRouteShots` moving them home.
-  let stageDir: string;
+/**
+ * Append one chunk of a disk-stored image. Chunks arrive in order, each small
+ * enough for a server action; the file only takes its real name once the last
+ * one lands, so a half-written image is never indexed.
+ */
+export async function appendSnapshotChunk(
+  id: string,
+  file: string,
+  offset: number,
+  base64: string,
+  last: boolean,
+): Promise<{ ok: true } | Failure> {
+  const pending = await loadPending(id);
+  if (!pending) return GONE;
+  if (pending.engine.kind !== "service") return NOT_THIS_ENGINE;
+  if (pending.storage !== "disk") return { ok: false, message: "This capture stores images in Blob." };
+  const parsed = parseSnapshotFile(file);
+  if (!parsed || parsed.routeIndex >= pending.routes.length) {
+    return { ok: false, message: "That image isn't part of this capture." };
+  }
+  const bytes = Buffer.from(base64, "base64");
+  const dir = join(snapshotsRoot(), id, parsed.dir);
+  const part = join(dir, `${file}.part`);
   try {
-    stageDir = await mkdtemp(join(tmpdir(), "polishd-snapshot-"));
+    await mkdir(dir, { recursive: true });
+    if (offset === 0) {
+      await writeFile(part, bytes);
+    } else {
+      const size = (await stat(part)).size;
+      if (size !== offset) return { ok: false, message: "An image chunk arrived out of order." };
+      if (size + bytes.length > MAX_SNAPSHOT_IMAGE_BYTES) {
+        return { ok: false, message: "That image is too large to store." };
+      }
+      await appendFile(part, bytes);
+    }
+    if (last) await rename(part, join(dir, file));
+    return { ok: true };
   } catch (err) {
-    await launched.browser.close().catch(() => {});
     return {
       ok: false,
-      message: `Couldn't create the snapshot staging directory (${
+      message: `Couldn't write the snapshot image (${
         err instanceof Error ? err.message : "unknown error"
       }) — is the filesystem writable?`,
     };
   }
+}
 
-  try {
-    const result = await run({
-      url: pending.origin,
-      routes: [route],
-      outDir: stageDir,
-      devices: [...SNAPSHOT_DEVICES],
-      themes: [...SNAPSHOT_THEMES],
-      // The dashboard composes its own grid; the stitched contact sheet would
-      // only duplicate every image on disk.
-      skipSheet: true,
-      browser: launched.browser,
-    });
+// ── Recording shots ──────────────────────────────────────────────────────────
 
-    const stored = await storeRouteShots(
-      id,
-      pending.routes.indexOf(route),
-      stageDir,
-      result.shots,
-    );
-    if ("message" in stored) return { ok: false, message: stored.message };
+export interface StoredImage {
+  file: string;
+  /** Blob object URL, for Blob-stored images. */
+  url?: string;
+}
 
-    const pictured = await pictureRouteValues(launched.browser, pending, route, stored.shots);
-
-    pending.done.push(route);
-    pending.shots.push(...stored.shots);
-    pending.previews.push(...pictured.previews);
-    pending.previewMisses.push(...pictured.missed);
-    for (const walled of result.authWalled) {
-      if (!pending.authWalled.includes(walled)) pending.authWalled.push(walled);
-    }
-    // A route that produced no images says nothing about dark mode.
-    if (stored.shots.some((s) => s.file)) {
-      pending.noDarkMode = pending.noDarkMode && result.noDarkMode;
-    }
-    if (!(await savePending(pending))) {
-      await deleteSnapshotImages({ id, shots: stored.shots, previews: pictured.previews });
-      return { ok: false, message: "The route was shot but the store refused to record it." };
-    }
-    return { ok: true, shots: stored.shots };
-  } catch (err) {
-    return {
-      ok: false,
-      message: `Screenshot capture failed: ${
-        err instanceof Error ? err.message : "unknown error"
-      }`,
-    };
-  } finally {
-    await launched.browser.close().catch(() => {});
-    await rm(stageDir, { recursive: true, force: true }).catch(() => {});
-  }
+/** One cell's outcome, as the dashboard reports it once its images are stored. */
+export interface ShotRecord {
+  route: string;
+  device: SnapshotDevice;
+  theme: SnapshotTheme;
+  hash?: string;
+  reason?: SkipReason;
+  skipped?: string;
+  image?: StoredImage;
+  previews: { key: string; image: StoredImage }[];
+  looked: string[];
+  engine: "service" | "local";
+  /** The access mode a browser upload to Blob succeeded with. */
+  access?: BlobAccess;
 }
 
 /**
- * Picture the capture's flagged values that were measured on `route` and
- * aren't pictured yet, in the renderings this route actually produced shots
- * for (an auth-walled or failed route has none, so it's skipped). Never fails
- * the route: any error leaves the route with its full shots and no previews.
+ * Check that a stored image is the one this capture minted for the slot: the
+ * right name, and either a finished file on disk or a blob in this project's
+ * store at the signed pathname — looked up with the server's own credentials,
+ * so a browser can't make the index point anywhere else.
  */
-async function pictureRouteValues(
-  browser: Browser,
+async function verifyStored(
   pending: PendingSnapshot,
-  route: string,
-  shots: PolishdSnapshotShot[],
-): Promise<{ previews: PolishdSnapshotPreview[]; missed: string[] }> {
-  const none = { previews: [], missed: [] };
-  const pictured = new Set(pending.previews.map((p) => p.key));
-  const targets = pending.targets
-    .filter((t) => t.pages.includes(route) && !pictured.has(t.key))
-    .slice(0, MAX_PREVIEWS_PER_ROUTE);
-  const renderings = PREVIEW_RENDERINGS.filter((r) =>
-    shots.some((s) => s.file && s.device === r.device && s.theme === r.theme),
-  );
-  if (targets.length === 0 || renderings.length === 0) return none;
+  slot: ShotSlot,
+  image: StoredImage,
+): Promise<string | null> {
+  const parsed = parseSnapshotFile(image.file);
+  const expectedWebp = snapshotFileFor(pending.routes, slot, "image/webp");
+  const expectedPng = snapshotFileFor(pending.routes, slot, "image/png");
+  if (!parsed || (image.file !== expectedWebp && image.file !== expectedPng)) {
+    return "an image name this capture didn't issue";
+  }
+  if (pending.storage === "disk") {
+    if (image.url) return "a Blob URL for a disk-stored capture";
+    try {
+      const s = await stat(join(snapshotsRoot(), pending.id, parsed.dir, image.file));
+      return s.isFile() && s.size > 0 ? null : "an empty image";
+    } catch {
+      return "an image that never finished uploading";
+    }
+  }
+  if (!image.url || !isBlobObjectUrl(image.url)) return "an image that isn't in Vercel Blob";
+  const blob = await loadBlobSdk();
+  if ("message" in blob) return blob.message;
   try {
-    const result = await captureValuePreviews(
-      browser,
-      pending.origin,
-      route,
-      targets,
-      renderings,
-      PREVIEW_BUDGET_MS,
-    );
-    const previews =
-      result.crops.length > 0
-        ? await storeRoutePreviews(pending.id, pending.routes.indexOf(route), route, result.crops)
-        : [];
-    return { previews, missed: result.missed };
+    const meta = await blob.head(image.url);
+    if (!blobPathnameMatches(meta.pathname, pending.id, image.file)) {
+      return "a blob at a pathname this capture didn't sign";
+    }
+    if (meta.size > MAX_SNAPSHOT_IMAGE_BYTES) return "an image over the size cap";
+    return null;
   } catch {
-    return none;
+    return "an image the Blob store doesn't have";
   }
 }
 
+/** Append a cell to the pending record. Callers have verified (or written) its images. */
+function addToPending(pending: PendingSnapshot, record: ShotRecord): void {
+  pending.shots.push({
+    route: record.route,
+    device: record.device,
+    theme: record.theme,
+    file: record.image?.file ?? "",
+    ...(record.image?.url ? { url: record.image.url } : {}),
+    ...(record.image ? {} : { skipped: (record.skipped ?? "not captured").slice(0, 200) }),
+    ...(record.hash ? { hash: record.hash.slice(0, 64) } : {}),
+    ...(record.reason ? { reason: record.reason } : {}),
+  });
+  for (const p of record.previews) {
+    pending.previews.push({
+      key: p.key,
+      route: record.route,
+      device: record.device,
+      theme: record.theme,
+      file: p.image.file,
+      ...(p.image.url ? { url: p.image.url } : {}),
+    });
+  }
+  for (const key of record.looked) if (!pending.looked.includes(key)) pending.looked.push(key);
+  if (!pending.engines.includes(record.engine)) pending.engines.push(record.engine);
+}
+
 /**
- * Close out the capture: record the accumulated shots in the snapshot index
- * and prune old snapshots past `MAX_SNAPSHOTS`, images included. Called once
- * every route has been attempted — routes whose calls failed outright are
- * simply absent from the snapshot.
+ * Record one cell the dashboard shot through the service and stored. Calls
+ * for a cell already recorded are a no-op, so a retry after a lost response
+ * is harmless. The dashboard sends these one at a time — they read and write
+ * the same pending record.
  */
-export async function finishSnapshot(id: string): Promise<CaptureSnapshotResult> {
-  const pending = await loadPending();
-  if (!pending || pending.id !== id) {
+export async function recordSnapshotShot(
+  id: string,
+  record: ShotRecord,
+): Promise<{ ok: true } | Failure> {
+  const pending = await loadPending(id);
+  if (!pending) return GONE;
+  if (pending.engine.kind !== "service") return NOT_THIS_ENGINE;
+  const slot: ShotSlot = { route: record.route, device: record.device, theme: record.theme };
+  if (!validSlot(pending, slot)) return { ok: false, message: "That shot isn't part of this capture." };
+  if (pending.shots.some((s) => s.route === slot.route && s.device === slot.device && s.theme === slot.theme)) {
+    return { ok: true };
+  }
+  const targetKeys = new Set(pending.targets.map((t) => t.key));
+  if (record.previews.length > 16 || record.previews.some((p) => !targetKeys.has(p.key))) {
+    return { ok: false, message: "Those value pictures aren't part of this capture." };
+  }
+  if (record.image) {
+    const problem = await verifyStored(pending, slot, record.image);
+    if (problem) return { ok: false, message: `The shot was refused: ${problem}.` };
+  }
+  for (const [n, p] of record.previews.entries()) {
+    const problem = await verifyStored(pending, { ...slot, preview: n }, p.image);
+    if (problem) return { ok: false, message: `A value picture was refused: ${problem}.` };
+  }
+  addToPending(pending, {
+    ...record,
+    looked: record.looked.filter((k) => targetKeys.has(k)),
+  });
+  if (record.access && pending.storage === "blob") pending.blobAccess = record.access;
+  if (!(await savePending(pending))) {
+    return { ok: false, message: "The shot was stored but the store refused to record it." };
+  }
+  return { ok: true };
+}
+
+/** Write one image the local engine produced to wherever this capture stores images. */
+async function storeLocalImage(
+  pending: PendingSnapshot,
+  slot: ShotSlot,
+  image: EncodedImage,
+): Promise<StoredImage | null> {
+  const file = snapshotFileFor(pending.routes, slot, image.type);
+  const parsed = file ? parseSnapshotFile(file) : null;
+  if (!file || !parsed) return null;
+  const bytes = Buffer.from(image.data, "base64");
+  if (pending.storage === "disk") {
+    const dir = join(snapshotsRoot(), pending.id, parsed.dir);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, file), bytes);
+    return { file };
+  }
+  const blob = await loadBlobSdk();
+  if ("message" in blob) throw new Error(blob.message);
+  const { url } = await uploadToBlob((access) =>
+    blob.put(snapshotBlobPathname(pending.id, file), bytes, {
+      access,
+      contentType: image.type,
+      addRandomSuffix: true,
+    }),
+  );
+  return { file, url };
+}
+
+export type LocalShotResult = { ok: true; shot: ShotResult } | Failure;
+
+/**
+ * Shoot one cell with this machine's browser, store its images and record it
+ * — the local engine's whole step in one call. Returns the shot itself, images
+ * included, so the dashboard can show it as it lands.
+ */
+export async function captureLocalShot(
+  id: string,
+  slot: ShotSlot,
+  findKeys: string[],
+): Promise<LocalShotResult> {
+  const pending = await loadPending(id);
+  if (!pending) return GONE;
+  if (pending.engine.kind !== "local") return NOT_THIS_ENGINE;
+  if (!validSlot(pending, slot)) return { ok: false, message: "That shot isn't part of this capture." };
+  const unavailable = localCaptureUnavailable();
+  if (unavailable) return { ok: false, message: unavailable };
+
+  const wanted = new Set(findKeys);
+  const find = pending.targets
+    .filter((t) => wanted.has(t.key) && t.pages.includes(slot.route))
+    .slice(0, 16)
+    .map((t) => ({ key: t.key, ref: t.ref }));
+
+  let shot: ShotResult;
+  try {
+    shot = await shootLocally({
+      origin: pending.origin,
+      route: slot.route,
+      device: slot.device,
+      theme: slot.theme,
+      find,
+    });
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : "The local browser failed." };
+  }
+
+  // Re-read: shooting took seconds, and the record must be the current one.
+  const current = await loadPending(id);
+  if (!current) return GONE;
+  if (current.shots.some((s) => s.route === slot.route && s.device === slot.device && s.theme === slot.theme)) {
+    return { ok: true, shot };
+  }
+  const stored: StoredImage[] = [];
+  try {
+    const image = shot.image ? await storeLocalImage(current, slot, shot.image) : undefined;
+    if (image) stored.push(image);
+    const previews: { key: string; image: StoredImage }[] = [];
+    for (const [n, p] of shot.previews.entries()) {
+      const saved = await storeLocalImage(current, { ...slot, preview: n }, p.image);
+      if (saved) {
+        stored.push(saved);
+        previews.push({ key: p.key, image: saved });
+      }
+    }
+    addToPending(current, {
+      route: slot.route,
+      device: slot.device,
+      theme: slot.theme,
+      hash: shot.hash,
+      reason: shot.reason,
+      skipped: shot.skipped,
+      image: image ?? undefined,
+      previews,
+      looked: shot.looked,
+      engine: "local",
+    });
+  } catch (err) {
+    await deleteImageFiles(id, stored);
     return {
       ok: false,
-      message: "This capture is no longer in progress — start a new one.",
+      message: `Couldn't store the screenshot: ${err instanceof Error ? err.message : "unknown error"}`,
     };
   }
+  if (!(await savePending(current))) {
+    return { ok: false, message: "The route was shot but the store refused to record it." };
+  }
+  return { ok: true, shot };
+}
+
+/**
+ * Close out the capture: settle dark mode, record the shots in the snapshot
+ * index and prune old snapshots past `MAX_SNAPSHOTS`, images included. Cells
+ * that were never recorded are simply absent from the snapshot.
+ */
+export async function finishSnapshot(id: string): Promise<{ ok: true; snapshot: PolishdSnapshot } | Failure> {
+  const pending = await loadPending(id);
+  if (!pending) return GONE;
+
+  // A site with no dark mode renders the same pixels twice; keep one set.
+  const verdict = darkModeVerdict(pending.shots);
+  const redundant = new Set(verdict.redundant);
+  const dropped = pending.shots.filter((_, i) => redundant.has(i));
+  const kept = pending.shots.filter((_, i) => !redundant.has(i));
+
+  // One picture per value: from the earliest rendering that showed it (the
+  // gallery's default view first), whatever order the cells were recorded in.
+  const order = (p: PolishdSnapshotPreview) =>
+    SNAPSHOT_RENDERINGS.findIndex((r) => r.device === p.device && r.theme === p.theme);
+  const seen = new Set<string>();
+  const previews = [...pending.previews].sort((a, b) => order(a) - order(b)).filter((p) => {
+    if (seen.has(p.key)) return false;
+    seen.add(p.key);
+    return true;
+  });
+  const extraPreviews = pending.previews.filter((p) => !previews.includes(p));
 
   const snapshot: PolishdSnapshot = {
     id: pending.id,
     capturedAt: Date.now(),
     origin: pending.origin,
     fingerprint: pending.fingerprint,
-    shots: pending.shots,
-    authWalled: pending.authWalled,
-    noDarkMode: pending.noDarkMode,
-    previews: pending.previews,
-    // A value missed on one of its pages may have been pictured on another.
-    previewMisses: [...new Set(pending.previewMisses)].filter(
-      (key) => !pending.previews.some((p) => p.key === key),
-    ),
+    shots: kept.map(({ route, device, theme, file, url, skipped }) => ({
+      route,
+      device,
+      theme,
+      file,
+      ...(url ? { url } : {}),
+      ...(skipped ? { skipped } : {}),
+    })),
+    authWalled: [...new Set(kept.filter((s) => s.reason === "auth_wall").map((s) => s.route))],
+    noDarkMode: verdict.noDarkMode,
+    previews,
+    previewMisses: previewMisses(pending.looked, previews.map((p) => p.key)),
+    engines: pending.engines,
   };
 
   if (snapshot.shots.every((s) => !s.file)) {
-    await deleteSnapshotImages(snapshot);
+    await deleteSnapshotImages(pending);
     await savePending(null);
+    const first = pending.shots.find((s) => s.skipped)?.skipped;
     return {
       ok: false,
-      message:
-        "Every page failed to capture — is the site reachable at " +
-        `${pending.origin} from its own server?`,
+      message: `Every page failed to capture${first ? ` (${first})` : ""}.`,
     };
   }
 
@@ -723,104 +880,135 @@ export async function finishSnapshot(id: string): Promise<CaptureSnapshotResult>
   const pruned = index.snapshots.slice(MAX_SNAPSHOTS);
   index.snapshots = index.snapshots.slice(0, MAX_SNAPSHOTS);
   if (!(await setMeta(INDEX_KEY, JSON.stringify(index)))) {
-    await deleteSnapshotImages(snapshot);
+    await deleteSnapshotImages(pending);
     await savePending(null);
-    return {
-      ok: false,
-      message: "The snapshot was shot but the store refused to record it.",
-    };
+    return { ok: false, message: "The snapshot was shot but the store refused to record it." };
   }
   await savePending(null);
-  for (const old of pruned) {
-    await deleteSnapshotImages(old);
+  // Redundant dark shots and duplicate value pictures were stored before they
+  // were known to be redundant.
+  if (dropped.length > 0 || extraPreviews.length > 0) {
+    await deleteImageFiles(pending.id, [...dropped, ...extraPreviews]);
   }
+  for (const old of pruned) await deleteSnapshotImages(old);
   return { ok: true, snapshot };
 }
 
+/** Delete specific images of a snapshot that is otherwise kept. */
+async function deleteImageFiles(id: string, images: { file: string; url?: string }[]): Promise<void> {
+  const urls = images.flatMap((i) => (i.url ? [i.url] : []));
+  if (urls.length > 0) {
+    try {
+      const { del } = await import("@vercel/blob");
+      await del(urls);
+    } catch {
+      // Orphans cost cents; leave them.
+    }
+  }
+  for (const image of images) {
+    const parsed = image.file ? parseSnapshotFile(image.file) : null;
+    if (!image.url && parsed) {
+      await rm(join(snapshotsRoot(), id, parsed.dir, image.file), { force: true }).catch(() => {});
+    }
+  }
+}
+
+// ── Consent and mode ─────────────────────────────────────────────────────────
+
+const CONSENT_KEY = "snapshot_service_consent";
+
 /**
- * Launch a Chromium the way the allpages CLI does — the user's own Chrome or
- * Edge first, Playwright's downloaded Chromium next — but never auto-download
- * a browser: that is a 120 MB side effect no dashboard button should trigger
- * silently. On Linux with none of those (the shape of every serverless
- * container) the `@sparticuz/chromium` build takes over: a Chromium compiled
- * to unpack and run inside Lambda-style sandboxes, installed as an optional
- * dependency so production needs no setup step.
+ * The owner's answer to the consent dialog: whether production snapshots may
+ * call Polishd's screenshot service. Kept per install, like telemetry consent.
  */
-async function launchBrowser(): Promise<{ browser: Browser } | { message: string }> {
-  let chromium: (typeof import("playwright-core"))["chromium"];
+export async function loadSnapshotConsent(): Promise<SnapshotConsent> {
+  const raw = await getMeta(CONSENT_KEY);
+  if (!raw) return null;
   try {
-    ({ chromium } = await import("playwright-core"));
-  } catch (err) {
-    return {
-      message: `The browser driver (playwright-core) failed to load: ${
-        err instanceof Error ? err.message : "unknown error"
-      }`,
-    };
+    const parsed = JSON.parse(raw) as { decision?: unknown };
+    return parsed.decision === "accepted" || parsed.decision === "declined" ? parsed.decision : null;
+  } catch {
+    return null;
   }
-  const args = ["--force-color-profile=srgb", "--hide-scrollbars"];
-  for (const channel of ["chrome", "msedge", undefined] as const) {
-    try {
-      return { browser: await chromium.launch({ args, ...(channel ? { channel } : {}) }) };
-    } catch {
-      // Try the next channel.
-    }
+}
+
+export async function saveSnapshotConsent(accepted: boolean): Promise<boolean> {
+  return setMeta(CONSENT_KEY, JSON.stringify({ decision: accepted ? "accepted" : "declined", at: Date.now() }));
+}
+
+const BLOCK_KEY = "snapshot_capture_block";
+
+/**
+ * The last capture's block — the service couldn't be used from here (CSP,
+ * outage, rate limit, a site it can't reach). Kept until a capture gets
+ * through, so the section stays off at the bottom of the tab across reloads
+ * instead of reappearing as if nothing were wrong.
+ */
+export async function loadSnapshotBlock(): Promise<StoredCaptureBlock | null> {
+  const raw = await getMeta(BLOCK_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { at?: unknown };
+    const block = parseCaptureBlock(parsed);
+    return block && typeof parsed.at === "number" ? { ...block, at: parsed.at } : null;
+  } catch {
+    return null;
   }
-  if (process.platform === "linux") {
-    let sparticuz: (typeof import("@sparticuz/chromium"))["default"] | null;
-    try {
-      sparticuz = (await import("@sparticuz/chromium")).default;
-    } catch {
-      sparticuz = null; // Omitted from the install — named in the message below.
-    }
-    if (sparticuz) {
-      try {
-        return {
-          browser: await chromium.launch({
-            // The sparticuz flags (--no-sandbox, --single-process, …) are what
-            // let Chromium run in a serverless sandbox at all; ours follow.
-            args: [...sparticuz.args, ...args],
-            executablePath: await sparticuz.executablePath(),
-          }),
-        };
-      } catch (err) {
-        return {
-          message: `The serverless Chromium (@sparticuz/chromium) failed to launch: ${
-            err instanceof Error ? err.message : "unknown error"
-          }`,
-        };
-      }
-    }
-    return {
-      message:
-        "Couldn't start a browser for screenshots — no Chrome, Edge, or Playwright " +
-        "Chromium was found, and the @sparticuz/chromium fallback isn't installed. " +
-        "It ships as an optional dependency of @polishd/next, so this install was " +
-        "likely run with `--omit=optional` — reinstall with optional dependencies " +
-        "included (or run `npx playwright install chromium`), then capture again.",
-    };
+}
+
+/** Record a capture's block, or clear it (null) once a capture got through. */
+export async function saveSnapshotBlock(block: CaptureBlock | null): Promise<StoredCaptureBlock | null> {
+  if (!block) {
+    await setMeta(BLOCK_KEY, "");
+    return null;
   }
+  const stored = { ...block, at: Date.now() };
+  return (await setMeta(BLOCK_KEY, JSON.stringify(stored))) ? stored : null;
+}
+
+/** What the Site snapshots section may do here, and the storage problem when that's why it can't. */
+export interface SnapshotAvailability {
+  mode: SnapshotMode;
+  /** Set when images have nowhere to go — the message for `no_storage`. */
+  storageIssue: string | null;
+  /** The service production captures would call (null when turned off) — for the consent dialog. */
+  serviceUrl: string | null;
+  /** The last capture's block, until a capture gets through. Only applies to service captures. */
+  block: StoredCaptureBlock | null;
+}
+
+/**
+ * Work out the section's mode for a dashboard on `origin`: local under
+ * `next dev` or on a local address; otherwise the hosted service, once there
+ * is somewhere to store images and the owner has agreed to it.
+ */
+export async function snapshotAvailability(origin: string | null): Promise<SnapshotAvailability> {
+  const storageIssue = await snapshotCaptureIssue();
+  const consent = await loadSnapshotConsent();
+  const mode = decideSnapshotMode({
+    origin: origin ?? "",
+    development: process.env.NODE_ENV === "development",
+    override: process.env.POLISHD_SNAPSHOT_SERVICE,
+    storageReady: storageIssue === null,
+    consent,
+  });
   return {
-    message:
-      "Couldn't start a browser for screenshots — no Chrome or Edge was found, and " +
-      "Playwright's Chromium isn't installed. Run `npx playwright install chromium` " +
-      "once, then capture again.",
+    mode,
+    storageIssue,
+    serviceUrl: snapshotServiceUrl(process.env.POLISHD_SNAPSHOT_SERVICE),
+    block: mode.kind === "service" ? await loadSnapshotBlock() : null,
   };
 }
 
 /**
  * A problem that will make the next capture fail, detectable from the
- * environment alone — or null when none is. Covers the two setup gaps a
- * serverless deploy can have: no Blob store connected (nowhere for images to
- * live when the filesystem is read-only), and the `--omit=optional` install
- * missing a dependency the environment says will be needed. Either way the
- * dashboard can say so up front rather than a minute into a doomed capture,
- * and `captureSnapshot` runs the same check for callers that never rendered
- * the dashboard.
+ * environment alone — or null when none is. On Vercel the filesystem is
+ * read-only, so images need a Blob store; and a Blob store needs the SDK the
+ * `--omit=optional` install may have dropped. The dashboard says so up front
+ * rather than after the first shot, and `beginSnapshot` runs the same check
+ * for callers that never rendered the dashboard.
  */
 export async function snapshotCaptureIssue(): Promise<string | null> {
-  // On Vercel the filesystem is read-only and reset between invocations, so
-  // disk storage — the fallback when no Blob store is connected — cannot work.
-  // Without a connected store every capture is doomed before it starts.
   if (process.env.VERCEL && !blobConfigured()) {
     return (
       "Snapshot images have nowhere to live on this deployment: the filesystem " +
@@ -843,22 +1031,5 @@ export async function snapshotCaptureIssue(): Promise<string | null> {
       );
     }
   }
-  // On Vercel there is never a system Chrome and never a Playwright download,
-  // so the sparticuz build is not a fallback but the only browser that can
-  // launch — its absence is a certain failure worth flagging early.
-  if (process.env.VERCEL && process.platform === "linux") {
-    try {
-      await import("@sparticuz/chromium");
-    } catch {
-      return (
-        "Capturing snapshots here needs the serverless Chromium from " +
-        "@sparticuz/chromium, which isn't installed. It ships as an optional " +
-        "dependency of @polishd/next, so this install was likely run with " +
-        "`--omit=optional` — reinstall with optional dependencies included, " +
-        "then redeploy."
-      );
-    }
-  }
   return null;
 }
-

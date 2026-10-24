@@ -1,0 +1,29 @@
+{
+  "name": "polishd-shots",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Polishd's hosted screenshot service: shoots the calling site's public pages for @polishd/next site snapshots",
+  "scripts": {
+    "dev": "next dev -p 4100",
+    "build": "next build",
+    "start": "next start -p 4100",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
+    "allpages": "^0.3.3",
+    "next": "^16",
+    "playwright-core": "^1.62.1",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "typescript": "^5.9.3"
+  }
+}

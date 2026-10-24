@@ -19,10 +19,10 @@ import type {
   PolishdDesignData,
 } from "../server/design";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
-import type { PolishdSnapshot } from "../server/snapshots";
+import type { PolishdSnapshot, SnapshotAvailability } from "../server/snapshots";
 import { designValueKey, type DesignValueRef } from "../shared/design-values";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
-import SnapshotsCard from "./snapshots";
+import { SnapshotsProvider, SnapshotsSlot } from "./snapshots";
 import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
 import OverflowRow from "./overflow-row";
 import ShowMore from "./show-more";
@@ -595,8 +595,8 @@ export interface DesignPanelProps {
   reviewStale: boolean;
   settings: PolishdAISettingsPublic;
   snapshots: PolishdSnapshot[];
-  /** A known-in-advance reason captures will fail here, or null. */
-  captureIssue: string | null;
+  /** What Site snapshots can do here — it decides where the section sits. */
+  snapshotMode: SnapshotAvailability;
 }
 
 export function DesignPanel({
@@ -605,78 +605,83 @@ export function DesignPanel({
   reviewStale,
   settings,
   snapshots,
-  captureIssue,
+  snapshotMode,
 }: DesignPanelProps) {
   const hasScans = data.pages.length > 0;
   const previews = previewIndex(snapshots);
   return (
     <main className="text-white">
-      {/* Header */}
-      <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-white">Design review</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
-            Your site&apos;s brand guideline, reverse-engineered from the rendered pages — the
-            typography, palette, radii and spacing it actually ships, with anything that breaks
-            the system flagged.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <RefreshMetricsButton />
-          <div
-            className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-              hasScans ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#666]"
-            }`}
-          >
-            {hasScans
-              ? `● ${data.pages.length} ${data.pages.length === 1 ? "page" : "pages"} scanned`
-              : "○ no scans yet"}
+      <SnapshotsProvider initial={snapshots} availability={snapshotMode}>
+        {/* Header */}
+        <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight text-white">Design review</h1>
+            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
+              Your site&apos;s brand guideline, reverse-engineered from the rendered pages — the
+              typography, palette, radii and spacing it actually ships, with anything that breaks
+              the system flagged.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <RefreshMetricsButton />
+            <div
+              className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
+                hasScans ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#666]"
+              }`}
+            >
+              {hasScans
+                ? `● ${data.pages.length} ${data.pages.length === 1 ? "page" : "pages"} scanned`
+                : "○ no scans yet"}
+            </div>
           </div>
         </div>
-      </div>
 
-      {!data.ready && (
-        <div className="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400">
-          The analytics store isn&apos;t writable in this environment. Run locally or configure a
-          database — see the <span className="font-mono text-amber-300">@polishd/next</span>{" "}
-          DATABASE.md guide.
-        </div>
-      )}
+        {!data.ready && (
+          <div className="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400">
+            The analytics store isn&apos;t writable in this environment. Run locally or configure a
+            database — see the <span className="font-mono text-amber-300">@polishd/next</span>{" "}
+            DATABASE.md guide.
+          </div>
+        )}
 
-      {data.ready && !hasScans && (
-        <div className={`mb-8 ${card} px-5 py-8 text-center`}>
-          <p className="text-[13px] text-[#888]">
-            No design scans captured yet. Each page measures its own rendered design (fonts,
-            colors, radii, spacing) once per visitor session — browse a few pages of the site,
-            then refresh the metrics.
-          </p>
-        </div>
-      )}
+        {data.ready && !hasScans && (
+          <div className={`mb-8 ${card} px-5 py-8 text-center`}>
+            <p className="text-[13px] text-[#888]">
+              No design scans captured yet. Each page measures its own rendered design (fonts,
+              colors, radii, spacing) once per visitor session — browse a few pages of the site,
+              then refresh the metrics.
+            </p>
+          </div>
+        )}
 
-      {/* The site as it actually renders — screenshots of every scanned page */}
-      <SnapshotsCard initial={snapshots} captureIssue={captureIssue} />
+        {/* The site as it actually renders — screenshots of every scanned page.
+            Here when it can capture; at the bottom of the tab, off, when it can't. */}
+        <SnapshotsSlot position="top" />
 
-      {/* AI aesthetic read of the measured system */}
-      <DesignReviewCard
-        initialReview={review}
-        initialStale={reviewStale}
-        hasApiKey={settings.hasApiKey}
-        provider={settings.provider}
-        model={settings.model}
-        scannedPages={data.pages.length}
-        githubConnected={settings.hasGithubToken && !!settings.githubRepo}
-      />
+        {/* AI aesthetic read of the measured system */}
+        <DesignReviewCard
+          initialReview={review}
+          initialStale={reviewStale}
+          hasApiKey={settings.hasApiKey}
+          provider={settings.provider}
+          model={settings.model}
+          scannedPages={data.pages.length}
+          githubConnected={settings.hasGithubToken && !!settings.githubRepo}
+        />
 
-      {hasScans && (
-        <>
-          <TypographySection data={data} previews={previews} />
-          <PaletteSection data={data} previews={previews} />
-          <ContrastSection data={data} />
-          <RadiusSection data={data} previews={previews} />
-          <SpacingSection data={data} previews={previews} />
-          <ScannedPages data={data} />
-        </>
-      )}
+        {hasScans && (
+          <>
+            <TypographySection data={data} previews={previews} />
+            <PaletteSection data={data} previews={previews} />
+            <ContrastSection data={data} />
+            <RadiusSection data={data} previews={previews} />
+            <SpacingSection data={data} previews={previews} />
+            <ScannedPages data={data} />
+          </>
+        )}
+
+        <SnapshotsSlot position="bottom" />
+      </SnapshotsProvider>
     </main>
   );
 }
