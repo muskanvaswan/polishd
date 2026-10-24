@@ -15,6 +15,7 @@ import type { Browser, BrowserContext, Page } from "playwright-core";
 import {
   requestAction,
   shootRendering,
+  silenceBeacons,
   type CapturePage,
   type ShootDeps,
 } from "../../src/capture/core.ts";
@@ -134,6 +135,7 @@ export async function shootAll(
             extraHTTPHeaders: { "accept-language": "en-US,en;q=0.9" },
           });
           try {
+            await context.addInitScript(silenceBeacons);
             await guard(context, origin);
             const page = await context.newPage();
             const shot = await shootRendering(page as unknown as CapturePage, blank, {
