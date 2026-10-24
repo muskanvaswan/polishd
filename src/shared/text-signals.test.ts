@@ -11,6 +11,7 @@ import { test } from "node:test";
 import {
   INTERACTIVE_TAGS,
   isTextualClickRow,
+  normalizeLabel,
   PROSE_MIN_CHARS,
   reclassifiedClickType,
   selectorTags,
@@ -20,6 +21,11 @@ const PROSE = "This sentence is comfortably past the prose length threshold.";
 
 test("selectorTags strips classes, ids, and case", () => {
   assert.deepEqual(selectorTags("div.card>p.intro>span#hl"), ["div", "p", "span"]);
+  assert.deepEqual(
+    selectorTags('section[data-component="hero.v2"]>div.media>button'),
+    ["section", "div", "button"],
+    "a data-component anchor, even one with a dot in its name",
+  );
   assert.deepEqual(selectorTags("MAIN.page>DIV"), ["main", "div"]);
   assert.deepEqual(selectorTags(""), []);
 });
@@ -69,4 +75,14 @@ test("interactive tags are disjoint from the retro rage guard's blind spots", ()
     assert.ok(INTERACTIVE_TAGS.has(t), `missing interactive tag: ${t}`);
   }
   assert.ok(selectorTags("button.cta>span.label").some((t) => INTERACTIVE_TAGS.has(t)));
+});
+
+test("normalizeLabel folds digit runs so counts aggregate", () => {
+  assert.equal(normalizeLabel("Show 9 more"), "Show # more");
+  assert.equal(normalizeLabel("Show 12 more"), normalizeLabel("Show 9 more"));
+  assert.equal(normalizeLabel("Page 2 of 10"), "Page # of #");
+  assert.equal(normalizeLabel("1,234 results · 3.5s"), "#,# results · #.#s");
+  assert.equal(normalizeLabel("Save"), "Save");
+  assert.equal(normalizeLabel(""), "");
+  assert.equal(normalizeLabel(undefined), undefined);
 });

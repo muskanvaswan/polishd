@@ -32,9 +32,13 @@ function ElementRow({ el }: { el: ElementStat }) {
     <tr className={`${divider} align-top`}>
       <td className="py-2.5 pl-5 pr-6">
         <span className="font-mono text-[13px] font-medium text-white">{el.label}</span>
-        {el.sampleText && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#888]">"{el.sampleText}"</div>
-        )}
+        {el.sampleText &&
+          (el.sampleIsNear ? (
+            // Where the clicks land, not text on the element: no quotes.
+            <div className="mt-0.5 text-[11px] italic text-[#888]">{el.sampleText}</div>
+          ) : (
+            <div className="mt-0.5 font-mono text-[11px] text-[#888]">"{el.sampleText}"</div>
+          ))}
       </td>
       <td className={`py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums ${scoreTone(el.score)}`}>
         {el.score}

@@ -9,9 +9,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { componentOf, labelOf, selectorOf } from "./target.ts";
+import { componentOf, handleOf, labelOf, selectorOf } from "./target.ts";
 
-/** Just enough of an Element for the walks: tag, id, attributes, parent. */
+/** How many elements carry each class, for the document the fakes live in. */
+let classCounts: Record<string, number> = {};
+const fakeDoc = {
+  getElementsByClassName: (cls: string) => ({ length: classCounts[cls] ?? 0 }),
+};
+
+/** Just enough of an Element for the walks: tag, id, attributes, parent, document. */
 const el = (
   tag: string,
   attrs: Record<string, string> = {},
@@ -24,6 +30,7 @@ const el = (
     id: attrs.id ?? "",
     parentElement,
     textContent,
+    ownerDocument: fakeDoc,
     getAttribute: (name: string) => attrs[name] ?? null,
   }) as unknown as Element;
 
@@ -51,6 +58,99 @@ test("a failed resource load is still attributed to its component", () => {
   const img = el("img", { class: "cover" }, el("div", { class: "media" }, section));
   assert.equal(componentOf(img), "Hero");
   assert.equal(selectorOf(img), "section.hero>div.media>img.cover");
+});
+
+// ---- selectorOf: the stable key -----------------------------------------------------
+
+test("selectorOf is the first class per level, whatever the rest of the document holds", () => {
+  const main = el("main", { class: "text-white min-h-screen" });
+  const section = el("section", { class: "mb-8 settings-panel" }, main);
+  const target = el("div", { class: "absolute inset-0" }, el("div", { class: "fixed inset-0 z-50" }, section));
+  classCounts = { "text-white": 40, "settings-panel": 1, "inset-0": 2 };
+  const before = selectorOf(target);
+  classCounts = { "text-white": 1, "mb-8": 1, absolute: 1 };
+  assert.equal(selectorOf(target), before, "class counts never move it");
+  assert.equal(before, "main.text-white>section.mb-8>div.fixed>div.absolute");
+  classCounts = {};
+});
+
+test("a button gaining a state class keeps its selector", () => {
+  const like = el("button", { class: "like-btn" });
+  const liked = el("button", { class: "like-btn liked" });
+  classCounts = { "like-btn": 30, liked: 1 };
+  assert.equal(selectorOf(like), "button.like-btn");
+  assert.equal(selectorOf(liked), "button.like-btn");
+  classCounts = {};
+});
+
+test("selectorOf skips variant and arbitrary classes and generated ids; never an empty class", () => {
+  assert.equal(selectorOf(el("div", { class: "lg:sticky bg-[#111] w-1/2 top-0" })), "div.top-0");
+  assert.equal(selectorOf(el("a", { class: "  lg:block [mask-type:luminance] " })), "a");
+  assert.equal(selectorOf(el("a", { class: "" })), "a");
+  assert.equal(selectorOf(el("div", { id: ":r1:", class: "menu" }, el("nav", { class: "top" }))), "nav.top>div.menu");
+  assert.equal(selectorOf(el("span", {}, el("section", { id: "settings" }))), "section#settings>span");
+});
+
+// ---- handleOf: the greppable path -------------------------------------------------
+
+test("handleOf picks each level's most distinctive class, not its first", () => {
+  classCounts = { "text-white": 40, "min-h-screen": 60, "mb-8": 25, "settings-panel": 1, fixed: 3, "inset-0": 9, absolute: 30, "z-50": 4 };
+  const main = el("main", { class: "text-white min-h-screen" });
+  const section = el("section", { class: "mb-8 settings-panel" }, main);
+  const overlay = el("div", { class: "fixed inset-0 z-50" }, section);
+  const target = el("div", { class: "absolute inset-0" }, overlay);
+  // The selector says main.text-white>section.mb-8>div.fixed>div.absolute — nothing to grep for.
+  assert.equal(handleOf(target), "main.text-white>section.settings-panel>div.fixed>div.inset-0");
+  classCounts = {};
+});
+
+test("handleOf skips variant, arbitrary and escaping-needed classes; never an empty class", () => {
+  classCounts = { sticky: 2, "top-0": 50 };
+  assert.equal(
+    handleOf(el("div", { class: "lg:sticky hover:bg-white bg-[#111] w-1/2 py-2.5 !mt-0 top-0" })),
+    "div.top-0",
+  );
+  assert.equal(handleOf(el("a", { class: "  lg:block [mask-type:luminance] " })), "a");
+  assert.equal(handleOf(el("span", {})), "span");
+  classCounts = {};
+});
+
+test("with no document to count in, the first plain class wins", () => {
+  const detached = { ...el("img", { class: "md:hidden cover thumb" }), ownerDocument: null } as unknown as Element;
+  assert.equal(handleOf(detached), "img.cover");
+});
+
+test("handleOf stops at the nearest anchor: a data-component, or an id a person wrote", () => {
+  const page = el("div", { id: "app" });
+  const card = el("article", { "data-component": "note-card", class: "card" }, page);
+  const row = el("div", { class: "row" }, card);
+  assert.equal(handleOf(el("button", { class: "btn" }, row)), 'article[data-component="note-card"]>div.row>button.btn');
+  assert.equal(handleOf(card), 'article[data-component="note-card"]');
+  const settings = el("section", { id: "settings", class: "panel" });
+  assert.equal(handleOf(el("span", {}, settings)), "section#settings>span");
+});
+
+test("generated ids and unquotable component names are not anchors", () => {
+  for (const id of [":r1:", "«r5»", "radix-:r2:", "headlessui-menu-button-:r3:"]) {
+    const outer = el("nav", { class: "top" });
+    const generated = el("div", { id, class: "menu" }, outer);
+    assert.equal(handleOf(generated), "nav.top>div.menu", id);
+  }
+  const odd = el("div", { "data-component": 'a>b"c', class: "odd" });
+  assert.equal(handleOf(el("i", {}, odd)), "div.odd>i");
+});
+
+test("a handle is bounded", () => {
+  let node: Element = el("body");
+  for (let i = 0; i < 4; i++) node = el("div", { class: `c${"x".repeat(90)}${i}` }, node);
+  assert.ok((handleOf(node) ?? "").length <= 200);
+});
+
+test("the path stays capped at four levels and stops at <body>", () => {
+  let node: Element = el("body");
+  for (const tag of ["main", "div", "section", "ul", "li"]) node = el(tag, {}, node);
+  assert.equal(selectorOf(node), "div>section>ul>li");
+  assert.equal(selectorOf(el("p", {}, el("body"))), "p");
 });
 
 test("labelOf reads an element's text, collapsed and capped", () => {
