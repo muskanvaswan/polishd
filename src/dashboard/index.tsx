@@ -982,6 +982,7 @@ async function OverviewTabData() {
       sourceAvailable={profileState.sourceAvailable}
       review={reviewState.review}
       reviewStale={reviewState.stale}
+      reviewMetricsChanged={reviewState.metricsChanged}
       scannedPages={design.pages.length}
       // Only the newest snapshot that has pictures — the strip shows no history.
       snapshot={snapshots.find((s) => s.shots.some((shot) => shot.file.length > 0)) ?? null}

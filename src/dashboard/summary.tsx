@@ -30,6 +30,7 @@ import type {
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
+import { DismissedCard, IgnoreButton, useDismissal } from "./dismissable";
 import { FileBugButton } from "./file-bug-button";
 import {
   GearIcon,
@@ -38,7 +39,6 @@ import {
   card,
   iconBtn,
   labelCls,
-  microBtn,
   primaryBtn,
   relTime,
 } from "./ui";
@@ -56,6 +56,8 @@ export interface SummaryCardProps {
   onSummaryChange?: (summary: PolishdSummary) => void;
   /** Told when a loss is ignored, restored or filed, keyed by its evidence. */
   onLossChange?: (evidence: string, change: LossChange) => void;
+  /** Dismissals recorded elsewhere (a pasted verdict block), keyed by evidence. */
+  dismissed?: ReadonlyMap<string, PolishdIgnoredLoss>;
 }
 
 /** What can happen to a loss after it renders. */
@@ -70,6 +72,7 @@ export default function SummaryCard({
   sourceAvailable,
   onSummaryChange,
   onLossChange,
+  dismissed,
 }: SummaryCardProps) {
   const [summary, setSummary] = useState<PolishdSummary | null>(initialSummary);
   const [stale, setStale] = useState(initialStale);
@@ -151,6 +154,7 @@ export default function SummaryCard({
               losses={summary!.losses}
               githubConnected={settings.hasGithubToken && !!settings.githubRepo}
               onLossChange={onLossChange}
+              dismissed={dismissed}
             />
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#888]">
               <span>
@@ -254,112 +258,38 @@ function ProfileNudge({
 
 // ── Wins & losses ────────────────────────────────────────────────────────────
 
-/** The verdict buttons on a loss share their style with the shared microBtn. */
-const microLink =
-  "text-[10px] text-[#888] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
-
 /**
  * One loss, and the two things you can do with it: file it as a bug, or ignore
- * it. Ignoring takes one click and no explanation — a reason is offered
- * afterwards, because the fast path is "this isn't a problem, stop showing me
- * it" and typing shouldn't be the toll for that. A reason is worth giving
- * though: it's replayed to the model on every later summary, so "the second CTA
- * is deliberate" stops the same finding coming back in different words.
- *
- * The dismissal is stored server-side immediately; the card stays put, struck
- * through with an undo, and only disappears on the next render. Ignored losses
- * never reappear — not from the cached summary, and not from a regenerate.
+ * it (see dismissable.tsx). Ignored losses never reappear — not from the
+ * cached summary, and not from a regenerate.
  */
 function LossCard({
   loss,
   githubConnected,
   onChange,
+  adopted,
 }: {
   loss: PolishdLossItem;
   githubConnected: boolean;
   onChange?: (change: LossChange) => void;
+  adopted?: PolishdIgnoredLoss;
 }) {
-  const [ignored, setIgnored] = useState<PolishdIgnoredLoss | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startIgnore] = useTransition();
+  const dismissal = useDismissal({
+    dismiss: (reason) => ignoreLossAction({ issue: loss.issue, evidence: loss.evidence }, reason),
+    restore: () => unignoreLossAction(loss.evidence),
+    onChange: (ignored) => onChange?.({ ignored }),
+    adopted,
+  });
 
-  const ignore = (reason?: string) =>
-    startIgnore(async () => {
-      setError(null);
-      const res = await ignoreLossAction(
-        { issue: loss.issue, evidence: loss.evidence },
-        reason,
-      );
-      if (res.ok) {
-        setIgnored(res.ignored);
-        setEditing(false);
-        onChange?.({ ignored: true });
-      } else setError(res.message);
-    });
-
-  const undo = () =>
-    startIgnore(async () => {
-      setError(null);
-      const res = await unignoreLossAction(loss.evidence);
-      if (res.ok) {
-        setIgnored(null);
-        setEditing(false);
-        setDraft("");
-        onChange?.({ ignored: false });
-      } else setError(res.message);
-    });
-
-  if (ignored) {
+  if (dismissal.ignored) {
     return (
-      <li className={`${railCard} text-[#888]`}>
-        <div className="flex gap-2">
-          <span className="mt-px shrink-0 text-[#888]">✕</span>
-          <span className="line-through decoration-[#3a3a3a]">{loss.issue}</span>
-        </div>
-        <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]">
-          Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
-        </span>
-        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-          {editing ? (
-            <ReasonForm
-              draft={draft}
-              setDraft={setDraft}
-              pending={pending}
-              onSubmit={() => ignore(draft.trim() || undefined)}
-              onCancel={() => setEditing(false)}
-            />
-          ) : (
-            <>
-              <button
-                type="button"
-                data-component="loss-ignore-reason"
-                onClick={() => {
-                  setDraft(ignored.reason ?? "");
-                  setEditing(true);
-                }}
-                disabled={pending}
-                title="Tell the model why this isn't a problem — it reads this on every later summary"
-                className={microLink}
-              >
-                {ignored.reason ? "Edit reason" : "Add a reason"}
-              </button>
-              <button
-                type="button"
-                data-component="loss-ignore-undo"
-                onClick={undo}
-                disabled={pending}
-                title="Put this back — the model can report it again"
-                className={microLink}
-              >
-                {pending ? "Undoing…" : "Undo"}
-              </button>
-            </>
-          )}
-          {error && <span className="text-[10px] text-red-400">{error}</span>}
-        </div>
-      </li>
+      <DismissedCard
+        issue={loss.issue}
+        state={dismissal}
+        componentPrefix="loss"
+        readBy="summary"
+        noun="loss"
+      />
     );
   }
 
@@ -401,63 +331,13 @@ function LossCard({
             }
           />
         )}
-        <button
-          type="button"
-          data-component="loss-ignore"
-          onClick={() => ignore()}
-          disabled={pending}
+        <IgnoreButton
+          state={dismissal}
+          dataComponent="loss-ignore"
           title="Not a problem — drop it from this summary and stop the model reporting it again"
-          className={microBtn}
-        >
-          {pending ? "Ignoring…" : "Ignore"}
-        </button>
-        {error && <span className="text-[10px] text-red-400">{error}</span>}
+        />
       </div>
     </li>
-  );
-}
-
-/** The optional half of ignoring: why it isn't a problem, in the owner's words. */
-function ReasonForm({
-  draft,
-  setDraft,
-  pending,
-  onSubmit,
-  onCancel,
-}: {
-  draft: string;
-  setDraft: (v: string) => void;
-  pending: boolean;
-  onSubmit: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit();
-      }}
-      className="flex w-full flex-wrap items-center gap-1.5"
-    >
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") onCancel();
-        }}
-        maxLength={240}
-        placeholder="Why isn't this a problem?"
-        aria-label="Reason for ignoring this loss"
-        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#888] focus:border-[#555] focus:outline-none"
-      />
-      <button type="submit" disabled={pending} className={microBtn}>
-        {pending ? "Saving…" : "Save"}
-      </button>
-      <button type="button" onClick={onCancel} disabled={pending} className={microLink}>
-        Cancel
-      </button>
-    </form>
   );
 }
 
@@ -466,12 +346,14 @@ function WinsLosses({
   losses,
   githubConnected,
   onLossChange,
+  dismissed,
 }: {
   wins: PolishdSummary["wins"];
   losses: PolishdSummary["losses"];
   /** True when a GitHub repo + token are configured — enables "File bug". */
   githubConnected: boolean;
   onLossChange?: (evidence: string, change: LossChange) => void;
+  dismissed?: ReadonlyMap<string, PolishdIgnoredLoss>;
 }) {
   const hasWins = !!wins?.length;
   const hasLosses = !!losses?.length;
@@ -499,6 +381,7 @@ function WinsLosses({
               loss={l}
               githubConnected={githubConnected}
               onChange={onLossChange && ((change) => onLossChange(l.evidence, change))}
+              adopted={dismissed?.get(l.evidence)}
             />
           ))}
         </CardRail>

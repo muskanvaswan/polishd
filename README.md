@@ -306,18 +306,46 @@ else that reads a prompt. Each review's own **Copy prompt** button copies just
 its half. A prompt carries:
 
 - the site description and audience from Settings, and the traffic so far;
+- a warning up front when the two reviews are far apart in time (two weeks or
+  more), when one is a month old, or when the design measurements have changed
+  since the review. A review that's out of date for another reason (a
+  dismissal, a settings change) gets a neutral note, never a claim of new
+  data;
 - each review's summary, and what's working, so the agent doesn't regress it;
 - every problem, labelled `A1`, `D1`…, with the evidence it was found from,
-  the source file it was matched to (or a note to search for it), the
-  suggested fix, and the GitHub issue already filed for it;
+  the source file it was matched to, the suggested fix, and the GitHub issue
+  already filed for it. An analytics problem also carries the volume behind it
+  when the summary recorded one (*23 dead clicks across 9 sessions on
+  `/pricing`*), and handles to search the source for, read off its citation:
+  a `data-component` name, the element's visible text, its meaningful class
+  names, or the route's page file. A design problem names its values in px
+  and rem, says which values its fix would introduce, and says when Polishd
+  withheld the model's fix (see [Design review](#design-review));
+- one line per kind of finding on how it was detected and what that detector
+  can't see. A dead click, for example, is a click on something with no
+  interactive tag or role, so a `div` with a React `onClick` counts as one; the
+  agent is told to check for a handler first;
 - instructions to find the responsible code before changing anything, skip a
-  finding the code shows isn't real, keep each change scoped, and report back
-  per problem.
+  finding the code shows isn't real, keep each change scoped, and finish with
+  a JSON verdict block: `fixed`, `not_real` or `deliberate` per problem, with a
+  reason and the files involved.
 
 The prompt is built in the browser from what the cards show at the moment you
 click, so a loss you've just ignored is already out of it and a review you've
 just regenerated is already in. It sends nothing anywhere: it's text on your
 clipboard.
+
+**Paste verdicts** reads the agent's verdict block back. Paste its reply (or
+just the block) and each verdict is shown next to the finding it refers to.
+Findings it marked `not_real` or `deliberate` are then ignored with its
+reasons, exactly as if you had clicked **Ignore** on each card, so the next
+review doesn't report them again. Ids are matched against the prompt as you
+last copied it, since ignoring or regenerating in between renumbers the
+problems, and a verdict only counts for a finding still in the current
+summary or review. The paste is treated as untrusted: only the id, verdict,
+reason and files are read, the reason is flattened to one line and clipped,
+the problem's wording comes from Polishd's own copy, and later prompts quote
+the reason as a note about the site, never as an instruction.
 
 ## AI summary
 
@@ -409,6 +437,9 @@ technical analysis and suggested fixes, and a report the code disproves comes
 back as *"checked the source — not an actual bug"* with the reasoning, filing
 nothing.
 
+Design review issues carry the same two buttons, and ignoring one works the
+same way against the design review.
+
 **Ignore** is the other answer: this isn't a problem, stop showing it to me. It
 takes one click and no explanation. The loss drops out of the card and out of
 every later summary — including the cached one, immediately — and the model is
@@ -480,11 +511,32 @@ regions and closed overlays are left out of the scan, which waits a few
 seconds for them to clear first.
 
 The second layer is the **Aesthetic review** card: the same model you
-configured in Settings reads the measured tokens and findings
-and answers the real question — does this read as one deliberate design, or an
-accumulation of one-off decisions? Issues it raises must cite a token that
-actually appears in the metrics (a hex value, a px size, a page path), and each
-comes with a concrete fix. It follows the summary's token-thrift rules: the
+configured in Settings reads the measured tokens and findings and judges the
+system the site already has, on its own terms. Values that recur are treated
+as decisions, even when they don't follow a textbook scale; a problem is a
+value that breaks the pattern, or a measured failure such as low contrast. It
+raises at most three issues, and none when the system is coherent. Each must
+cite a token that actually appears in the metrics (a hex value, a px size, a
+page path), and its fix should move the outlier onto a value the site already
+uses.
+
+Its fixes are then checked against the review itself. A fix that clearly
+removes a value the same review praised is withheld, and the card says why:
+one that replaces the value with a different one of the same kind
+(*collapse 22px into 20px*), drops it, or comes from a review that admires
+22px and 28px headings and then proposes a 12/14/16/20/24px type scale. A fix
+that only changes something about a praised value (its color, its
+line-height, a token in place of the literal) is left alone, and nothing
+else is withheld. Any value a fix introduces that the site doesn't render yet
+is labelled new. Issues can be ignored like the summary's losses, with a
+reason the model reads on every later review. The dismissal holds when a
+regenerate rewords the issue, as long as it's the same kind (a contrast pair,
+a color, or a type size, radius or padding, read from the measured design
+rather than the wording) citing the same values. A size or a color's role
+only tells two issues apart when both state one: dismissing a pair's
+contrast at 11px doesn't hide it failing at 16px, but a rewording that drops
+the size still matches. It
+follows the summary's token-thrift rules: the
 model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
 for both the metrics and the analysis are on the tab.
