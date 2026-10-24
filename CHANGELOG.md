@@ -36,6 +36,10 @@ calls straight from the owner's browser.
   it's harmless) and asks whether snapshots may use it. Allowing it starts
   the capture. The answer is kept per install. It can be reviewed later, and
   withdrawn with "Turn off".
+- **Every off-grid padding gets pictured**, not just the 8 most used. A
+  capture also hands each page's value searches out fairly, so values that
+  never turn up no longer crowd out the rest of the list. Paddings came last,
+  which is why their cards kept asking for another capture.
 - **Value cards update after a capture**, without a reload. A value measured
   only on Polishd's own dashboard pages (an install reading dashboard
   telemetry), or on pages the snapshot didn't shoot, now says so instead of

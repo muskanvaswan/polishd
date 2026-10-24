@@ -35,8 +35,11 @@ export type ValuePreviewState =
   | { kind: "pictured"; preview: ValuePreviewRef }
   /** The newest snapshot looked for the value on its page and never saw it on screen. */
   | { kind: "missed"; capturedAt: number }
-  /** No picture. `shotRoutes` are the pages the newest snapshot shot, when there is one. */
-  | { kind: "none"; hasSnapshots: boolean; shotRoutes: string[] | null };
+  /**
+   * No picture. `shotRoutes` are the pages the newest snapshot shot, when there
+   * is one; `targeted` is false for a value past the per-capture cap on pictures.
+   */
+  | { kind: "none"; hasSnapshots: boolean; shotRoutes: string[] | null; targeted: boolean };
 
 /** Fetched pictures, shared by every card — a value hovered twice loads once. */
 const imageCache = new Map<string, Promise<string | null>>();
@@ -161,9 +164,11 @@ function CardBody({
 
 /** The line under a value with no picture: why, and whether a capture would help. */
 function unpictured(pages: string[], state: Extract<ValuePreviewState, { kind: "none" }>): string {
-  switch (unpicturedReason(pages, state.shotRoutes)) {
+  switch (unpicturedReason(pages, state.shotRoutes, state.targeted)) {
     case "dashboard_only":
       return "Measured only on Polishd's own dashboard pages, which site snapshots don't shoot.";
+    case "not_targeted":
+      return "Snapshots picture up to 64 flagged values, most-used first, and this one is past the limit.";
     case "not_shot":
       return "The latest snapshot didn't shoot the pages it's measured on — snapshots take up to 12 of the scanned pages.";
     case "capture":

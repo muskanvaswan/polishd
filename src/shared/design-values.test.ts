@@ -74,3 +74,21 @@ test("a value whose pages the latest snapshot didn't shoot says so", () => {
   assert.equal(unpicturedReason(["/pricing"], null), "capture");
   assert.equal(unpicturedReason([], ["/"]), "capture");
 });
+
+test("every off-grid padding is a target, most used first", () => {
+  const spacing = Array.from({ length: 12 }, (_, i) => ({
+    px: 3 + i * 2,
+    count: i + 1,
+    offGrid: true,
+    pages: ["/"],
+  }));
+  const data = { fonts: [], colors: [], radii: [], spacing } as unknown as PolishdDesignData;
+  const keys = designPreviewTargets(data).map((t) => t.key);
+  assert.equal(keys.length, 12);
+  assert.equal(keys[0], "spacing:25");
+});
+
+test("a value past the picture cap says so rather than asking for a capture", () => {
+  assert.equal(unpicturedReason(["/"], ["/"], false), "not_targeted");
+  assert.equal(unpicturedReason(["/~polishd/design"], ["/"], false), "dashboard_only");
+});

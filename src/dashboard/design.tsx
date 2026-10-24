@@ -20,7 +20,7 @@ import type {
 } from "../server/design";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import type { PolishdSnapshot, SnapshotAvailability } from "../server/snapshots";
-import { designValueKey, type DesignValueRef } from "../shared/design-values";
+import { designPreviewTargets, designValueKey, type DesignValueRef } from "../shared/design-values";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
 import { SnapshotsProvider, SnapshotsSlot } from "./snapshots";
 import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
@@ -41,7 +41,7 @@ type PreviewFor = (ref: DesignValueRef) => ValuePreviewState;
  * flagged still shows where it lived. Without one, the newest snapshot's
  * "looked and didn't find it" is the next most useful thing to say.
  */
-function previewIndex(snapshots: PolishdSnapshot[]): PreviewFor {
+function previewIndex(snapshots: PolishdSnapshot[], targets: Set<string>): PreviewFor {
   const pictured = new Map<string, ValuePreviewRef>();
   for (const s of snapshots) {
     for (const p of s.previews ?? []) {
@@ -67,6 +67,7 @@ function previewIndex(snapshots: PolishdSnapshot[]): PreviewFor {
       kind: "none",
       hasSnapshots: snapshots.length > 0,
       shotRoutes: latest ? [...new Set(latest.shots.map((s) => s.route))] : null,
+      targeted: targets.has(key),
     };
   };
 }
@@ -612,7 +613,12 @@ export function DesignPanel({
   snapshotMode,
 }: DesignPanelProps) {
   const hasScans = data.pages.length > 0;
-  const previews = previewIndex(snapshots);
+  // The same target list a capture is planned from, so a card can tell a value
+  // the next capture will look for from one it never will.
+  const previews = previewIndex(
+    snapshots,
+    new Set(designPreviewTargets(data).map((t) => t.key)),
+  );
   return (
     <main className="text-white">
       <SnapshotsProvider initial={snapshots} availability={snapshotMode}>

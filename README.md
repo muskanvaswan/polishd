@@ -455,7 +455,7 @@ taken before a round of design fixes can be held against one taken after. The
 last 6 are kept.
 
 Each capture also pictures the flagged values in place: for every one-off type
-style, color and radius, and the most-used off-grid paddings, it finds the
+style, color and radius, and every off-grid padding (up to 64 values), it finds the
 element carrying the value on its page and saves a ringed crop of it. Hover a
 flagged value on the Design tab to see that picture and the page it's on.
 
