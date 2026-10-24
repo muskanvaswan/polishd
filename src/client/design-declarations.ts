@@ -217,9 +217,11 @@ const PAD_SIDES: Record<string, ArbitraryProp[]> = {
 /** What one arbitrary-value utility (`name-[value]`) hand-types. */
 function arbitraryProps(name: string, value: string): ArbitraryProp[] {
   // A value built on a token — `var(--x)`, `hsl(var(--card))`,
-  // `calc(var(--radius)-4px)`, `theme(spacing.4)` — draws on the theme;
-  // that's the opposite of hand-typed, wherever in the value the reference sits.
-  if (/(?:^|[^\w-])(?:var|theme)\(/i.test(value) || value.startsWith("--")) return [];
+  // `calc(var(--radius)-4px)`, `calc(2rem-var(--gutter))`, `theme(spacing.4)`
+  // — draws on the theme; that's the opposite of hand-typed, wherever in the
+  // value the call sits and whatever operator precedes it. Only a longer
+  // identifier (`myvar(`) isn't the call.
+  if (/(?:^|[^a-z0-9_])(?:var|theme)\(/i.test(value) || value.startsWith("--")) return [];
   if (name === "text") {
     if (COLOR_VALUE.test(value)) return ["color"];
     return LENGTH_VALUE.test(value) ? ["fontSize"] : [];
@@ -353,12 +355,13 @@ function isSkeletonClass(utility: string): boolean {
 
 /**
  * Whether an element is a loading state at rest: busy, a skeleton class, or
- * pulsing. `animate-pulse` counts bare or behind a variant that holds at
- * rest (`motion-safe:`, a breakpoint, `dark:`) — the way skeletons are
- * written — but not behind `hover:` or `group-hover:`, which don't pulse
- * until someone points at them.
+ * pulsing. Bare `animate-pulse` always pulses. Behind a variant that can
+ * hold at rest (`motion-safe:`, a breakpoint, `dark:`, `print:`) it counts
+ * only when the computed `animationName` confirms the pulse is running here
+ * — `print:animate-pulse` doesn't on screen. Behind `hover:` or
+ * `group-hover:` it never counts: nothing pulses until someone points at it.
  */
-export function loadingReason(el: ElementLike): "busy" | "skeleton" | null {
+export function loadingReason(el: ElementLike, animationName?: string): "busy" | "skeleton" | null {
   if (el.getAttribute("aria-busy") === "true") return "busy";
   const cls = el.getAttribute("class");
   if (!cls) return null;
@@ -366,8 +369,11 @@ export function loadingReason(el: ElementLike): "busy" | "skeleton" | null {
     if (!token) continue;
     const parts = splitVariants(token);
     const utility = parts[parts.length - 1].replace(/^!|!$/g, "");
-    if (!parts.slice(0, -1).every((v) => STANDING_VARIANT.test(v))) continue;
-    if (utility === "animate-pulse" || isSkeletonClass(utility)) return "skeleton";
+    const variants = parts.slice(0, -1);
+    if (!variants.every((v) => STANDING_VARIANT.test(v))) continue;
+    if (isSkeletonClass(utility)) return "skeleton";
+    if (utility !== "animate-pulse") continue;
+    if (variants.length === 0 || /\bpulse\b/.test(animationName ?? "")) return "skeleton";
   }
   return null;
 }
@@ -383,9 +389,9 @@ export function loadingReason(el: ElementLike): "busy" | "skeleton" | null {
  */
 export function transientReason(
   el: ElementLike,
-  style: { display: string; opacity: string; position: string },
+  style: { display: string; opacity: string; position: string; animationName?: string },
 ): TransientReason | null {
-  const loading = loadingReason(el);
+  const loading = loadingReason(el, style.animationName);
   if (loading) return loading;
   if (style.display === "none") return "unrendered";
   if (

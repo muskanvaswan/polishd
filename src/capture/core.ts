@@ -351,8 +351,9 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
   // The scanner's transient states (design-declarations.ts `transientReason`):
   // a skeleton or busy region, an unrendered branch, a closed overlay at
   // opacity 0. Their values were never tallied, so they're never pictured.
-  // A pulse counts bare or behind a variant that holds at rest, never
-  // behind `hover:`; a skeleton class is `skeleton` as a whole segment.
+  // A pulse counts bare, or behind a variant that can hold at rest when the
+  // computed animation confirms it — never behind `hover:`. A skeleton class
+  // is `skeleton` as a whole segment.
   const STANDING =
     /^(?:sm|md|lg|xl|2xl|max-[\w[\]-]+|min-[\w[\]-]+|dark|light|print|portrait|landscape|motion-safe|motion-reduce|contrast-more|contrast-less|ltr|rtl|supports-[\w[\]()-]+|@[\w[\]-]*)$/;
   const loading = (el: Element): boolean => {
@@ -361,12 +362,11 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
       const parts = token.split(":");
       const u = (parts.pop() ?? "").replace(/^!|!$/g, "");
       if (!parts.every((v) => STANDING.test(v))) return false;
-      return (
-        u === "animate-pulse" ||
-        /^skeleton(?:[-_]|$)/i.test(u) ||
-        /[-_]skeleton$/i.test(u) ||
-        /^(?:[A-Z][a-z0-9]*)+Skeleton(?:[-_]|$)/.test(u)
-      );
+      if (/^skeleton(?:[-_]|$)/i.test(u) || /[-_]skeleton$/i.test(u) || /^(?:[A-Z][a-z0-9]*)+Skeleton(?:[-_]|$)/.test(u)) {
+        return true;
+      }
+      if (u !== "animate-pulse") return false;
+      return parts.length === 0 || /\bpulse\b/.test(getComputedStyle(el).animationName);
     });
   };
   const transient = (el: Element): boolean => {

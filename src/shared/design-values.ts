@@ -180,7 +180,7 @@ export function mergeDeclarations(parts: DeclarationPart[]): DeclarationCount {
   return out;
 }
 
-/** A value's counts, as the one-off rule and the weighting read them. */
+/** A value's counts, as the one-off rule reads them. */
 export interface ValueUsage {
   count: number;
   declarations?: number;
@@ -188,27 +188,12 @@ export interface ValueUsage {
   pages: string[];
 }
 
-/**
- * The decisions behind a value, for weighing it against others: its
- * declarations, plus one per use from scans that predate them. A value with
- * neither recorded (built by hand, or before any of this) weighs its uses.
- */
-export function decisionsOf(v: Omit<ValueUsage, "pages">): number {
-  if (v.declarations === undefined && v.legacyUses === undefined) return v.count;
-  return (v.declarations ?? 0) + (v.legacyUses ?? 0);
-}
-
-/** Every scan behind the value measured its declarations, so the count is whole. */
-export function declarationsWhole(v: Omit<ValueUsage, "pages" | "count">): boolean {
-  return v.declarations !== undefined && !v.legacyUses;
-}
-
 // ── One-offs ─────────────────────────────────────────────────────────────────
 
 export interface OneOffRule {
   /** Uses a section needs before anything in it can be called rare. */
   minCount: number;
-  /** Share of the section's uses — and of its decisions — a one-off stays within. */
+  /** Share of the section's uses a one-off stays within. */
   share: number;
 }
 
@@ -220,29 +205,24 @@ export const ONE_OFF_RULES = {
   spacing: { minCount: 40, share: 0.02 },
 } as const satisfies Record<string, OneOffRule>;
 
-/** A section's uses, and its decisions (declarations, or uses for old scans). */
+/** A section's uses — what a value's rarity is measured against. */
 export interface SectionTotals {
   count: number;
-  decisions: number;
 }
 
-export function sectionTotals(values: Omit<ValueUsage, "pages">[]): SectionTotals {
-  let count = 0;
-  let decisions = 0;
-  for (const v of values) {
-    count += v.count;
-    decisions += decisionsOf(v);
-  }
-  return { count, decisions };
+export function sectionTotals(values: { count: number }[]): SectionTotals {
+  return { count: values.reduce((sum, v) => sum + v.count, 0) };
 }
 
 /**
  * Whether a value is a one-off: rare in what the site renders — under the
- * section's share of uses, on one page — and decided once. Rarity is the
- * test the Design tab has always applied; declarations only narrow it, so a
- * value chosen in two places is a pattern rather than a stray, and repeated
- * copies never promote anything into a one-off. Nothing is rare until the
- * section has enough uses to compare against.
+ * section's share of uses, on one page — and declared exactly once. Rarity
+ * is the test the Design tab has always applied; the declaration check only
+ * narrows it, so a value chosen in two places is a pattern rather than a
+ * stray, and repeated copies never promote anything into a one-off. It's a
+ * count, not a share, so it never mixes units with anything else in the
+ * section. Nothing is rare until the section has enough uses to compare
+ * against.
  *
  * A value on one page comes from that page's one scan. When the scan
  * predates declarations, the per-use reading stands alone — per row, so one
@@ -251,8 +231,7 @@ export function sectionTotals(values: Omit<ValueUsage, "pages">[]): SectionTotal
 export function isOneOff(v: ValueUsage, totals: SectionTotals, rule: OneOffRule): boolean {
   if (totals.count < rule.minCount || v.pages.length !== 1) return false;
   if (v.count > Math.max(2, totals.count * rule.share)) return false;
-  if (v.declarations === undefined) return true;
-  return v.declarations <= Math.max(1, totals.decisions * rule.share);
+  return v.declarations === undefined || v.declarations <= 1;
 }
 
 // ── Spacing grid ─────────────────────────────────────────────────────────────

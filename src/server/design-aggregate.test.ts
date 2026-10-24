@@ -126,6 +126,25 @@ test("one stale old-shape page doesn't revert the rest of the section", () => {
   assert.equal(outlier(15), true);
 });
 
+test("a large old page doesn't turn twice-declared styles into one-offs", () => {
+  // A new page: 27 ordinary styles, plus three rare ones each declared twice.
+  const fonts = [
+    ...Array.from({ length: 27 }, (_, i) => ["Inter", 18 + i, 400, 20, "Copy", "p", 1, 0, `d${i}`]),
+    ...[13, 15, 17].map((px) => ["Inter", px, 400, 3, "Rare", "span", 2, 0, `r${px}a r${px}b`]),
+  ];
+  const fresh = scan("/new", { fonts, tw: [40, 50], rem: 16 } as unknown as Partial<PolishdDesignScanPayload>, 2);
+  // A page nobody has revisited since the upgrade, 300 old uses.
+  const stale = scan("/old", { fonts: [["Inter", 16, 400, 300, "Body", "p"]] } as unknown as Partial<PolishdDesignScanPayload>);
+  for (const scans of [[fresh], [fresh, stale]]) {
+    const data = aggregateDesignScans(scans);
+    assert.deepEqual(
+      data.fonts.filter((f) => [13, 15, 17].includes(f.sizePx)).map((f) => [f.declarations, f.outlier]),
+      [[2, false], [2, false], [2, false]],
+    );
+    assert.ok(!data.flags.some((f) => /one-off type styles/.test(f.message)));
+  }
+});
+
 test("a brand CTA color from one class on a few elements stays in the brand kit", () => {
   // One scanned page: 496 color uses, the CTA blue 12 of them, from one class.
   const text: [string, number, number, number, string][] = [

@@ -17,7 +17,7 @@ layer, was never stated.
   font and text color are credited to the ancestor that set them, so text
   inside one `text-[#555]` wrapper counts as one declaration. One-offs still
   have to be rare in uses, under the same per-category shares as before, and
-  now must also be declared once. A rare value chosen in two places is a
+  now must also be declared exactly once. A rare value chosen in two places is a
   pattern, not a stray, and repeated copies never promote anything into a
   one-off. The off-grid share counts declarations too.
 - **Tailwind-aware grid.** When the class names are mostly Tailwind
@@ -30,7 +30,7 @@ layer, was never stated.
   hand-typed arbitrary values … — there is no color token layer."* A site on
   theme tokens with a few deliberate arbitrary values stays quiet. So does a
   site whose arbitrary values are built on tokens: `bg-[hsl(var(--card))]`
-  and `rounded-[calc(var(--radius)-4px)]` count as token references. The scan
+  and `rounded-[calc(1rem-var(--inset))]` count as token references. The scan
   measures the page at rest, so an arbitrary class counts only when its value
   is what renders: `hover:text-[#fff]` never does, and `sm:p-[13px]` counts
   only when the element renders 13px. Inline `style=""` values aren't
@@ -38,8 +38,9 @@ layer, was never stated.
   `style={{ color: "#555" }}` produce the same literal, so the DOM can't
   tell a token from a hand-typed value there.
 - **Transient states left out.** Subtrees that are `aria-busy`, pulse at
-  rest (`animate-pulse`, bare or behind `motion-safe:` or a breakpoint, but
-  not `hover:`), carry a skeleton class (`skeleton`, `skeleton-line`,
+  rest (bare `animate-pulse`, or behind `motion-safe:`, a breakpoint or
+  `dark:` when the computed animation confirms it, never behind `hover:`),
+  carry a skeleton class (`skeleton`, `skeleton-line`,
   `MuiSkeleton-root`, not `no-skeleton-here`), are `display: none`, or are
   closed overlays at opacity 0 are skipped. The scan waits up to three 1.5s
   beats for visible loading states to clear before measuring.

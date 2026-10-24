@@ -3,8 +3,6 @@ import { test } from "node:test";
 
 import type { PolishdDesignData } from "../server/design";
 import {
-  declarationsWhole,
-  decisionsOf,
   designPreviewTargets,
   designValueKey,
   isOffGrid,
@@ -135,24 +133,15 @@ test("an old scan contributes its uses, row by row, beside the declarations of n
     handTyped: 0,
     legacyUses: 40,
   });
-  // Only old scans: no declarations at all, every use a decision.
-  const legacy = mergeDeclarations([{ uses: 12 }, { uses: "3" }]);
-  assert.deepEqual(legacy, { legacyUses: 15 });
-  assert.equal(decisionsOf({ count: 15, ...legacy }), 15);
-  assert.equal(decisionsOf({ count: 45, declarations: 1, legacyUses: 40 }), 41);
-  assert.equal(decisionsOf({ count: 45 }), 45);
-  assert.equal(declarationsWhole({ declarations: 1, legacyUses: 40 }), false);
-  assert.equal(declarationsWhole({ declarations: 1 }), true);
-  assert.deepEqual(
-    sectionTotals([{ count: 300, declarations: 20 }, { count: 100, legacyUses: 100 }, { count: 8, declarations: 2, legacyUses: 3 }]),
-    { count: 408, decisions: 125 },
-  );
+  // Only old scans: no declarations at all.
+  assert.deepEqual(mergeDeclarations([{ uses: 12 }, { uses: "3" }]), { legacyUses: 15 });
+  assert.deepEqual(sectionTotals([{ count: 300 }, { count: 100 }, { count: 8 }]), { count: 408 });
 });
 
-test("a one-off is rare in what renders and decided once", () => {
+test("a one-off is rare in what renders and declared exactly once", () => {
   const rule = ONE_OFF_RULES.color;
   const value = (count: number, declarations: number | undefined, pages = ["/"]) => ({ count, declarations, pages });
-  const totals = { count: 3000, decisions: 120 };
+  const totals = { count: 3000 };
   // A stray decided once, painting a sliver of the page.
   assert.equal(isOneOff(value(3, 1), totals, rule), true);
   // Just as rare, but chosen in two places — a pattern, not a stray.
@@ -163,28 +152,20 @@ test("a one-off is rare in what renders and decided once", () => {
   // Shared across pages.
   assert.equal(isOneOff(value(3, 1, ["/", "/about"]), totals, rule), false);
   // Too little measured to call anything rare.
-  assert.equal(isOneOff(value(1, 1), { count: 40, decisions: 10 }, rule), false);
+  assert.equal(isOneOff(value(1, 1), { count: 40 }, rule), false);
 });
 
 test("a brand color set by one class on a few prominent elements is no one-off", () => {
   // One page; the CTA blue is 12 of 496 color uses, from a single class.
-  const totals = { count: 496, decisions: 40 };
-  const cta = { count: 12, declarations: 1, pages: ["/"] };
-  assert.equal(isOneOff(cta, totals, ONE_OFF_RULES.color), false);
+  const totals = { count: 496 };
+  assert.equal(isOneOff({ count: 12, declarations: 1, pages: ["/"] }, totals, ONE_OFF_RULES.color), false);
   // The old per-use reading agrees.
   assert.equal(isOneOff({ count: 12, pages: ["/"] }, totals, ONE_OFF_RULES.color), false);
 });
 
 test("a value from an old scan keeps the per-use reading, whatever the other rows are", () => {
   const rule = ONE_OFF_RULES.font;
-  // A section mixing old and new rows: totals weigh old uses as decisions.
-  const totals = sectionTotals([
-    { count: 300, declarations: 4 },
-    { count: 95, legacyUses: 95 },
-    { count: 2, legacyUses: 2 },
-    { count: 3, declarations: 2 },
-  ]);
-  assert.deepEqual(totals, { count: 400, decisions: 103 });
+  const totals = { count: 400 };
   // The old row's stray: rare in uses, nothing more to ask of it.
   assert.equal(isOneOff({ count: 2, legacyUses: 2, pages: ["/old"] }, totals, rule), true);
   // The new row's value is still read by its declarations: two of them, so a pattern.
@@ -192,6 +173,20 @@ test("a value from an old scan keeps the per-use reading, whatever the other row
   assert.equal(isOneOff({ count: 3, declarations: 1, pages: ["/new"] }, totals, rule), true);
   // Rare in uses is always required: 7 of 400 is past 1.5%.
   assert.equal(isOneOff({ count: 7, legacyUses: 7, pages: ["/old"] }, totals, rule), false);
+});
+
+test("a large old page never loosens the declaration check for new pages", () => {
+  // A new page with 30 font declarations; three rare styles, each declared twice.
+  const fresh = [
+    ...Array.from({ length: 27 }, () => ({ count: 20, declarations: 1, pages: ["/new"] })),
+    ...[13, 15, 17].map(() => ({ count: 3, declarations: 2, pages: ["/new"] })),
+  ];
+  const rare = fresh.slice(27);
+  const alone = sectionTotals(fresh);
+  assert.ok(rare.every((v) => !isOneOff(v, alone, ONE_OFF_RULES.font)));
+  // Add a page nobody has revisited since the upgrade: 300 old uses.
+  const withOld = sectionTotals([...fresh, { count: 300, legacyUses: 300, pages: ["/old"] } as never]);
+  assert.ok(rare.every((v) => !isOneOff(v, withOld, ONE_OFF_RULES.font)), "still declared twice each");
 });
 
 test("Tailwind's half steps are on-grid on a Tailwind site, and only there", () => {

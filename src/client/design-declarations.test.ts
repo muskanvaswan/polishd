@@ -94,6 +94,14 @@ test("arbitrary values are read per property; token references are not", () => {
   assert.deepEqual(props("rounded-[calc(var(--radius)-4px)]"), []);
   assert.deepEqual(props("p-[calc(var(--gutter)*2)]"), []);
   assert.deepEqual(props("text-[theme(fontSize.sm)] border-[theme(colors.zinc.800)]"), []);
+  // Whatever operator precedes the call — including a minus.
+  assert.deepEqual(props("p-[calc(2rem-var(--gutter))]"), []);
+  assert.deepEqual(props("rounded-[calc(1rem-var(--inset))]"), []);
+  assert.deepEqual(props("text-[calc(1rem-theme(spacing.1))]"), []);
+  assert.deepEqual(props("p-[calc(2rem+var(--gutter))] m-[calc(var(--a)*-1)]"), []);
+  // A longer identifier ending in "var" isn't the call; a literal is still a literal.
+  assert.deepEqual(props("p-[calc(2rem-myvar(3px))]"), ["padBottom", "padLeft", "padRight", "padTop"]);
+  assert.deepEqual(props("p-[calc(2rem-4px)]"), ["padBottom", "padLeft", "padRight", "padTop"]);
   assert.deepEqual(props("text-gray-500 bg-white rounded-md p-2"), []);
   // Breakpoints and dark mode can describe what renders; hover and other states can't.
   assert.deepEqual(props("md:p-[13px]"), ["padBottom", "padLeft", "padRight", "padTop"]);
@@ -160,15 +168,19 @@ test("inline style values are never read as hand-typed", () => {
 });
 
 test("only a pulse at rest or a real skeleton class is a loading state", () => {
-  const reason = (cls: string) => loadingReason(el("div", { class: cls }));
-  // Pulsing at rest: bare, or behind a variant that holds at rest.
+  const reason = (cls: string, animationName?: string) => loadingReason(el("div", { class: cls }), animationName);
+  // Bare, it always pulses.
   assert.equal(reason("h-4 animate-pulse rounded"), "skeleton");
-  assert.equal(reason("motion-safe:animate-pulse"), "skeleton");
-  assert.equal(reason("md:animate-pulse"), "skeleton");
-  // Pulsing only under the pointer: not loading.
-  assert.equal(reason("hover:animate-pulse"), null);
-  assert.equal(reason("group-hover:animate-pulse"), null);
-  assert.equal(reason("focus-visible:animate-pulse"), null);
+  // Behind a variant that can hold at rest, only when the pulse is running here.
+  assert.equal(reason("motion-safe:animate-pulse", "pulse"), "skeleton");
+  assert.equal(reason("md:animate-pulse", "pulse"), "skeleton");
+  assert.equal(reason("md:animate-pulse", "none"), null, "below md");
+  assert.equal(reason("print:animate-pulse", "none"), null, "on screen");
+  assert.equal(reason("dark:animate-pulse"), null, "unconfirmed");
+  // Pulsing only under the pointer: not loading, whatever else is animating.
+  assert.equal(reason("hover:animate-pulse", "pulse"), null);
+  assert.equal(reason("group-hover:animate-pulse", "pulse"), null);
+  assert.equal(reason("focus-visible:animate-pulse", "pulse"), null);
   // Skeleton as a whole class or a segment at either end.
   for (const cls of ["skeleton", "skeleton-line", "skeleton_root__a1", "react-loading-skeleton", "MuiSkeleton-root", "Skeleton_root__x1"]) {
     assert.equal(reason(cls), "skeleton", cls);
@@ -185,7 +197,8 @@ test("loading states and closed overlays are transient; scroll-reveal content is
   const shown = { display: "block", opacity: "1", position: "static" };
   assert.equal(transientReason(el("div", { "aria-busy": "true" }), shown), "busy");
   assert.equal(transientReason(el("div", { class: "h-4 w-32 animate-pulse rounded bg-[#1a1a1a]" }), shown), "skeleton");
-  assert.equal(transientReason(el("div", { class: "motion-safe:animate-pulse" }), shown), "skeleton");
+  assert.equal(transientReason(el("div", { class: "motion-safe:animate-pulse" }), { ...shown, animationName: "pulse" }), "skeleton");
+  assert.equal(transientReason(el("div", { class: "print:animate-pulse bg-[#2a2a2a]" }), { ...shown, animationName: "none" }), null);
   assert.equal(transientReason(el("span", { class: "MuiSkeleton-root" }), shown), "skeleton");
   assert.equal(transientReason(el("div"), { ...shown, display: "none" }), "unrendered");
   assert.equal(transientReason(el("div", { "aria-hidden": "true" }), { ...shown, opacity: "0" }), "invisible");

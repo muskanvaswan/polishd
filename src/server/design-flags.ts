@@ -52,9 +52,9 @@ function colorDistance(a: string, b: string): number | null {
 }
 
 /**
- * The decisions behind a value: its declarations, plus one per use from
- * scans that predate them (`decisionsOf` in shared/design-values.ts — kept
- * inline so this module stays importable on its own).
+ * The decisions behind a value, for weighing shares: its declarations, plus
+ * one per use from scans that predate them (the old reading). A value with
+ * neither recorded weighs its uses.
  */
 function decisions(v: { count: number; declarations?: number; legacyUses?: number }): number {
   if (v.declarations === undefined && v.legacyUses === undefined) return v.count;

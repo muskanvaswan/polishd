@@ -398,7 +398,7 @@ const TRANSIENT_WAIT_MS = 1500;
 function loadingVisible(): boolean {
   try {
     for (const el of document.querySelectorAll(TRANSIENT_SELECTOR)) {
-      if (loadingReason(el) && el.getClientRects().length > 0) return true;
+      if (loadingReason(el, getComputedStyle(el).animationName) && el.getClientRects().length > 0) return true;
     }
   } catch {
     /* a selector this browser can't parse — scan without waiting */
