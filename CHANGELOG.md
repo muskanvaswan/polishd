@@ -60,6 +60,22 @@ calls straight from the owner's browser.
   `maxDuration = 300` in the dashboard page stays useful for the AI analyses.
 - Snapshots taken before this release still display.
 
+### Recent errors are grouped and counted
+
+The Recent errors list showed the last eight throws one row each, so a single
+error firing in a loop filled the whole list and pushed everything else out.
+Repeats of the same error now share one row, with a **count badge** for how
+many times it was thrown across all pages; the row names the page it was last
+seen on, and how many others it also hit. The list shows three errors and
+collapses the rest behind **Show more**, which now reaches back to twenty
+distinct errors instead of eight throws.
+
+- An error is "the same" when its message, component and origin match — the
+  page doesn't count, so a bug on every product page is one row. Third-party
+  and unattributable errors keep their own rows and a dimmed badge.
+- `getRecentErrors()` returns these groups: each `RecentError` gains `count`
+  and `paths`, and `path`/`ts` are now its most recent sighting.
+
 ### Hover a one-off to see where it renders
 
 The Design tab flags one-off type styles, colors and corner radii, and
