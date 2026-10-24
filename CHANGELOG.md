@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Tables no longer scroll on a white scrollbar
+
+The dashboard never told the browser it was dark, so any table wide enough to
+scroll sideways — **Most-used features** and **Interactions by element** among
+them — drew a light-theme scrollbar, a white bar across the bottom of a dark
+card. Every scroll container in the dashboard now gets a dark thumb on a
+transparent track, and native `<select>` menus and checkboxes follow the dark
+theme too.
+
 ### AI findings sit in a scrolling row of cards
 
 The summary's **Losses** and the design review's **Breaking the system** were
