@@ -27,17 +27,24 @@
  *
  * A loss is keyed by its evidence citation — the same key the GitHub issue log
  * uses (see issues.ts) — so a problem refound under slightly different wording
- * is still recognised as the one that was dismissed. A design issue is keyed by
- * what it's about and the values its evidence cites (see designIssueKey),
- * since the model rewrites that evidence on every regenerate and "15px and
- * 17px" and "17px/15px" are the same finding.
+ * is still recognised as the one that was dismissed. A design issue is stored
+ * under its evidence too, but recognised by what it's about and the values it
+ * cites (see designIssueSignature), read against the current design data:
+ * the model rewrites design evidence on every regenerate, and "15px and 17px"
+ * and "17px/15px" are the same finding.
  *
  * Evidence and issue text are clipped before they're stored, as reasons are:
- * all three are replayed into later prompts. Keys are computed from the
- * clipped text on both sides, so a long citation still matches its dismissal.
+ * all three are replayed into later prompts. Keys and signatures are computed
+ * from the clipped text on both sides, so a long citation still matches its
+ * dismissal.
  */
 import { getMeta, setMeta } from "../server/store";
-import { designIssueKey } from "./design-suggestions";
+import {
+  designIssueSignature,
+  isDismissedDesignIssue,
+  type DesignIssueSignature,
+  type KnownDesignValues,
+} from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import type {
   PolishdDesignIssue,
@@ -72,14 +79,22 @@ const clip = (s: string, max: number): string => {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 
-/** A design issue's dismissal key, from the text as it's stored. */
-export function designIgnoreKey(issue: string, evidence: string): string {
-  return designIssueKey(clip(issue, MAX_ISSUE_CHARS), boundEvidence(evidence));
+/** The key a loss used before evidence was clipped — still on dismissals saved then. */
+const legacyKey = (evidence: string): string => evidence.trim().toLowerCase();
+
+/** A design issue's signature, from its text as it would be stored. */
+function designSignature(issue: string, evidence: string, known: KnownDesignValues): DesignIssueSignature {
+  return designIssueSignature(clip(issue, MAX_ISSUE_CHARS), boundEvidence(evidence), known);
 }
 
-/** Whether a design issue is among `keys`, however it's been reworded. */
-export function isIgnoredDesignIssue(issue: string, evidence: string, keys: ReadonlySet<string>): boolean {
-  return keys.size > 0 && keys.has(designIgnoreKey(issue, evidence));
+/** Whether a design issue matches one of `dismissed`, however it's been reworded. */
+export function isIgnoredDesignIssue(
+  issue: string,
+  evidence: string,
+  dismissed: readonly DesignIssueSignature[],
+  known: KnownDesignValues,
+): boolean {
+  return isDismissedDesignIssue(clip(issue, MAX_ISSUE_CHARS), boundEvidence(evidence), dismissed, known);
 }
 
 type IgnoredLog = Record<string, PolishdIgnoredLoss>;
@@ -94,7 +109,7 @@ interface Ledger {
 const LOSSES: Ledger = { metaKey: "ignored_losses", key: (f) => ignoreKey(f.evidence) };
 const DESIGN: Ledger = {
   metaKey: "ignored_design_issues",
-  key: (f) => designIgnoreKey(f.issue, f.evidence),
+  key: (f) => ignoreKey(f.evidence),
 };
 
 async function loadLog(ledger: Ledger): Promise<IgnoredLog> {
@@ -127,9 +142,12 @@ export function ignoredKeys(list: PolishdIgnoredLoss[]): Set<string> {
   return new Set(list.map((i) => ignoreKey(i.evidence)));
 }
 
-/** The keys to filter design issues by. */
-export function ignoredDesignKeys(list: PolishdIgnoredDesignIssue[]): Set<string> {
-  return new Set(list.map((i) => designIgnoreKey(i.issue, i.evidence)));
+/** The signatures to recognise dismissed design issues by, read against `known`. */
+export function ignoredDesignSignatures(
+  list: PolishdIgnoredDesignIssue[],
+  known: KnownDesignValues,
+): DesignIssueSignature[] {
+  return list.map((i) => designSignature(i.issue, i.evidence, known));
 }
 
 /**
@@ -155,8 +173,11 @@ async function record(
     issue,
     evidence,
     reason: trimmed ? clip(trimmed, MAX_REASON_CHARS) : undefined,
-    ignoredAt: log[key]?.ignoredAt ?? Date.now(),
+    ignoredAt: log[key]?.ignoredAt ?? log[legacyKey(finding.evidence)]?.ignoredAt ?? Date.now(),
   };
+  // A dismissal saved before evidence was clipped sits under its full key;
+  // re-saving it (a new reason) moves it rather than leaving a twin behind.
+  if (legacyKey(finding.evidence) !== key) delete log[legacyKey(finding.evidence)];
   log[key] = entry;
 
   // Bound the log: oldest dismissals fall off first.
@@ -176,9 +197,13 @@ async function record(
 async function erase(ledger: Ledger, finding: Finding): Promise<boolean> {
   if (typeof finding?.evidence !== "string") return true;
   const log = await loadLog(ledger);
-  const key = ledger.key({ issue: typeof finding.issue === "string" ? finding.issue : "", evidence: finding.evidence });
-  if (!(key in log)) return true; // already gone — nothing to undo
-  delete log[key];
+  // Both the clipped key and, for a dismissal saved before clipping, the full one.
+  const keys = [
+    ledger.key({ issue: typeof finding.issue === "string" ? finding.issue : "", evidence: finding.evidence }),
+    legacyKey(finding.evidence),
+  ].filter((k) => k in log);
+  if (keys.length === 0) return true; // already gone — nothing to undo
+  for (const k of keys) delete log[k];
   return setMeta(ledger.metaKey, JSON.stringify(log));
 }
 
@@ -264,9 +289,10 @@ export function withoutIgnored(
 /** Drop dismissed issues from a design review about to be rendered. */
 export function withoutIgnoredIssues(
   review: PolishdDesignReview,
-  keys: Set<string>,
+  dismissed: readonly DesignIssueSignature[],
+  known: KnownDesignValues,
 ): PolishdDesignReview {
-  if (!review.issues?.length || keys.size === 0) return review;
-  const issues = review.issues.filter((i) => !isIgnoredDesignIssue(i.issue, i.evidence, keys));
+  if (!review.issues?.length || dismissed.length === 0) return review;
+  const issues = review.issues.filter((i) => !isIgnoredDesignIssue(i.issue, i.evidence, dismissed, known));
   return issues.length === review.issues.length ? review : { ...review, issues };
 }

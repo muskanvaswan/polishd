@@ -190,6 +190,12 @@ export type UnignoreLossResult = { ok: true } | { ok: false; message: string };
  */
 export interface PolishdVerdictDismissal {
   source: "analytics" | "design";
+  /**
+   * The finding's id in the current summary or review ("A2", "D1"): what
+   * picks it out, since two design issues can cite identical evidence.
+   */
+  id: string;
+  /** Its citation, checked against the finding the id names. */
   evidence: string;
   verdict: "not_real" | "deliberate";
   /** The agent's reason, as it wrote it. Sanitized and clipped server-side. */
@@ -200,8 +206,8 @@ export interface PolishdVerdictDismissal {
 export type RecordVerdictsResult =
   | {
       ok: true;
-      /** Each dismissal stored, with the citation it was sent under. */
-      recorded: { source: "analytics" | "design"; evidence: string; ignored: PolishdIgnoredLoss }[];
+      /** Each dismissal stored, with the id it was sent under. */
+      recorded: { source: "analytics" | "design"; id: string; ignored: PolishdIgnoredLoss }[];
       /** Verdicts whose finding isn't in the current summary or review. */
       skipped: number;
     }

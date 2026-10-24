@@ -225,7 +225,7 @@ export async function recordVerdictsAction(
         ? { ok: true, recorded, skipped: checked.skipped }
         : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
     }
-    recorded.push({ source: d.source, evidence: d.sent, ignored });
+    recorded.push({ source: d.source, id: d.id, ignored });
   }
   return { ok: true, recorded, skipped: checked.skipped };
 }

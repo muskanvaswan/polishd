@@ -518,10 +518,12 @@ line-height, a token in place of the literal) is left alone, and nothing
 else is withheld. Any value a fix introduces that the site doesn't render yet
 is labelled new. Issues can be ignored like the summary's losses, with a
 reason the model reads on every later review. The dismissal holds when a
-regenerate rewords the evidence, as long as it's the same kind of issue
-(contrast, color, type, radius or spacing) citing the same values; a contrast
-failure keeps its text size, so dismissing it for captions doesn't hide the
-same colors failing on body text. It
+regenerate rewords the issue, as long as it's the same kind (a contrast pair,
+a color, or a type size, radius or padding, read from the measured design
+rather than the wording) citing the same values. A size or a color's role
+only tells two issues apart when both state one: dismissing a pair's
+contrast at 11px doesn't hide it failing at 16px, but a rewording that drops
+the size still matches. It
 follows the summary's token-thrift rules: the
 model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons

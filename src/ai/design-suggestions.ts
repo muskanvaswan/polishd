@@ -14,8 +14,9 @@
  *     20px"), drops it outright ("drop 22px"), or proposes a scale that spans
  *     the value but skips it (12/14/16/20/24px has no room for a praised
  *     22px). A praised value that's only the subject of another change — its
- *     color, its line-height, its unit, a token in place of a literal — is
- *     left alone. Nothing else is withheld.
+ *     color, its line-height, its margin, its unit, a token in place of a
+ *     literal — is left alone, even when the new value is in px too. Nothing
+ *     else is withheld.
  *   - Any value a kept suggestion names that the metrics don't contain is
  *     reported as new, so no one mistakes it for a value the site already
  *     has. A suggestion that's mostly new values reads as the redesign it is.
@@ -210,7 +211,9 @@ const CHANGE_VERB =
 /** Verbs whose object goes away with or without a replacement: "drop 22px". */
 const DROP_VERB = /\b(retire|drop|remove|eliminate|delete|phase out|get rid of)\b/gi;
 /** Where the value going away ends and the one replacing it begins. */
-const TARGET_MARKER = /\b(into|onto|to|on|with|in favou?r of|and (?:re)?use)\b|→|->|=>/i;
+const TARGET_MARKER = /\b(into|onto|to|on|with|for|becom(?:e|es|ing)|in favou?r of|and (?:re)?use)\b|→|->|=>/i;
+/** An arrow on its own is a replacement too: "headings: 22px → 24px". */
+const ARROW = /→|->|=>/g;
 /** Phrases whose object is the value going away: "use 24px instead of 22px". */
 const SOURCE_AFTER = /\b(instead of|rather than|in place of)\b/gi;
 /** Clause ends: a full stop that isn't a decimal point, a semicolon, a line break. */
@@ -256,7 +259,35 @@ function removals(text: string): Removal[] {
     // "Use 24px instead of 22px": the replacement is what came before.
     out.push({ source: [from, marker >= 0 ? from + marker : end], target: [clauseStart(at), at], drops: false });
   }
+  for (const m of text.matchAll(ARROW)) {
+    const at = m.index ?? 0;
+    const start = clauseStart(at);
+    // A verb earlier in the clause already claimed this arrow as its marker.
+    if (out.some((r) => r.source[0] >= start && r.source[0] < at)) continue;
+    out.push({ source: [start, at], target: [at + m[0].length, clauseEnd(at)], drops: false });
+  }
   return out;
+}
+
+/**
+ * Properties a px value can belong to besides the one it was praised as. A
+ * change that names one is about that property: "bump the line-height of
+ * 16px body text to 24px" sets a line-height and keeps the 16px size. Each
+ * word is tagged with the kind of value it is itself, so naming a praised
+ * value's own property ("change the 8px card radius to 6px") still counts.
+ */
+const PROPERTY_WORDS: [DesignValueKind | null, RegExp][] = [
+  ["spacing", /(?<![\w-])(margins?|padding|paddings|gaps?|spacing|gutters?|insets?)(?![\w-])/i],
+  ["radius", /(?<![\w-])(radius|radii|corners?|rounded|rounding)(?![\w-])/i],
+  [
+    null,
+    /(?<![\w-])(line-heights?|leading|letter-spacing|tracking|word-spacing|weights?|font-weight|colou?rs?|opacity|shadows?|borders?|border-width|outlines?|widths?|heights?|max-width|min-width|offsets?|blur)(?![\w-])/i,
+  ],
+];
+
+/** Whether `text` names a property other than `kind`'s own. */
+function namesOtherProperty(text: string, kind: DesignValueKind | null): boolean {
+  return PROPERTY_WORDS.some(([own, re]) => (own === null || own !== kind) && re.test(text));
 }
 
 const within = (m: ValueMention, [a, b]: Range) => m.start >= a && m.start < b;
@@ -336,12 +367,21 @@ export function checkSuggestion(
       const kind = kindFor(m);
       const p = praised.find((q) => samePraised(q, m.unit, m.key, kind));
       if (!p) continue;
-      if (r.drops) return { withheld: `it would drop ${m.key}, which this review lists as a strength` };
+      // The words around a px value say which of its properties is changing.
+      const about = (from: number, to: number) =>
+        m.unit === "px" && namesOtherProperty(suggestion.slice(from, to), p.kind);
+      if (r.drops) {
+        if (about(r.source[0], r.source[1])) continue;
+        return { withheld: `it would drop ${m.key}, which this review lists as a strength` };
+      }
       const replacement = r.target
         ? mentions.find((t) => {
             if (!within(t, r.target!) || t.unit !== m.unit || t.key === m.key) return false;
             const k = kindFor(t);
-            return t.unit === "hex" || k === null || k === p.kind;
+            if (t.unit === "px" && k !== null && k !== p.kind) return false;
+            const from = Math.min(r.source[0], t.start);
+            const to = Math.max(m.end, t.start);
+            return !about(from, to);
           })
         : undefined;
       if (replacement) {
@@ -403,14 +443,24 @@ export function checkSuggestion(
 
 // ── Dismissal keys ───────────────────────────────────────────────────────────
 
-const PATH = /(?<![\w/])\/[\w\-./[\]]*/g;
+// ── Recognising a dismissed issue ────────────────────────────────────────────
 
-/** What a design issue is about. Part of its dismissal key. */
-export type DesignIssueCategory = "contrast" | "palette" | "type" | "radius" | "spacing" | "other";
+/** What a design issue is about. Part of what makes two issues the same one. */
+export type DesignIssueCategory =
+  | "contrast"
+  | "palette"
+  | "type"
+  | "radius"
+  | "spacing"
+  /** px values the design data can't place. */
+  | "size"
+  /** No values at all: matched on its text. */
+  | "other";
 
-const CONTRAST_WORDS = /\b(contrast|wcag|aa|aaa|legib\w*|readab\w*)\b|\d+(?:\.\d+)?\s*:\s*1\b/i;
-/** Two colors with "on" between them: a text/background pair. */
-const PAIR = /#[0-9a-f]{3,8}\b[^#]{0,40}?\bon\b[^#]{0,20}?#[0-9a-f]{3,8}\b/i;
+/** Two colors joined the way a text/background pair is written. */
+const PAIR = /#[0-9a-f]{3,8}\b[^#]{0,60}?\b(on|over|under|against|atop|behind)\b[^#]{0,30}?#[0-9a-f]{3,8}\b/i;
+/** A contrast ratio or the word, in the evidence itself. */
+const RATIO = /\bcontrast\b|\d+(?:\.\d+)?\s*:\s*1\b/i;
 
 const ROLE_WORDS: [string, RegExp][] = [
   ["background", /\b(backgrounds?|bg|surfaces?|fills?)\b/i],
@@ -418,62 +468,94 @@ const ROLE_WORDS: [string, RegExp][] = [
   ["text", /\b(text|copy|fonts?|foreground|headings?|links?|labels?)\b/i],
 ];
 
-/** The one color role a sentence talks about, or null when it names none or several. */
+/** The one color role a sentence names, or null when it names none or several. */
 function roleOf(text: string): string | null {
   const roles = ROLE_WORDS.filter(([, re]) => re.test(text)).map(([r]) => r);
   return roles.length === 1 ? roles[0] : null;
 }
 
 /**
- * What a design issue is about, from its evidence first (it's the citation)
- * and its wording second: a contrast pair, a stray color, or a type size,
- * radius or padding. Deterministic, so a regenerate that rewords the issue
- * lands it in the same category.
+ * What makes two design issues the same one, however the model words them.
+ * `values` must match exactly; `sizes` and `role` only rule a match out when
+ * both issues state one and they disagree (see sameDesignIssue).
  */
-export function designIssueCategory(issue: string, evidence: string): DesignIssueCategory {
-  const mentions = valueMentions(evidence);
-  const colors = mentions.filter((m) => m.unit === "hex").length;
-  if (PAIR.test(evidence) || (colors > 0 && (CONTRAST_WORDS.test(evidence) || CONTRAST_WORDS.test(issue)))) {
-    return "contrast";
-  }
-  if (colors > 0) return "palette";
-  if (mentions.length > 0) return kindOf(evidence) ?? kindOf(issue) ?? "other";
-  return "other";
+export interface DesignIssueSignature {
+  category: DesignIssueCategory;
+  /** The colors (contrast, palette) or px values cited, normalized and sorted; for "other", the text. */
+  values: string;
+  /** A contrast issue's text sizes. */
+  sizes: string[];
+  /** The role a palette issue's color plays, when its evidence says. */
+  role: string | null;
 }
 
 /**
- * The key a dismissed design issue is filed under. Design evidence is free
- * text the model rewrites on every regenerate — "#444444 on #0a0a0a (2.03:1
- * contrast at 11px)" comes back as "#444 text at 11px on #0A0A0A" — so the key
- * is what the issue is about and the values it cites, not its wording.
- *
- * Category first, so values that mean different things don't collide: 11px
- * captions and an 11px radius are two issues. Then every color, px value and
- * page path cited, normalized and sorted; a contrast issue keeps its sizes, so
- * dismissing a pair's failure at 11px doesn't hide the same pair failing at
- * 16px. A color issue adds the role it's about, when its words name one, so
- * a stray background isn't a stray border. Ratios and counts never count:
- * they're derived, and reworded freely. Evidence with no values falls back to
- * its own text.
+ * Which section of the measured design a set of px values belongs to: the
+ * one holding all of them, or failing that most of them. The wording breaks a
+ * tie — evidence first, then the issue — and is never read otherwise, since a
+ * regenerate rewords freely ("Body text uses two sizes" vs "Two near-identical
+ * sizes") while the measurements stay put.
  */
-export function designIssueKey(issue: string, evidence: string): string {
-  const category = designIssueCategory(issue, evidence);
-  const parts = new Set<string>();
-  for (const m of valueMentions(evidence)) parts.add(m.key);
-  for (const m of evidence.matchAll(PATH)) {
-    const path = m[0].replace(/[.,]+$/, "");
-    if (path.length > 1 || evidence.trim() === "/") parts.add(path.toLowerCase());
-  }
-  if (parts.size === 0) return `${category}:${evidence.replace(/\s+/g, " ").trim().toLowerCase()}`;
-  const role = category === "palette" ? (roleOf(evidence) ?? roleOf(issue)) : null;
-  return `${category}:${[...parts].sort().join(" ")}${role ? `|${role}` : ""}`;
+function pxCategory(
+  keys: string[],
+  issue: string,
+  evidence: string,
+  known: KnownDesignValues,
+): DesignIssueCategory {
+  const kinds: DesignValueKind[] = ["type", "radius", "spacing"];
+  const held = kinds.map((k) => ({ k, n: keys.filter((key) => known[k].has(key)).length }));
+  const best = Math.max(...held.map((h) => h.n));
+  const candidates = best === 0 ? kinds : held.filter((h) => h.n === best).map((h) => h.k);
+  if (candidates.length === 1) return candidates[0];
+  const worded = kindOf(evidence) ?? kindOf(issue);
+  if (worded && candidates.includes(worded)) return worded;
+  return "size";
 }
 
-/** Whether a design issue was already dismissed, under any rewording that cites the same values. */
+/** An issue's signature, read against the current design data. */
+export function designIssueSignature(
+  issue: string,
+  evidence: string,
+  known: KnownDesignValues,
+): DesignIssueSignature {
+  const mentions = valueMentions(evidence);
+  const colors = [...new Set(mentions.filter((m) => m.unit === "hex").map((m) => m.key))].sort();
+  const px = [...new Set(mentions.filter((m) => m.unit === "px").map((m) => m.key))].sort();
+
+  if (colors.length >= 2 && (PAIR.test(evidence) || RATIO.test(evidence))) {
+    return { category: "contrast", values: colors.join(" "), sizes: px, role: null };
+  }
+  if (colors.length > 0) {
+    return { category: "palette", values: colors.join(" "), sizes: [], role: roleOf(evidence) };
+  }
+  if (px.length > 0) {
+    return { category: pxCategory(px, issue, evidence, known), values: px.join(" "), sizes: [], role: null };
+  }
+  return { category: "other", values: evidence.replace(/\s+/g, " ").trim().toLowerCase(), sizes: [], role: null };
+}
+
+/**
+ * Whether two signatures are one issue: same category, same values, and no
+ * disagreement on what both of them state. "#888 on #0a0a0a at 11px" and the
+ * same pair "at 16px" are two failures; "at 11px" and no size given are one,
+ * reworded. A background color and a border color are two issues; a color
+ * whose role one wording leaves out is still the same one.
+ */
+export function sameDesignIssue(a: DesignIssueSignature, b: DesignIssueSignature): boolean {
+  if (a.category !== b.category || a.values !== b.values) return false;
+  if (a.sizes.length && b.sizes.length && !a.sizes.some((size) => b.sizes.includes(size))) return false;
+  if (a.role && b.role && a.role !== b.role) return false;
+  return true;
+}
+
+/** Whether a design issue matches any dismissed one. */
 export function isDismissedDesignIssue(
   issue: string,
   evidence: string,
-  dismissedKeys: ReadonlySet<string>,
+  dismissed: readonly DesignIssueSignature[],
+  known: KnownDesignValues,
 ): boolean {
-  return dismissedKeys.size > 0 && dismissedKeys.has(designIssueKey(issue, evidence));
+  if (dismissed.length === 0) return false;
+  const signature = designIssueSignature(issue, evidence, known);
+  return dismissed.some((d) => sameDesignIssue(d, signature));
 }

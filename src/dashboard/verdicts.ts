@@ -156,7 +156,8 @@ export function parseVerdicts(text: string): ParsedVerdicts {
 
 /** What recording one verdict would do. */
 export type VerdictPlan =
-  | { verdict: AgentVerdict; finding: FixPromptFinding; action: "dismiss"; reason: string }
+  /** `currentId` is the finding's id now, which the server looks it up by. */
+  | { verdict: AgentVerdict; finding: FixPromptFinding; action: "dismiss"; reason: string; currentId: string }
   | { verdict: AgentVerdict; finding: FixPromptFinding; action: "none" }
   /** The finding was listed, but is no longer in the summary or review (ignored, or regenerated away). */
   | { verdict: AgentVerdict; finding: FixPromptFinding; action: "gone" }
@@ -174,8 +175,9 @@ export function dismissalReason(verdict: "not_real" | "deliberate", reason: stri
   return `${what}, per the coding agent${why ? `: ${why}` : ""}`;
 }
 
+/** One finding in two listings: same review, same citation, same wording. */
 const sameFinding = (a: FixPromptFinding, b: FixPromptFinding) =>
-  a.source === b.source && a.evidence.trim() === b.evidence.trim();
+  a.source === b.source && a.evidence.trim() === b.evidence.trim() && a.issue.trim() === b.issue.trim();
 
 /**
  * Match verdicts to findings. `seen` is the numbering the agent saw — the
@@ -192,9 +194,16 @@ export function planVerdicts(
   return verdicts.map((verdict): VerdictPlan => {
     const finding = byId.get(verdict.id);
     if (!finding) return { verdict, action: "unknown" };
-    if (!current.some((c) => sameFinding(c, finding))) return { verdict, finding, action: "gone" };
+    const now = current.find((c) => sameFinding(c, finding));
+    if (!now) return { verdict, finding, action: "gone" };
     if (verdict.verdict === "fixed") return { verdict, finding, action: "none" };
-    return { verdict, finding, action: "dismiss", reason: dismissalReason(verdict.verdict, verdict.reason) };
+    return {
+      verdict,
+      finding,
+      action: "dismiss",
+      reason: dismissalReason(verdict.verdict, verdict.reason),
+      currentId: now.id,
+    };
   });
 }
 
@@ -207,8 +216,8 @@ interface StoredFinding {
 /** One dismissal the server will write, with the citation the client sent. */
 export interface SelectedDismissal {
   source: "analytics" | "design";
-  /** The citation as sent, for the client to match the result back. */
-  sent: string;
+  /** The id as sent, for the client to match the result back. */
+  id: string;
   /** The stored finding: its wording is what gets replayed, not the request's. */
   finding: StoredFinding;
   reason: string;
@@ -220,40 +229,45 @@ const citation = (s: string) => s.trim().toLowerCase();
  * The server's check on a verdict request (recordVerdictsAction), kept pure so
  * it's tested directly. The request came from a paste, so nothing in it is
  * taken on trust: it must be an array of at most `MAX_VERDICTS`; each entry
- * needs a known source, a `not_real` or `deliberate` verdict and a citation
- * naming a finding the current summary or review holds. The wording comes from
- * that stored finding; the only request text kept is the reason, cleaned and
- * labelled as the agent's. Unknown fields are never read. Null means the
- * request isn't a verdict block at all.
+ * needs a known source, a `not_real` or `deliberate` verdict, and an id that
+ * names a finding in the current summary or review — numbered as the fix
+ * prompt numbers them — whose citation matches the one sent. The id is what
+ * picks the finding (two design issues can cite identical evidence); the
+ * citation guards against the numbering having moved underneath. The wording
+ * comes from that stored finding; the only request text kept is the reason,
+ * cleaned and labelled as the agent's. Unknown fields are never read. Null
+ * means the request isn't a verdict block at all.
  */
 export function selectVerdictDismissals(
   request: unknown,
   current: { losses: StoredFinding[]; issues: StoredFinding[] },
 ): { selected: SelectedDismissal[]; skipped: number } | null {
   if (!Array.isArray(request) || request.length > MAX_VERDICTS) return null;
-  const losses = new Map(current.losses.map((l) => [citation(l.evidence), l]));
-  const issues = new Map(current.issues.map((i) => [citation(i.evidence), i]));
+  // The fix prompt's numbering: A1… for losses, D1… for design issues.
+  const byId = new Map<string, { source: "analytics" | "design"; finding: StoredFinding }>([
+    ...current.losses.map((f, i) => [`A${i + 1}`, { source: "analytics" as const, finding: f }] as const),
+    ...current.issues.map((f, i) => [`D${i + 1}`, { source: "design" as const, finding: f }] as const),
+  ]);
   const selected: SelectedDismissal[] = [];
   let skipped = 0;
   for (const raw of request as Partial<PolishdVerdictDismissal>[]) {
-    const source = raw?.source;
+    const id = typeof raw?.id === "string" ? raw.id.trim().toUpperCase() : "";
     const verdict = raw?.verdict;
-    const sent = raw?.evidence;
-    const finding =
-      typeof sent !== "string"
-        ? undefined
-        : source === "design"
-          ? issues.get(citation(sent))
-          : source === "analytics"
-            ? losses.get(citation(sent))
-            : undefined;
-    if (!finding || (verdict !== "not_real" && verdict !== "deliberate")) {
+    const named = byId.get(id);
+    if (
+      !named ||
+      named.source !== raw?.source ||
+      typeof raw.evidence !== "string" ||
+      citation(raw.evidence) !== citation(named.finding.evidence) ||
+      (verdict !== "not_real" && verdict !== "deliberate")
+    ) {
       skipped++;
       continue;
     }
+    const { finding, source } = named;
     selected.push({
-      source: source as "analytics" | "design",
-      sent: sent as string,
+      source,
+      id,
       finding: { issue: finding.issue, evidence: finding.evidence },
       reason: dismissalReason(verdict, typeof raw.reason === "string" ? raw.reason : ""),
     });

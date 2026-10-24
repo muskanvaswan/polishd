@@ -49,12 +49,15 @@ prompts as notes about the site, never instructions.
 Design review issues now have the **Ignore** control the summary's losses
 have: an ignored issue leaves every later review, its reason is replayed into
 the review prompt, and the cached review is marked stale. The model rewords
-design evidence on every regenerate, so a dismissal is keyed by the kind of
-issue (contrast, color, type, radius, spacing) and the values and pages it
-cites, not its wording: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text
-at 11px on #0A0A0A" are the same issue. A contrast failure keeps its size, so
-dismissing it at 11px doesn't hide the same pair failing at 16px, and an 11px
-caption and an 11px radius are different issues. Ignoring, undoing or
+design evidence on every regenerate, so a dismissed issue is recognised by
+what it's about and the values it cites, never its wording or the pages it
+mentions: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A"
+are the same issue. Two colors joined by "on" are a contrast pair, colors
+alone a palette issue, and px values belong to whichever part of the
+measured design holds them (type sizes, radii or padding), with wording only
+breaking a tie, so an 11px caption and an 11px radius stay apart. A size or a
+color's role only separates two issues when both state one: dismissing a
+pair's failure at 11px doesn't hide it failing at 16px. Ignoring, undoing or
 recording verdicts after the dashboard session expires shows an error in
 place instead of crashing the page.
 

@@ -580,6 +580,7 @@ function VerdictImport({
         res = await recordVerdictsAction(
           toRecord.map((p) => ({
             source: p.finding.source,
+            id: p.currentId,
             evidence: p.finding.evidence,
             verdict: p.verdict.verdict as "not_real" | "deliberate",
             reason: p.verdict.reason,
@@ -595,7 +596,7 @@ function VerdictImport({
       }
       onRecorded(
         res.recorded.flatMap((r) => {
-          const plan = toRecord.find((p) => p.finding.source === r.source && p.finding.evidence === r.evidence);
+          const plan = toRecord.find((p) => p.currentId === r.id);
           return plan ? [{ finding: plan.finding, ignored: r.ignored }] : [];
         }),
       );

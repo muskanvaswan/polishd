@@ -25,7 +25,7 @@ import { getDesignData, type PolishdDesignData } from "../server/design";
 import { checkSuggestion, knownDesignValues } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import {
-  ignoredDesignKeys,
+  ignoredDesignSignatures,
   ignoredFingerprint,
   isIgnoredDesignIssue,
   ignoredSection,
@@ -54,9 +54,12 @@ const MAX_ISSUES = 3;
  *
  * Issues the owner has dismissed since it was generated are filtered out here,
  * so an ignore takes effect on the cached review immediately. The stored copy
- * keeps them, which is what makes an undo bring the issue back.
+ * keeps them, which is what makes an undo bring the issue back. Recognising a
+ * dismissed issue reads the current design data (which section a px value
+ * belongs to), so it's loaded here when there's something to filter and the
+ * caller didn't pass it.
  */
-export async function loadDesignReview(): Promise<PolishdDesignReview | null> {
+export async function loadDesignReview(preloaded?: PolishdDesignData): Promise<PolishdDesignReview | null> {
   const raw = await getMeta(DESIGN_REVIEW_KEY);
   if (!raw) return null;
   let review: PolishdDesignReview;
@@ -65,7 +68,11 @@ export async function loadDesignReview(): Promise<PolishdDesignReview | null> {
   } catch {
     return null;
   }
-  review = withoutIgnoredIssues(review, ignoredDesignKeys(await loadIgnoredDesignIssues()));
+  const ignored = review.issues?.length ? await loadIgnoredDesignIssues() : [];
+  if (ignored.length) {
+    const known = knownDesignValues(preloaded ?? (await getDesignData()));
+    review = withoutIgnoredIssues(review, ignoredDesignSignatures(ignored, known), known);
+  }
   if (review.issues?.length) {
     review = { ...review, issues: await attachGithubIssuesToDesignIssues(review.issues) };
   }
@@ -227,16 +234,17 @@ function verifyIssues(
   digest: string,
   data: PolishdDesignData,
   strengths: string[],
-  ignored: Set<string>,
+  ignoredList: PolishdIgnoredDesignIssue[],
 ): PolishdDesignIssue[] {
   const hay = digest.toLowerCase();
   const known = knownDesignValues(data);
+  const ignored = ignoredDesignSignatures(ignoredList, known);
   const out: PolishdDesignIssue[] = [];
   for (const r of raw) {
     if (typeof r.issue !== "string" || !r.issue.trim()) continue;
     const evidence = typeof r.evidence === "string" ? r.evidence.trim() : "";
     if (!evidence) continue;
-    if (isIgnoredDesignIssue(r.issue, evidence, ignored)) continue; // reviewed and dismissed
+    if (isIgnoredDesignIssue(r.issue, evidence, ignored, known)) continue; // reviewed and dismissed
     const tokens = evidence
       .toLowerCase()
       .split(/[^\w#/.-]+/)
@@ -304,7 +312,7 @@ export async function generateDesignReview(
   const { user, fingerprint } = composeReview(digest, ignored);
 
   if (!opts.force) {
-    const cached = await loadDesignReview();
+    const cached = await loadDesignReview(data);
     if (cached && cached.fingerprint === fingerprint) {
       return { ok: true, review: cached, regenerated: false };
     }
@@ -339,13 +347,7 @@ export async function generateDesignReview(
   const parsed = parseStructured(reply.text);
   // Grounded in the digest alone: quoting a dismissal back to the model must
   // not make its citation fresh evidence (see summary.ts, composePrompt).
-  const issues = verifyIssues(
-    parsed.issues,
-    digest,
-    data,
-    parsed.strengths,
-    ignoredDesignKeys(ignored),
-  );
+  const issues = verifyIssues(parsed.issues, digest, data, parsed.strengths, ignored);
   const review: PolishdDesignReview = {
     text: parsed.assessment,
     strengths: parsed.strengths,
@@ -385,10 +387,8 @@ export async function loadDesignReviewState(preloaded?: PolishdDesignData): Prom
   stale: boolean;
   metricsChanged: boolean | null;
 }> {
-  const [review, data] = await Promise.all([
-    loadDesignReview(),
-    preloaded ? Promise.resolve(preloaded) : getDesignData(),
-  ]);
+  const data = preloaded ?? (await getDesignData());
+  const review = await loadDesignReview(data);
   if (!data.ready || data.pages.length === 0) return { review, stale: false, metricsChanged: null };
   const [{ settings }, ignored] = await Promise.all([resolveSettings(), loadIgnoredDesignIssues()]);
   const { fingerprint } = composeReview(buildDesignDigest(data, settings.context), ignored);
