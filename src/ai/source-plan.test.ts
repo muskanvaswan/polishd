@@ -16,6 +16,7 @@ import {
   buildScan,
   chooseRoots,
   pickAppRoot,
+  planMatchReads,
   planReads,
   repoCandidates,
   type Candidate,
@@ -189,4 +190,35 @@ test("a clipped file marks the scan truncated", () => {
   const scan = buildScan([{ path: "a.ts", content: "x".repeat(7_000), doc: false }], false, "fp");
   assert.equal(scan.truncated, true);
   assert.ok(scan.files[0].content.length < 7_000);
+});
+
+// ── Matching reads ───────────────────────────────────────────────────────────
+
+test("matching reads a small app whole, and says so", () => {
+  const code = files("app/page.tsx", "components/Hero.tsx", "lib/util.ts");
+  const { reads, partial } = planMatchReads(code, []);
+  assert.equal(reads.length, 3);
+  assert.equal(partial, false);
+});
+
+test("files named after a cited identifier are read before anything else", () => {
+  const code = [
+    ...Array.from({ length: 200 }, (_, i) => ({ path: `app/x${i}/page.tsx`, size: 100 })),
+    { path: "components/zz/SignupForm.tsx", size: 100 },
+    { path: "components/signupform-helpers.ts", size: 100 },
+  ];
+  const { reads, partial } = planMatchReads(code, ["SignupForm"]);
+  assert.equal(reads[0].path, "components/zz/SignupForm.tsx");
+  assert.equal(reads[1].path, "components/signupform-helpers.ts");
+  assert.equal(partial, true, "200 pages don't fit the match budget");
+  assert.ok(reads.length <= 120);
+});
+
+test("generated-size files are never read for matching, and that counts as partial", () => {
+  const { reads, partial } = planMatchReads(
+    [{ path: "app/page.tsx", size: 100 }, { path: "lib/data.ts", size: 2_000_000 }],
+    [],
+  );
+  assert.deepEqual(reads.map((r) => r.path), ["app/page.tsx"]);
+  assert.equal(partial, true);
 });

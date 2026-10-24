@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Analytics findings stop overstating, and point at the right file
+
+The summary model was told dead and rage clicks were genuine friction on
+things that looked actionable. They aren't always. A dead click is a structural
+guess: a drawer backdrop that closes on click counts as dead, because React's
+handler leaves no trace in the DOM. A click on the bar beside a small button
+reads as that button not responding. The prompt now explains how each signal
+is detected and what it can't see. Findings are written as hypotheses tied to
+the numbers, and say when a pattern looks like a backdrop or a near miss.
+
+- **The digest shows more of what happened.** It shows sessions behind each
+  count and the element that was actually clicked (`<div.flex>`, not just the
+  button text inside it). It also flags text-less positioned layers as possible
+  backdrops. When capture records them, it adds where dead clicks landed and
+  what came just before an error, with its stack frame and digest.
+- **Each finding carries its volume.** `signal` (event kind, count, sessions,
+  pages) is looked up in the analytics after the model answers, never taken
+  from its prose.
+- **Source matching stopped guessing.** It used to match any token of four
+  letters or more. A backdrop cited as `div.fixed>div.absolute` was "verified"
+  against whichever file first said `fixed`. Matching now searches only for
+  names the author chose: component names, routes (`/pricing` →
+  `app/pricing/page.tsx`), ids and custom classes, and visible labels, numbers
+  included (`Show 9 more` finds `` `Show ${hidden} more` ``). Utility classes
+  and tag names are never matched. When several files match equally, the loss
+  lists them as `candidates` and stays unverified instead of picking one.
+- **Matching works on Vercel.** When the source isn't on disk, findings are
+  matched against the connected GitHub repo, within a fixed read budget.
+  Before, every finding came back "not matched to source".
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its

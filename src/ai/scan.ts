@@ -17,13 +17,18 @@
  *   - Only app code: node_modules/.next/tests/etc. are never read.
  *   - The plan is made from file sizes before anything is read, so a GitHub
  *     scan downloads only the files that make it into the prompt.
+ *
+ * It also supplies the source a summary's losses are matched against
+ * (`diskSnapshot` / `githubSnapshot`, searched by source-match.ts) — read,
+ * never sent to a model, so bounded by API calls rather than tokens.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { readGithubBlobs, readGithubTree } from "./github";
+import { readGithubBlobs, readGithubTree, type GithubTree } from "./github";
 import {
   EMPTY_SCAN,
+  MATCH_MAX_FILE_BYTES,
   MAX_DEPTH,
   ROOT_DOCS,
   appRootCandidates,
@@ -34,6 +39,7 @@ import {
   isCodeFile,
   isWalkableDir,
   pickAppRoot,
+  planMatchReads,
   planReads,
   repoCandidates,
   type Candidate,
@@ -141,6 +147,26 @@ export type GithubSourceResult =
 const MAX_MANIFEST_READS = 8;
 
 /**
+ * The app's folder in the repo ("" for the root): the only candidate, or —
+ * in a monorepo — the one whose manifest installs Polishd. `known` is a root
+ * an earlier scan settled on (the profile's); it's reused while the listing
+ * still has it, which saves the manifest reads.
+ */
+async function repoAppRoot(
+  tree: GithubTree,
+  shaOf: Map<string, string>,
+  known?: string,
+): Promise<string> {
+  const candidates = appRootCandidates(tree.files.map((f) => f.path));
+  if (known !== undefined && candidates.includes(known)) return known;
+  if (candidates.length <= 1) return candidates[0] ?? "";
+  const manifestPath = (dir: string) => (dir ? `${dir}/package.json` : "package.json");
+  const checked = candidates.slice(0, MAX_MANIFEST_READS);
+  const blobs = await readGithubBlobs(checked.map((dir) => shaOf.get(manifestPath(dir))!));
+  return pickAppRoot(checked, (dir) => blobs.get(shaOf.get(manifestPath(dir))!));
+}
+
+/**
  * Collect the app's source from the connected GitHub repo's default branch —
  * the scan for hosts where the source isn't on disk. Same roots, ranking and
  * budgets as the disk scan; paths come back relative to the repo root, since
@@ -168,14 +194,7 @@ export async function collectGithubSource(
   }
 
   const shaOf = new Map(tree.files.map((f) => [f.path, f.sha]));
-  const candidates = appRootCandidates(tree.files.map((f) => f.path));
-  let root = candidates[0] ?? "";
-  if (candidates.length > 1) {
-    const manifestPath = (dir: string) => (dir ? `${dir}/package.json` : "package.json");
-    const checked = candidates.slice(0, MAX_MANIFEST_READS);
-    const blobs = await readGithubBlobs(checked.map((dir) => shaOf.get(manifestPath(dir))!));
-    root = pickAppRoot(checked, (dir) => blobs.get(shaOf.get(manifestPath(dir))!));
-  }
+  const root = await repoAppRoot(tree, shaOf);
   const origin = { repo: tree.repo, ref: tree.ref, root };
 
   const { docs, code } = repoCandidates(tree.files, root, sourceDirs);
@@ -205,31 +224,97 @@ export async function collectGithubSource(
   };
 }
 
+// ── Source for matching losses to files ─────────────────────────────────────
+
 /**
- * Locate the first source file containing any of the given needles (most
- * specific — longest — first). Used to verify that a loss the model reported
- * points at something that really exists in the codebase. Returns the path
- * relative to the project root, or null (including when source isn't on disk).
+ * The host app's code files and a way to read them, for matching a loss's
+ * evidence to the file that renders it (see source-match.ts). Paths are
+ * relative to the project root on disk, or to the repo root on GitHub — the
+ * same convention the profile scan uses.
  */
-export function findInSource(needles: string[], sourceDirs?: string): string | null {
-  const usable = needles.filter((n) => n.length >= 4);
-  if (!usable.length) return null;
+export interface SourceSnapshot {
+  origin: "disk" | "github";
+  files: string[];
+  /** File contents, or null when unread (over budget) or unreadable. */
+  read: (path: string) => string | null;
+  /** True when some files weren't read (GitHub, over budget). */
+  partial: boolean;
+}
+
+/** The source on disk, read lazily and once per file, or null when there is none. */
+export function diskSnapshot(sourceDirs?: string): SourceSnapshot | null {
   const projectRoot = process.cwd();
   const roots = resolveRoots(projectRoot, sourceDirs);
-  const ordered = [...usable].sort((a, b) => b.length - a.length);
-  for (const needle of ordered) {
-    const lower = needle.toLowerCase();
-    for (const abs of listFiles(projectRoot, roots)) {
-      let raw: string;
+  if (!roots.length) return null;
+  const files = [...new Set(listFiles(projectRoot, roots).map((abs) => relative(projectRoot, abs)))];
+  if (!files.length) return null;
+  const cache = new Map<string, string | null>();
+  return {
+    origin: "disk",
+    files,
+    partial: false,
+    read: (path) => {
+      if (cache.has(path)) return cache.get(path)!;
+      let text: string | null = null;
       try {
-        raw = readFileSync(abs, "utf8");
+        const abs = join(projectRoot, path);
+        if (statSync(abs).size <= MATCH_MAX_FILE_BYTES) text = readFileSync(abs, "utf8");
       } catch {
-        continue;
+        /* raced deletion, unreadable — no content */
       }
-      if (raw.toLowerCase().includes(lower)) return relative(projectRoot, abs);
+      cache.set(path, text);
+      return text;
+    },
+  };
+}
+
+/**
+ * The connected repo's code, for matching, or null when it isn't connected
+ * or can't be read. Lists the default branch once, then reads a bounded set
+ * of files: those whose path names one of `hints` first (a component's own
+ * file), then in the profile scan's order. With `readContent: false` only the
+ * listing is taken — enough for route matching, which needs no contents.
+ *
+ * Every request goes through github.ts, so the token only ever goes to
+ * GitHub's API.
+ */
+export async function githubSnapshot(
+  sourceDirs: string | undefined,
+  opts: { hints?: string[]; knownRoot?: string; readContent?: boolean } = {},
+): Promise<SourceSnapshot | null> {
+  let tree: GithubTree | null;
+  try {
+    tree = await readGithubTree();
+  } catch {
+    return null; // a matching enrichment never fails the summary
+  }
+  if (!tree) return null;
+
+  const shaOf = new Map(tree.files.map((f) => [f.path, f.sha]));
+  const root = await repoAppRoot(tree, shaOf, opts.knownRoot);
+  const prefix = root ? `${root}/` : "";
+  const { code } = repoCandidates(tree.files, root, sourceDirs);
+  if (!code.length) return null;
+  const files = code.map((f) => prefix + f.path);
+
+  const content = new Map<string, string>();
+  let partial = false;
+  if (opts.readContent !== false) {
+    const plan = planMatchReads(code, opts.hints ?? []);
+    partial = plan.partial;
+    const reads = plan.reads.map((f) => prefix + f.path);
+    const blobs = await readGithubBlobs(reads.map((p) => shaOf.get(p)!));
+    for (const p of reads) {
+      const text = blobs.get(shaOf.get(p)!);
+      if (text !== undefined) content.set(p, text);
     }
   }
-  return null;
+  return {
+    origin: "github",
+    files,
+    partial,
+    read: (path) => content.get(path) ?? null,
+  };
 }
 
 /** Budget for the targeted gap-fill read at summary time — deliberately tiny. */

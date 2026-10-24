@@ -370,14 +370,31 @@ function LossCard({
         <code className="break-all rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
           {loss.evidence}
         </code>
+        {loss.signal && loss.signal.count > 0 && (
+          <span
+            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]"
+            title={`From the captured analytics${loss.signal.pages.length ? `, on ${loss.signal.pages.join(", ")}` : ""}`}
+          >
+            {loss.signal.count} {loss.signal.kind.replace(/_/g, " ")}
+            {loss.signal.count === 1 ? "" : "s"} · {loss.signal.sessions} session
+            {loss.signal.sessions === 1 ? "" : "s"}
+          </span>
+        )}
         {loss.location ? (
           <code className="break-all rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
             {loss.location}
           </code>
+        ) : loss.candidates?.length ? (
+          <span
+            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]"
+            title={`Not verified — the citation could be in any of these, so none was picked:\n${loss.candidates.join("\n")}`}
+          >
+            {loss.candidates.length} possible file{loss.candidates.length === 1 ? "" : "s"}
+          </span>
         ) : (
           <span
             className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
-            title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
+            title="The citation is real analytics data, but nothing specific in it (a component name, page route, id or visible label) was found in the source — on disk, or in the connected GitHub repo where the source isn't on disk."
           >
             not matched to source
           </span>

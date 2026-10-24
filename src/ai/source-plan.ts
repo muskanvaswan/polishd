@@ -174,6 +174,56 @@ export function planReads(
   return { reads, dropped };
 }
 
+// ── Matching losses to files ────────────────────────────────────────────────
+
+/** Files past this size are generated or vendored — never worth matching. */
+export const MATCH_MAX_FILE_BYTES = 256_000;
+
+/**
+ * Budget for reading a repo to match a summary's losses to files. Nothing
+ * read under it reaches a model — it's only searched — so the bound is API
+ * calls and time, not tokens: enough to cover most apps whole.
+ */
+const MATCH_MAX_FILES = 120;
+const MATCH_MAX_BYTES = 1_500_000;
+
+/**
+ * Which repo files to read for matching, in order, under the match budget.
+ * Files named after something the citations name come first — `SignupForm`
+ * is most likely defined in `SignupForm.tsx` — then any path mentioning one,
+ * then the profile scan's order. `partial` says some code went unread, so a
+ * single match among what was read may not be the only one in the repo.
+ */
+export function planMatchReads(
+  code: Candidate[],
+  hints: string[],
+): { reads: Candidate[]; partial: boolean } {
+  const wanted = hints.map((h) => h.toLowerCase()).filter((h) => h.length >= 3);
+  const named = (path: string): number => {
+    const lower = path.toLowerCase();
+    const base = (lower.split("/").pop() ?? "").replace(/\.[a-z]+$/, "");
+    if (wanted.some((h) => base === h)) return 0;
+    return wanted.some((h) => lower.includes(h)) ? 1 : 2;
+  };
+  const ranked = [...new Map(code.map((f) => [f.path, f])).values()]
+    .filter((f) => f.size <= MATCH_MAX_FILE_BYTES)
+    .map((f) => ({ f, rank: named(f.path) * 10 + priority(f.path, hints) }))
+    .sort((a, b) => a.rank - b.rank || a.f.path.localeCompare(b.f.path));
+
+  const reads: Candidate[] = [];
+  let bytes = 0;
+  let partial = ranked.length < code.length;
+  for (const { f } of ranked) {
+    if (reads.length >= MATCH_MAX_FILES || bytes + f.size > MATCH_MAX_BYTES) {
+      partial = true;
+      continue;
+    }
+    reads.push(f);
+    bytes += f.size;
+  }
+  return { reads, partial };
+}
+
 /** Clip a file to the per-file cap, preferring its head (imports + exports). */
 export function clipFile(content: string): { text: string; clipped: boolean } {
   const clean = content.replace(/\r\n/g, "\n");

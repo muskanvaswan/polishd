@@ -12,6 +12,7 @@
  */
 import { createHash } from "node:crypto";
 
+import type { ClickFriction, ErrorFriction } from "../server/friction";
 import type { PolishdDashboardData } from "../server/queries";
 
 /** Round to keep digests stable across tiny float jitter. */
@@ -21,12 +22,68 @@ const r = (n: number | null): string => (n === null ? "—" : String(Math.round(
 const clip = (s: string | null | undefined, max = 40): string =>
   !s ? "" : s.replace(/\s+/g, " ").trim().slice(0, max);
 
+/** The clicked element itself: the last step of a `tag.class>tag.class` path. */
+const clickedPart = (selector: string | null): string =>
+  selector ? (selector.split(">").pop() ?? "").trim() : "";
+
+/**
+ * A text-less, positioned layer — the shape of a drawer or modal backdrop,
+ * whose click handler (if any) lives in the framework, not the DOM.
+ */
+export function looksLikeOverlay(selector: string | null, text: string | null): boolean {
+  if (!selector || (text && text.trim())) return false;
+  const [tag = "", cls = ""] = clickedPart(selector).split(".");
+  if (!/^(div|span|section|aside)$/i.test(tag)) return false;
+  return (
+    /^(fixed|absolute|inset-0|inset-[xy]-0)$/i.test(cls) ||
+    /backdrop|overlay|scrim|mask|curtain|underlay/i.test(selector)
+  );
+}
+
+/** Dead clicks that landed beside a control (`meta.near`), when capture said so. */
+function nearClause(f: ClickFriction | undefined): string {
+  const [top] = f?.near ?? [];
+  if (!top || !f) return "";
+  const how = top.count >= f.dead.count ? "all" : String(top.count);
+  return `; ${how} of the dead clicks landed next to "${clip(top.label)}" — near misses`;
+}
+
+/** "in 6 sessions", when the friction index counted them. */
+const sessionsClause = (n: number | undefined): string =>
+  n ? ` in ${n} session${n === 1 ? "" : "s"}` : "";
+
+/** What capture recorded around an error, in one clause each. */
+function errorContext(f: ErrorFriction | undefined): string {
+  if (!f) return "";
+  const parts: string[] = [];
+  if (f.tally.count > 1 || f.tally.sessions > 1) {
+    parts.push(`${f.tally.count}×${sessionsClause(f.tally.sessions)}`);
+  }
+  if (f.after) {
+    const gap = f.after.medianMs !== undefined ? ` (~${f.after.medianMs}ms before)` : "";
+    parts.push(`after "${clip(f.after.label)}"${gap}`);
+  }
+  if (f.frame) {
+    const frame = clip(f.frame, 100);
+    parts.push(/^at\s/.test(frame) ? frame : `at ${frame}`); // V8 frames already say "at"
+  }
+  if (f.digest) parts.push(`digest ${clip(f.digest, 24)}`);
+  return parts.length ? ` — ${parts.join("; ")}` : "";
+}
+
 /**
  * Render the captured analytics as a compact, model-readable brief. Sections
  * are omitted when empty so the prompt only ever contains real signal.
+ *
+ * Optional capture context (`friction`) is folded in where present — sessions
+ * behind each count, dead clicks that landed beside a control, what preceded
+ * an error — and simply absent where it isn't, so older data reads as before.
  */
 export function buildDigest(data: PolishdDashboardData, context?: string): string {
   const { overview, pages, elements, devices, topUsed, errors, monitored } = data;
+  const friction = data.friction ?? { clicks: [], pages: [], errors: [], capped: false };
+  const clickBy = (by: ClickFriction["by"], key: string) =>
+    friction.clicks.find((c) => c.by === by && c.key === key);
   const lines: string[] = [];
 
   if (context && context.trim()) {
@@ -85,10 +142,24 @@ export function buildDigest(data: PolishdDashboardData, context?: string): strin
 
   const brokenEls = elements.filter((e) => e.rageClicks > 0 || e.deadClicks > 0).slice(0, 8);
   if (brokenEls.length) {
-    lines.push("ELEMENTS USERS STRUGGLE WITH:");
+    lines.push(
+      "ELEMENTS USERS STRUGGLE WITH (label = the clicked element's visible text, which for a wrapper includes its children's; <tag.class> = what was actually clicked):",
+    );
     for (const e of brokenEls) {
-      const label = clip(e.sampleText) || e.label;
-      lines.push(`  - ${label}: ${e.rageClicks} rage, ${e.deadClicks} dead, ${e.pages} pages`);
+      const text = clip(e.sampleText);
+      const label = text || e.label;
+      const clicked = text ? clickedPart(e.selector) : "";
+      const f = clickBy("selector", e.label);
+      const notes = [
+        nearClause(f),
+        looksLikeOverlay(e.selector, e.sampleText)
+          ? "; no text, positioned layer — could be an overlay or backdrop"
+          : "",
+      ].join("");
+      lines.push(
+        `  - ${label}${clicked ? ` <${clicked}>` : ""}: ${e.rageClicks} rage${sessionsClause(f?.rage.sessions)}, ` +
+          `${e.deadClicks} dead${sessionsClause(f?.dead.sessions)}, ${e.pages} pages${notes}`,
+      );
     }
   }
 
@@ -98,8 +169,10 @@ export function buildDigest(data: PolishdDashboardData, context?: string): strin
       const parts = [`${m.componentViews} views`];
       if (m.avgViewMs !== null) parts.push(`avg ${Math.round(m.avgViewMs / 100) / 10}s visible`);
       if (m.avgScrollDepth !== null) parts.push(`${m.avgScrollDepth}% scrolled`);
-      if (m.rageClicks > 0) parts.push(`${m.rageClicks} rage`);
-      lines.push(`  - ${m.name}: ${parts.join(", ")}`);
+      const f = clickBy("component", m.name);
+      if (m.rageClicks > 0) parts.push(`${m.rageClicks} rage${sessionsClause(f?.rage.sessions)}`);
+      if (m.deadClicks > 0) parts.push(`${m.deadClicks} dead${sessionsClause(f?.dead.sessions)}`);
+      lines.push(`  - ${m.name}: ${parts.join(", ")}${nearClause(f)}`);
     }
   }
 
@@ -115,7 +188,8 @@ export function buildDigest(data: PolishdDashboardData, context?: string): strin
     }
     lines.push("RECENT ERRORS:");
     for (const e of uniq) {
-      lines.push(`  - "${clip(e.message, 80)}" on ${e.path}`);
+      const f = friction.errors.find((x) => x.message === e.message);
+      lines.push(`  - "${clip(e.message, 80)}" on ${e.path}${errorContext(f)}`);
     }
   }
 

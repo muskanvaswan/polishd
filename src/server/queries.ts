@@ -21,6 +21,13 @@ import { NO_SESSION_META_KEY } from "./ingest";
 import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
 import { isIgnorableError } from "../shared/error-noise";
+import {
+  EMPTY_FRICTION,
+  foldFriction,
+  type FrictionIndex,
+  type FrictionKind,
+  type FrictionRow,
+} from "./friction";
 import { trendWindow } from "../shared/metric-buckets";
 import type { PolishdEventType } from "../shared/types";
 
@@ -1048,6 +1055,11 @@ export interface PolishdDashboardData {
   journeys: Awaited<ReturnType<typeof getSessionJourneys>>;
   errors: Awaited<ReturnType<typeof getRecentErrors>>;
   monitored: Awaited<ReturnType<typeof getMonitoredComponents>>;
+  /**
+   * Rage clicks, dead clicks and errors folded per target, with sessions,
+   * pages and capture context. Read by the AI layer, not the tables.
+   */
+  friction: FrictionIndex;
 }
 
 /**
@@ -1072,6 +1084,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     journeys,
     errors,
     monitored,
+    friction,
   ] = await Promise.all([
     getOverview(),
     getCaptureHealth(),
@@ -1083,6 +1096,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     getSessionJourneys(6),
     getRecentErrors(20),
     getMonitoredComponents(),
+    getFriction(),
   ]);
   return {
     overview,
@@ -1095,6 +1109,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     journeys,
     errors,
     monitored,
+    friction,
   };
 }
 
@@ -1150,6 +1165,57 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
     }
   }
   return [...errors.values()];
+}
+
+/** Grouped friction rows read at most — well past what a small site produces. */
+const FRICTION_ROW_CAP = 10_000;
+
+/**
+ * Rage clicks, dead clicks and errors, folded per element, component, page
+ * and error message — with distinct sessions, the pages each happened on, and
+ * the context capture attached (`meta.near` on a dead click; `meta.digest`,
+ * `frame`, `after`, `afterMs` on an error). See friction.ts.
+ *
+ * One grouped query: events of one kind, on one page, target and session
+ * collapse to a row. Only dead clicks and errors are also split by `meta`;
+ * a rage click's meta says nothing the index reads. Past the row cap the
+ * most recent friction wins, and the index says it was capped.
+ */
+export async function getFriction(): Promise<FrictionIndex> {
+  if (!(await storeReady())) return EMPTY_FRICTION;
+  const metaExpr = `CASE WHEN type = 'rage_click' THEN NULL ELSE meta END`;
+  const rows = await query(
+    `SELECT type, path, selector, component, session_id, ${metaExpr} AS meta,
+            MAX(text) AS text, COUNT(*) AS n, MAX(id) AS last_id
+     FROM ${polishdEventsSource()}
+     WHERE type IN ('rage_click', 'dead_click', 'js_error')
+     GROUP BY type, path, selector, component, session_id, ${metaExpr}
+     ORDER BY last_id DESC LIMIT ?`,
+    [FRICTION_ROW_CAP + 1],
+  );
+  const capped = rows.length > FRICTION_ROW_CAP;
+  const parsed: FrictionRow[] = [];
+  for (const r of rows.slice(0, FRICTION_ROW_CAP)) {
+    const meta = parseMeta(r.meta) ?? null;
+    const type = r.type as FrictionKind;
+    if (type === "js_error") {
+      // The same extension-noise rule getRecentErrors applies to history.
+      const message = typeof meta?.message === "string" ? meta.message : "";
+      const source = typeof meta?.source === "string" ? meta.source : "";
+      if (isIgnorableError({ message, source })) continue;
+    }
+    parsed.push({
+      type,
+      path: r.path as string,
+      selector: (r.selector as string) ?? null,
+      component: (r.component as string) ?? null,
+      text: (r.text as string) ?? null,
+      session: r.session_id as string,
+      meta,
+      n: num(r, "n"),
+    });
+  }
+  return foldFriction(parsed, capped);
 }
 
 // ── Cross-install telemetry (the installs view) ──────────────────────────────
