@@ -20,7 +20,7 @@ card) counted as dead on every press, even when the press worked.
      carrying its click handler, counts. So does either one being removed or
      hidden.
   2. A dialog or modal surface counts at any point in the hold: added, or one
-     already in the page shown or hidden.
+     already in the page shown or hidden, a fade-in included.
   3. Otherwise a change counts if it's related to the click and isn't the
      page's own churn:
      - on the nearest ancestors;
@@ -32,9 +32,10 @@ card) counted as dead on every press, even when the press worked.
   - The page's churn is learned continuously and per container. Every slide
     of a carousel feeds one `aria-hidden` history, but clickable dots don't
     share `class` history with each other.
-  - A container is background only while it has changed in the ten seconds
-    before the click, so a list rendered once is never background to its own
-    cards.
+  - A container is background only while it has changed at least twice in
+    the ten seconds before the click. A list rendered once is never
+    background to its own cards, and neither is a card that infinite scroll
+    just appended.
   - Learning pauses for the second after a press or click, and for typing in
     the focused element, never for scrolling.
   - What the pointer moves onto after the click is hover, and the next click,
@@ -51,7 +52,12 @@ card) counted as dead on every press, even when the press worked.
     as dead.
   - A hover card marked `role="dialog"` that opens as the pointer moves on
     credits the click.
-  - The first change a busy region ever makes has no history yet.
+  - The first change a busy region ever makes has no history yet, and a region
+    that changes less than twice in ten seconds (a slow carousel) never
+    becomes background.
+  - Class-only carousels and dots don't share history between siblings.
+  - Details revealed 100–130px from the clicked element read as dead.
+  - A hover menu that opens within 300ms of the click credits it.
   - A second of steady clicking pauses learning.
   - `showPopover()` and CSS-only effects leave no DOM change to see.
 - **Near misses.** A dead click beside a control names it in `meta.near`: a

@@ -25,15 +25,24 @@ interface Held {
   is(key: RageKey): boolean;
 }
 
+// Each kind of key is held by its own function, so no closure shares a scope
+// with the raw key: a closure over `ref` created next to one over `key` would
+// keep `key` alive through their shared context, and the control with it.
+const NOTHING: Held = { is: () => false };
+const holdString = (key: string): Held => ({ is: (k) => k === key });
+const holdRef = (ref: { deref(): object | undefined }): Held => ({
+  is: (k) => typeof k === "object" && k !== null && ref.deref() === k,
+});
+const strongRef = (key: object) => ({ deref: () => key });
+
 const hold = (key: RageKey): Held => {
-  if (typeof key === "string") return { is: (k) => k === key };
-  if (!key) return { is: () => false };
-  const ref = typeof WeakRef === "function" ? new WeakRef(key) : { deref: () => key };
-  return { is: (k) => typeof k === "object" && k !== null && ref.deref() === k };
+  if (typeof key === "string") return holdString(key);
+  if (!key) return NOTHING;
+  return holdRef(typeof WeakRef === "function" ? new WeakRef(key) : strongRef(key));
 };
 
 export function createRageTracker(count: number, windowMs: number): RageTracker {
-  let last: { key: Held; time: number; count: number } = { key: hold(null), time: 0, count: 0 };
+  let last: { key: Held; time: number; count: number } = { key: NOTHING, time: 0, count: 0 };
   return {
     hit(key, now) {
       // The same key `count` times, each within `windowMs` of the last.
