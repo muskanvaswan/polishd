@@ -267,7 +267,9 @@ export function initPolishd(options: InitOptions = {}): void {
   const onError = (ev: ErrorEvent) => {
     const source = ev.filename || "";
     captureError(String(ev.message), errorOrigin(source, ev.error?.stack), {
-      component: componentOf(ev.target as Element | null),
+      // `window` for a runtime throw (no component); the failing element for a
+      // resource load.
+      component: componentOf(ev.target),
       meta: { source, line: ev.lineno || 0 },
     });
   };
