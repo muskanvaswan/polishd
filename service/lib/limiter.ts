@@ -109,11 +109,11 @@ export function upstashLimiter(
     kind: "redis",
     async consume(who, cost, nowMs = Date.now()) {
       const keyed = keysFor(rules, who, nowMs);
-      const commands = keyed.flatMap(({ key, rule }) => [
+      const commands = keyed.flatMap(({ key, resetIn }) => [
         ["INCRBY", key, String(cost)],
-        // Re-arming the TTL each time is harmless: the window number is in
-        // the key, so a key is never counted past its own window anyway.
-        ["EXPIRE", key, String(rule.windowSec)],
+        // Expire with the window itself, so a key never outlives the window
+        // it counts.
+        ["EXPIRE", key, String(resetIn)],
       ]);
       let res: Response;
       try {

@@ -88,7 +88,9 @@ test("Upstash is driven by one pipelined INCRBY/EXPIRE per rule", async () => {
   const commands = sent as string[][];
   assert.equal(commands.length, 6);
   assert.deepEqual(commands[0].slice(0, 1).concat(commands[0].slice(2)), ["INCRBY", "3"]);
-  assert.deepEqual(commands[1].slice(0, 1).concat(commands[1].slice(2)), ["EXPIRE", "3600"]);
+  // 12:30 → the hourly key expires at 13:00, the daily one at midnight.
+  assert.deepEqual(commands[1].slice(0, 1).concat(commands[1].slice(2)), ["EXPIRE", "1800"]);
+  assert.deepEqual(commands[5].slice(0, 1).concat(commands[5].slice(2)), ["EXPIRE", String(11.5 * 3600)]);
 });
 
 test("an unreachable or confused Redis fails closed", async () => {
