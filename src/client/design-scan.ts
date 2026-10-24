@@ -32,6 +32,7 @@ import {
   declarationId,
   declarationSignature,
   inheritedDeclarer,
+  isHandTyped,
   normalizedClass,
   readClassString,
   TRANSIENT_SELECTOR,
@@ -40,13 +41,14 @@ import {
   type ClassReading,
   type ElementLike,
 } from "./design-declarations";
+import { serializeDesignScan } from "./design-payload";
+
+export { serializeDesignScan };
 
 /** Hard bound on elements measured, so a huge DOM can't stall the main thread. */
 const MAX_ELEMENTS = 1500;
 /** Per-list caps applied before serializing — one page stays a few KB. */
 const CAPS = { fonts: 60, colors: 48, pairs: 60, radii: 24, pad: 40 };
-/** Keep the serialized payload under ingest's acceptance cap with headroom. */
-const MAX_PAYLOAD_CHARS = 28_000;
 /** Declaration ids sent per value — enough to dedupe the rare ones across pages. */
 const DECL_IDS = 5;
 
@@ -215,7 +217,11 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     if (!r) readings.set(cls, (r = readClassString(cls)));
     return r;
   };
-  const handTyped = (el: ElementLike, prop: ArbitraryProp) => readingOf(el)?.arbitrary.has(prop) ?? false;
+  // Whether `el` hand-typed the value it renders — only an arbitrary class
+  // whose literal is what's showing counts, so `sm:p-[13px]` below `sm` doesn't.
+  const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const handTyped = (el: ElementLike, prop: ArbitraryProp, rendered: string | number) =>
+    isHandTyped(readingOf(el), prop, rendered, remPx);
   // Inherited values are declared where the run of equal values starts.
   const styleOf = (el: ElementLike) => getComputedStyle(el as Element);
   const fontKeyOf = (el: ElementLike) => {
@@ -278,14 +284,14 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
         addDecl(
           acc.decls,
           declOf(inheritedDeclarer(el, fontKeyOf, fontDeclarers)),
-          handTyped(inheritedDeclarer(el, fontSizeOf, sizeDeclarers), "fontSize"),
+          handTyped(inheritedDeclarer(el, fontSizeOf, sizeDeclarers), "fontSize", parseFloat(cs.fontSize)),
         );
       }
 
       const fg = normalizeColor(cs.color);
       if (fg) {
         const declarer = inheritedDeclarer(el, colorOf, colorDeclarers);
-        text.add(fg.slice(0, 7), declOf(declarer), handTyped(declarer, "color"));
+        text.add(fg.slice(0, 7), declOf(declarer), handTyped(declarer, "color", fg));
         const behind = effectiveBg(el);
         if (behind && fg.length === 7 && fg !== behind) {
           const pkey = `${fg}|${behind}`;
@@ -303,10 +309,10 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
       }
     }
 
-    if (ownBg) bg.add(ownBg, declOf(el), handTyped(el, "background"));
+    if (ownBg) bg.add(ownBg, declOf(el), handTyped(el, "background", ownBg));
     if (hasBorder) {
       const bc = normalizeColor(cs.borderTopColor);
-      if (bc) border.add(bc, declOf(el), handTyped(el, "border"));
+      if (bc) border.add(bc, declOf(el), handTyped(el, "border", bc));
     }
 
     // Radius is only a design token where you can see it.
@@ -326,12 +332,12 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
               : uniform
                 ? `${Math.round(px)}px`
                 : `${Math.round(px)}px (mixed)`;
-        radii.add(label, declOf(el), handTyped(el, "radius"));
+        radii.add(label, declOf(el), handTyped(el, "radius", rtl.endsWith("%") ? rtl : px));
       }
 
       [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].forEach((side, i) => {
         const v = Math.round(parseFloat(side));
-        if (v > 0) pad.add(String(v), declOf(el), handTyped(el, PAD_SIDES[i]));
+        if (v > 0) pad.add(String(v), declOf(el), handTyped(el, PAD_SIDES[i], parseFloat(side)));
       });
     }
   }
@@ -381,42 +387,8 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     radii: radiusTuples,
     pad: padTuples,
     tw: [tailwind, readings.size],
-    rem: Math.round((parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) * 10) / 10,
+    rem: Math.round(remPx * 10) / 10,
   };
-}
-
-/**
- * Serialize, shrinking a pathological page until it fits: first the
- * declaration ids go (the counts stay), then the longest lists shorten.
- */
-export function serializeDesignScan(payload: PolishdDesignScanPayload): string {
-  let out = JSON.stringify(payload);
-  if (out.length <= MAX_PAYLOAD_CHARS) return out;
-  const noIds = <T extends unknown[]>(rows: T[], at: number): T[] =>
-    rows.map((r) => (r.length > at ? ([...r.slice(0, at), ""] as unknown as T) : r));
-  const lean: PolishdDesignScanPayload = {
-    ...payload,
-    fonts: noIds(payload.fonts, 8),
-    text: noIds(payload.text, 4),
-    bg: noIds(payload.bg, 4),
-    border: noIds(payload.border, 4),
-    radii: noIds(payload.radii, 4),
-    pad: noIds(payload.pad, 4),
-  };
-  out = JSON.stringify(lean);
-  if (out.length <= MAX_PAYLOAD_CHARS) return out;
-  const shrunk: PolishdDesignScanPayload = {
-    ...lean,
-    fonts: lean.fonts.slice(0, 30),
-    text: lean.text.slice(0, 24),
-    bg: lean.bg.slice(0, 24),
-    border: lean.border.slice(0, 16),
-    pairs: lean.pairs.slice(0, 30),
-    radii: lean.radii.slice(0, 16),
-    pad: lean.pad.slice(0, 24),
-  };
-  out = JSON.stringify(shrunk);
-  return out.length <= MAX_PAYLOAD_CHARS ? out : "";
 }
 
 const SCANNED_PREFIX = "polishd_ds:";

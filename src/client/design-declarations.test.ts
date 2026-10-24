@@ -14,6 +14,7 @@ import {
   declarationId,
   declarationSignature,
   inheritedDeclarer,
+  isHandTyped,
   readClassString,
   transientReason,
   type ElementLike,
@@ -29,7 +30,9 @@ test("rows sharing a class string are one declaration, whatever the token order"
   const table = el("table", { class: "w-full text-sm" });
   const rows = Array.from({ length: 38 }, () => el("span", { class: "rounded px-2 text-xs bg-[#1a1a1a]" }, table));
   const reordered = el("span", { class: "bg-[#1a1a1a]  text-xs rounded px-2 px-2" }, table);
-  const ids = new Set([...rows, reordered].map((r) => declarationId(declarationSignature(r))));
+  // A template literal's line breaks and indentation are whitespace like any other.
+  const templated = el("span", { class: `\n    rounded px-2\n\ttext-xs ${""}\n    bg-[#1a1a1a]\n  ` }, table);
+  const ids = new Set([...rows, reordered, templated].map((r) => declarationId(declarationSignature(r))));
   assert.equal(ids.size, 1);
   assert.notEqual(
     declarationId(declarationSignature(el("span", { class: "rounded px-2 text-xs" }, table))),
@@ -69,8 +72,8 @@ test("an inherited value is declared where its run of equal values starts", () =
   assert.equal(inheritedDeclarer(card, of, memo), card);
 });
 
-test("arbitrary values are hand-typed per property; token references are not", () => {
-  const props = (cls: string) => [...readClassString(cls).arbitrary].sort();
+test("arbitrary values are read per property; token references are not", () => {
+  const props = (cls: string) => [...readClassString(cls).arbitrary.keys()].sort();
   assert.deepEqual(props("text-[#555] bg-[#111] border-[#2e2e2e] rounded-[2px]"), [
     "background",
     "border",
@@ -84,11 +87,37 @@ test("arbitrary values are hand-typed per property; token references are not", (
   // Theme references and non-color brackets.
   assert.deepEqual(props("text-[color:var(--muted)] bg-[var(--brand)] text-[--fg] border-[2px] bg-[url(/a.png)]"), []);
   assert.deepEqual(props("text-gray-500 bg-white rounded-md p-2"), []);
-  // Breakpoints and dark mode still describe what renders; hover doesn't.
+  // Breakpoints and dark mode can describe what renders; hover and other states can't.
   assert.deepEqual(props("md:p-[13px]"), ["padBottom", "padLeft", "padRight", "padTop"]);
   assert.deepEqual(props("dark:bg-[#111]"), ["background"]);
-  assert.deepEqual(props("hover:bg-[#222] group-hover:text-[#fff]"), []);
+  assert.deepEqual(props("hover:bg-[#222] group-hover:text-[#fff] focus:p-[3px] aria-expanded:bg-[#333]"), []);
   assert.deepEqual(props("!text-[#555] text-[#666]!"), ["color"]);
+  assert.deepEqual(props("bg-[#111]/80"), ["background"]);
+});
+
+test("an arbitrary value is hand-typed only when it's what renders", () => {
+  const typed = (cls: string, prop: Parameters<typeof isHandTyped>[1], rendered: string | number, remPx = 16) =>
+    isHandTyped(readClassString(cls), prop, rendered, remPx);
+  // Unprefixed and showing.
+  assert.equal(typed("text-[#555]", "color", "#555555"), true);
+  assert.equal(typed("p-[13px]", "padTop", 13), true);
+  assert.equal(typed("text-[0.8125rem]", "fontSize", 13), true);
+  assert.equal(typed("bg-[#111]/80", "background", "#111111cc"), true);
+  // A breakpoint's arbitrary value counts when the breakpoint is live, and only then.
+  assert.equal(typed("p-2 sm:p-[13px]", "padTop", 13), true);
+  assert.equal(typed("p-2 sm:p-[13px]", "padTop", 8), false);
+  // A base arbitrary value a breakpoint overrides isn't what renders.
+  assert.equal(typed("p-[13px] md:p-4", "padTop", 16), false);
+  assert.equal(typed("text-[#555] dark:text-[#eee]", "color", "#eeeeee"), true);
+  // A state variant never counts at rest, even when the literal happens to match.
+  assert.equal(typed("text-[#fff] hover:text-[#fff]", "color", "#ffffff"), true);
+  assert.equal(typed("text-white hover:text-[#fff]", "color", "#ffffff"), false);
+  // Literals that can't be compared: unprefixed counts, prefixed doesn't.
+  assert.equal(typed("text-[rgb(85,85,85)]", "color", "#555555"), true);
+  assert.equal(typed("md:text-[clamp(1rem,2vw,2rem)]", "fontSize", 18), false);
+  // No arbitrary class for the property: theme token, not hand-typed.
+  assert.equal(typed("text-gray-600 p-[13px]", "color", "#4b5563"), false);
+  assert.equal(isHandTyped(null, "color", "#555555"), false);
 });
 
 test("Tailwind is read from its utilities, not from any class at all", () => {

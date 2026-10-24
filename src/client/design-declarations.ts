@@ -15,7 +15,13 @@
  * Reading the same class names answers two more questions: whether the site
  * is styled with Tailwind, whose spacing scale has deliberate half steps
  * (2px, 6px, 10px, 14px), and whether a value was hand-typed as an arbitrary
- * value (`text-[#555]`, `p-[13px]`) rather than drawn from the theme.
+ * value (`text-[#555]`, `p-[13px]`) rather than drawn from the theme. The
+ * scan measures rendered state, so an arbitrary class counts only when it is
+ * what renders: `hover:text-[#fff]` never does at rest, and `sm:p-[13px]`
+ * does only when the element really renders 13px. Inline `style=""` values
+ * don't count: at runtime `style={{ color: theme.fg }}` and
+ * `style={{ color: "#555" }}` are the same literal, so the DOM can't tell a
+ * token from a hand-typed value there the way a class name can.
  *
  * And it decides which subtrees are transient — a loading skeleton, a busy
  * region, an unrendered branch, a closed overlay at opacity 0 — whose colors
@@ -123,17 +129,26 @@ export type ArbitraryProp =
   | "padBottom"
   | "padLeft";
 
+/** One arbitrary-value utility, as written. */
+export interface ArbitraryValue {
+  /** The bracketed literal: `#555`, `13px`, `clamp(1rem,2vw,2rem)`. */
+  literal: string;
+  /** Behind a breakpoint, theme or media variant (`sm:`, `dark:`), so it may not be what renders. */
+  variant: boolean;
+}
+
 export interface ClassReading {
   /** Carries at least one Tailwind-shaped utility. */
   tailwind: boolean;
-  /** Properties an applicable arbitrary-value utility sets. */
-  arbitrary: Set<ArbitraryProp>;
+  /** Arbitrary values per property, from utilities that can apply at rest. */
+  arbitrary: Map<ArbitraryProp, ArbitraryValue[]>;
 }
 
 /**
- * Variants that still apply to the state the scan sees — breakpoints, theme,
- * media and container queries. A `hover:` or `group-open:` arbitrary value
- * isn't what's rendering, so it isn't what was measured.
+ * Variants that can apply to the state the scan sees — breakpoints, theme,
+ * media and container queries. Interaction and state variants (`hover:`,
+ * `focus:`, `group-open:`, `aria-*:`, `data-*:`) describe a state the page
+ * isn't in when it's measured at rest, so their arbitrary values never count.
  */
 const STANDING_VARIANT =
   /^(?:sm|md|lg|xl|2xl|max-[\w[\]-]+|min-[\w[\]-]+|dark|light|print|portrait|landscape|motion-safe|motion-reduce|contrast-more|contrast-less|ltr|rtl|supports-[\w[\]()-]+|@[\w[\]-]*)$/;
@@ -213,9 +228,9 @@ function arbitraryProps(name: string, value: string): ArbitraryProp[] {
   return PAD_SIDES[name] ?? [];
 }
 
-/** Read a class string for Tailwind evidence and hand-typed values. */
+/** Read a class string for Tailwind evidence and arbitrary values. */
 export function readClassString(cls: string): ClassReading {
-  const reading: ClassReading = { tailwind: false, arbitrary: new Set() };
+  const reading: ClassReading = { tailwind: false, arbitrary: new Map() };
   for (const token of cls.split(/\s+/)) {
     if (!token) continue;
     const parts = splitVariants(token);
@@ -228,11 +243,69 @@ export function readClassString(cls: string): ClassReading {
       reading.tailwind = true;
     }
     if (!variants.every((v) => STANDING_VARIANT.test(v))) continue;
-    const m = utility.match(/^([a-z][a-z0-9-]*?)-\[(.+)\]$/);
+    // `bg-[#111]/80` carries an opacity modifier after the bracket.
+    const m = utility.match(/^([a-z][a-z0-9-]*?)-\[(.+)\](?:\/[\w.%[\]]+)?$/);
     if (!m) continue;
-    for (const prop of arbitraryProps(m[1], m[2])) reading.arbitrary.add(prop);
+    for (const prop of arbitraryProps(m[1], m[2])) {
+      const list = reading.arbitrary.get(prop) ?? [];
+      list.push({ literal: m[2], variant: variants.length > 0 });
+      reading.arbitrary.set(prop, list);
+    }
   }
   return reading;
+}
+
+const COLOR_PROPS = new Set<ArbitraryProp>(["color", "background", "border"]);
+
+/** A hex literal as the scan normalizes colors (`#555` → `#555555`), rgb part only. */
+function literalHex(literal: string): string | null {
+  const m = literal.replace(/^color:/i, "").match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (!m) return null;
+  const h = m[1].toLowerCase();
+  const full = h.length <= 4 ? [...h].map((c) => c + c).join("") : h;
+  return `#${full.slice(0, 6)}`;
+}
+
+/** A px or rem literal in pixels, or null for anything relative or computed. */
+function literalPx(literal: string, remPx: number): number | null {
+  const m = literal.replace(/^length:/i, "").match(/^(-?\d*\.?\d+)(px|rem)?$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  return m[2]?.toLowerCase() === "rem" ? n * remPx : n;
+}
+
+/**
+ * Whether an arbitrary value is the one rendering: true or false when its
+ * literal can be compared with what was measured, null when it can't
+ * (`rgb(…)`, `clamp(…)`, `50%`).
+ */
+function rendersAs(literal: string, prop: ArbitraryProp, rendered: string | number, remPx: number): boolean | null {
+  if (COLOR_PROPS.has(prop)) {
+    const hex = literalHex(literal);
+    return hex === null || typeof rendered !== "string" ? null : hex === rendered.slice(0, 7).toLowerCase();
+  }
+  const px = literalPx(literal, remPx);
+  return px === null || typeof rendered !== "number" ? null : Math.abs(px - rendered) < 0.5;
+}
+
+/**
+ * Whether a declaration hand-typed the value it rendered for `prop`: one of
+ * its arbitrary values is what's showing. A literal that matches counts,
+ * variant or not; one that doesn't match is a different state's value. One
+ * that can't be compared counts only unprefixed — then nothing else applies.
+ */
+export function isHandTyped(
+  reading: ClassReading | null,
+  prop: ArbitraryProp,
+  rendered: string | number,
+  remPx = 16,
+): boolean {
+  const values = reading?.arbitrary.get(prop);
+  if (!values) return false;
+  return values.some((v) => {
+    const match = rendersAs(v.literal, prop, rendered, remPx);
+    return match === true || (match === null && !v.variant);
+  });
 }
 
 // ── Transient states ─────────────────────────────────────────────────────────

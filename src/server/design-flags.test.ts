@@ -109,6 +109,9 @@ test("hand-typed findings wait for a majority and enough declarations", () => {
       data({ system: system({ handTyped: { [category]: { declarations, handTyped } } as DesignSystemSignals["handTyped"] }) }),
     ).filter((f) => /hand-typed/.test(f.message));
   assert.equal(at("color", 50, 20).length, 0, "a minority bypassing the theme isn't the system");
+  assert.equal(at("color", 40, 3).length, 0, "theme tokens plus a few legitimate arbitrary values");
+  assert.equal(at("color", 20, 10).length, 0, "exactly half is not most");
+  assert.equal(at("color", 20, 11).length, 1, "just past half is");
   assert.equal(at("color", 6, 6).length, 0, "too few declarations to call it a pattern");
   const some = at("color", 20, 13);
   assert.match(some[0].message, /^65% of color declarations \(13 of 20\).* — most colors bypass the theme\.$/);

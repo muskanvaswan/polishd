@@ -24,15 +24,29 @@ layer, was never stated.
   scaled to the root font size) count as on-grid.
 - **Hand-typed values.** Arbitrary-value classes (`text-[#555]`,
   `bg-[#111]`, `rounded-[2px]`, `p-[13px]`, `text-[11px]`) are counted per
-  category. When most color or font-size declarations are hand-typed, a new
-  finding says so: *"91% of color declarations (20 of 22) are hand-typed
-  arbitrary values … — there is no color token layer."*
+  category. When more than half of a category's declarations are hand-typed,
+  a new finding says so: *"91% of color declarations (20 of 22) are
+  hand-typed arbitrary values … — there is no color token layer."* A site on
+  theme tokens with a few deliberate arbitrary values stays quiet. The scan
+  measures the page at rest, so an arbitrary class counts only when its value
+  is what renders: `hover:text-[#fff]` never does, and `sm:p-[13px]` counts
+  only when the element renders 13px. Inline `style=""` values aren't
+  counted. At runtime `style={{ color: theme.fg }}` and
+  `style={{ color: "#555" }}` produce the same literal, so the DOM can't
+  tell a token from a hand-typed value there.
 - **Transient states left out.** Subtrees that are `aria-busy`, carry
   `animate-pulse` or a skeleton class, are `display: none`, or are closed
   overlays at opacity 0 are skipped. The scan waits up to three 1.5s beats
   for visible loading states to clear before measuring.
 - The AI review's digest carries all of this: uses and declarations per
   value, a hand-typed share per category, and whether Tailwind's scale applies.
+- **Older installs keep working.** Scans from earlier package versions carry
+  no declarations or class-name readings. They aggregate as before: counts
+  kept, declarations unknown, the per-use one-off rule and the plain 4px
+  grid. Malformed rows are skipped. The bigger payload still fits ingest's
+  32,000-character cap: the worst page the scan can describe is about 30KB,
+  and serializing drops the declaration ids first (to about 19KB), then the
+  least-used values, instead of dropping the scan.
 
 ### Runtime JavaScript errors are captured again
 
