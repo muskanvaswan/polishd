@@ -40,6 +40,7 @@ import DesignReviewCard from "./design-review-card";
 import { UNREACHABLE } from "./dismissable";
 import {
   buildFixPrompt,
+  findingKey,
   fixableCounts,
   fixPromptFindings,
   type FixPromptFinding,
@@ -163,23 +164,25 @@ export default function OverviewPanel({
     if (!change.ignored) setImportedLosses((prev) => without(prev, evidence));
   }, []);
 
-  const onIssueChange = useCallback((evidence: string, change: LossChange) => {
+  // Design issues are tracked by findingKey, not evidence: two can cite the same.
+  const onIssueChange = useCallback((key: string, change: LossChange) => {
     if ("filed" in change) {
-      setFiledDesign((prev) => new Map(prev).set(evidence, change.filed));
+      setFiledDesign((prev) => new Map(prev).set(key, change.filed));
       return;
     }
-    setIgnoredDesign((prev) => toggled(prev, evidence, change.ignored));
-    if (!change.ignored) setImportedDesign((prev) => without(prev, evidence));
+    setIgnoredDesign((prev) => toggled(prev, key, change.ignored));
+    if (!change.ignored) setImportedDesign((prev) => without(prev, key));
   }, []);
 
   const onVerdictsRecorded = useCallback(
     (recorded: { finding: FixPromptFinding; ignored: PolishdIgnoredLoss }[]) => {
       for (const { finding, ignored: entry } of recorded) {
-        const add = (prev: Dismissals) => new Map(prev).set(finding.evidence, entry);
         if (finding.source === "design") {
-          setIgnoredDesign((prev) => toggled(prev, finding.evidence, true));
-          setImportedDesign(add);
+          const key = findingKey(finding);
+          setIgnoredDesign((prev) => toggled(prev, key, true));
+          setImportedDesign((prev) => new Map(prev).set(key, entry));
         } else {
+          const add = (prev: Dismissals) => new Map(prev).set(finding.evidence, entry);
           setIgnored((prev) => toggled(prev, finding.evidence, true));
           setImportedLosses(add);
         }
@@ -210,8 +213,8 @@ export default function OverviewPanel({
     review: review && {
       ...review,
       issues: review.issues
-        ?.filter((iss) => !ignoredDesign.has(iss.evidence))
-        .map((iss) => withFiled(iss, filedDesign.get(iss.evidence))),
+        ?.filter((iss) => !ignoredDesign.has(findingKey(iss)))
+        .map((iss) => withFiled(iss, filedDesign.get(findingKey(iss)))),
     },
     summaryStale: summaryIsStale,
     reviewStale: reviewIsStale,

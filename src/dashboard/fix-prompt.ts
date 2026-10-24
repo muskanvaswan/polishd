@@ -81,6 +81,16 @@ export interface FixPromptFinding {
   evidence: string;
 }
 
+/**
+ * A finding's identity in the dashboard: its citation and its wording. Two
+ * design issues can cite identical evidence ("#888888 on #0a0a0a" for
+ * captions, and for placeholders), so evidence alone would make ignoring one
+ * hide both — the same reason the dismissal log stores each issue apart.
+ */
+export function findingKey(f: { issue: string; evidence: string }): string {
+  return `${f.evidence.trim()}\u0000${f.issue.trim()}`;
+}
+
 /** How many problems each half has to hand over. A half with none gets no prompt. */
 export function fixableCounts(input: FixPromptInput): { analytics: number; design: number } {
   return {

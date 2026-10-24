@@ -35,6 +35,7 @@ import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
 import { DismissedCard, IgnoreButton, useDismissal } from "./dismissable";
 import { FileBugButton } from "./file-bug-button";
+import { findingKey } from "./fix-prompt";
 import type { LossChange } from "./summary";
 import {
   ArrowRightIcon,
@@ -82,9 +83,9 @@ export interface DesignReviewCardProps {
   githubConnected: boolean;
   /** Told when a regenerate lands — the Overview builds its fix prompt from it. */
   onReviewChange?: (review: PolishdDesignReview) => void;
-  /** Told when an issue is ignored, restored or filed, keyed by its evidence. */
-  onIssueChange?: (evidence: string, change: LossChange) => void;
-  /** Dismissals recorded elsewhere (a pasted verdict block), keyed by evidence. */
+  /** Told when an issue is ignored, restored or filed, keyed by `findingKey`. */
+  onIssueChange?: (key: string, change: LossChange) => void;
+  /** Dismissals recorded elsewhere (a pasted verdict block), keyed by `findingKey`. */
   dismissed?: ReadonlyMap<string, PolishdIgnoredDesignIssue>;
 }
 
@@ -239,7 +240,7 @@ function StrengthsIssues({
   strengths: PolishdDesignReview["strengths"];
   issues: PolishdDesignReview["issues"];
   githubConnected: boolean;
-  onIssueChange?: (evidence: string, change: LossChange) => void;
+  onIssueChange?: (key: string, change: LossChange) => void;
   dismissed?: ReadonlyMap<string, PolishdIgnoredDesignIssue>;
 }) {
   const hasStrengths = !!strengths?.length;
@@ -271,11 +272,11 @@ function StrengthsIssues({
         <CardRail label="Breaking the system" tone="bg-warn" count={issues!.length}>
           {issues!.map((iss, i) => (
             <IssueCard
-              key={iss.evidence || i}
+              key={`${i}:${findingKey(iss)}`}
               iss={iss}
               githubConnected={githubConnected}
-              onChange={onIssueChange && ((change) => onIssueChange(iss.evidence, change))}
-              adopted={dismissed?.get(iss.evidence)}
+              onChange={onIssueChange && ((change) => onIssueChange(findingKey(iss), change))}
+              adopted={dismissed?.get(findingKey(iss))}
             />
           ))}
         </CardRail>
