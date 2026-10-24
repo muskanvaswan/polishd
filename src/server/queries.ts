@@ -147,6 +147,11 @@ export interface ElementStat {
   sampleText: string | null;
   /** The control this element's dead clicks narrowly missed, if they did. */
   near?: string;
+  /**
+   * True when `sampleText` is the `beside “…”` label rather than the element's
+   * own text — render and report it as where the clicks land, not as a quote.
+   */
+  sampleIsNear?: boolean;
   /** How many distinct pages this element was interacted with on. */
   pages: number;
   clicks: number;
@@ -578,11 +583,13 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
       const deadClicks = num(r, "deadClicks");
       const clicks = num(r, "clicks");
       const near = typeof r.near === "string" && r.near ? r.near : undefined;
+      const own = (r.sampleText as string) || null;
       return {
         label: r.label as string,
         selector: (r.selector as string) ?? null,
-        sampleText: (r.sampleText as string) || besideLabel(near),
+        sampleText: own ?? besideLabel(near),
         ...(near ? { near } : {}),
+        ...(!own && near ? { sampleIsNear: true } : {}),
         pages: num(r, "pages"),
         clicks,
         rageClicks,
@@ -907,10 +914,10 @@ export interface MonitoredComponent {
  * We then pull all event types for those components so the table shows the
  * complete picture.
  *
- * The per-view `meta` (height, scrollDepth) is aggregated in JS rather than SQL:
- * the two backends spell JSON extraction differently (SQLite `JSON_EXTRACT`,
- * Postgres `->>`), and there's no portable function, so we parse meta here —
- * matching how `getSessionJourneys` and `getTopPages` keep their SQL portable.
+ * The per-view `meta` (height, scrollDepth) is parsed and aggregated in JS.
+ * A single key can be read in SQL on both backends with `meta ->> 'key'` (see
+ * `getRecentErrors`), but averaging numbers out of it would need a cast each
+ * backend spells differently — and this table is small enough to fold here.
  */
 export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
   if (!(await storeReady())) return [];

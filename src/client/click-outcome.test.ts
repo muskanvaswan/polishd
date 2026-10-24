@@ -32,6 +32,8 @@ interface FakeNode extends NodeLike {
   own: boolean;
   /** Where it is on screen, if anywhere. */
   rect?: { left: number; top: number; right: number; bottom: number };
+  /** Its first class, for the kind of child it is. */
+  cls?: string;
 }
 
 /** Just enough selector matching for the judge's selectors: tag names and `[role="…"]`. */
@@ -44,7 +46,7 @@ const matchesSelector = (n: FakeNode, selector: string) =>
 const node = (
   nodeName: string,
   parentNode: FakeNode | null = null,
-  opts: { big?: boolean; role?: string; own?: boolean; rect?: FakeNode["rect"] } = {},
+  opts: { big?: boolean; role?: string; own?: boolean; rect?: FakeNode["rect"]; cls?: string } = {},
 ): FakeNode => {
   const self: FakeNode = {
     nodeName,
@@ -55,6 +57,7 @@ const node = (
     role: opts.role,
     own: opts.own ?? false,
     rect: opts.rect,
+    cls: opts.cls,
     contains(other: unknown) {
       for (let n = other as FakeNode | null; n; n = n.parentNode) if (n === self) return true;
       return false;
@@ -113,11 +116,14 @@ function fakeBrowser() {
     href: () => state.href,
     activeElement: () => state.active,
     isComponentSized: (n) => !(n as FakeNode).big,
-    isUnderPoint(n, p: Point) {
+    distanceTo(n, p: Point) {
       const el = ownedBy(n as FakeNode, (x) => x.nodeType === 1);
       const r = el?.rect;
-      return !!el && !el.big && !!r && p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+      if (!el || !r) return Infinity;
+      const d = Math.hypot(Math.max(r.left - p.x, 0, p.x - r.right), Math.max(r.top - p.y, 0, p.y - r.bottom));
+      return d === 0 && el.big ? Infinity : d;
     },
+    kindOf: (n) => (n as FakeNode).nodeName + ((n as FakeNode).cls ? `.${(n as FakeNode).cls}` : ""),
     isOwn: (n) => !!ownedBy(n as FakeNode, (x) => x.own),
     observe(onRecords) {
       deliver = onRecords;
@@ -312,14 +318,14 @@ test("related changes count: inside the target, on an ancestor, under the click 
     ["text in the card", card, text(cardText), true],
     ["content added to the card", card, added(card, el()), true],
     ["a row expanding below the clicked cell", cell, added(table, el("TR")), true],
+    ["details revealed right below the click", node("SPAN", main), attr(node("DIV", main, { rect: { left: 0, top: 140, right: 300, bottom: 500 } }), "hidden"), true],
+    ["the same, too far below", node("SPAN", main), attr(node("DIV", main, { rect: { left: 0, top: 400, right: 300, bottom: 500 } }), "hidden"), false],
     ["state on the row (an ancestor)", cell, attr(row, "aria-expanded"), true],
     ["style on an ancestor", cell, attr(row, "style"), false],
     ["a portal appended to the page", card, added(body, el()), false],
     ["something removed from the page", card, removed(body, el()), true],
     ["an image swapped under the click point", node("SPAN", main), added(spinnerBox, el("IMG")), true],
     ["the same, away from the click point", node("SPAN", main), added(panel, el("IMG")), false],
-    ["details revealed beside the clicked cell", cell, added(node("TD", row), el()), true],
-    ["the same beside a target whose parent is the page", card, added(panel, el()), false],
     ["state elsewhere", card, attr(panel, "aria-expanded"), false],
     ["class elsewhere", card, attr(panel, "class"), false],
     ["content elsewhere", card, added(panel, el()), false],
@@ -400,8 +406,8 @@ test("probe (c): a chat stream appending during the hold doesn't either", () => 
   assert.equal(verdictAfter(idle, body, [message()]), false);
 });
 
-test("probe (d): a hover card shown as the pointer moves on doesn't either", () => {
-  for (const role of [undefined, "dialog"]) {
+test("probe (d): a hover card or menu shown as the pointer moves on doesn't either", () => {
+  for (const role of [undefined, "menu"]) {
     const b = fakeBrowser();
     const judge = createClickJudge(b.env);
     const v = verdicts();
@@ -411,7 +417,8 @@ test("probe (d): a hover card shown as the pointer moves on doesn't either", () 
     judge.hover(trigger);
     b.mutate(attr(trigger, "data-state")); // …which restyles itself
     b.advance(500); // and after the hover delay its card opens
-    const hoverCard = el();
+    // Opening right beside the click point — a portal, appended to the page.
+    const hoverCard = el("DIV", { rect: { left: 0, top: 210, right: 300, bottom: 300 } });
     node("DIV", hoverCard, { role });
     b.mutate(added(body, hoverCard));
     b.advance(400);
@@ -474,6 +481,167 @@ test("what a judged click caused never counts as background", () => {
     b.advance(2000);
   }
   assert.deepEqual(seen, [true, true, true, true, true]);
+});
+
+// ---- final-round probes: clicks that work must read as working ------------------------
+
+test("a dialog that opens late, after the pointer moved on, still counts", () => {
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  const v = verdicts();
+  click(judge, card, v.done);
+  judge.hover(node("A", main)); // the pointer moves away at once…
+  b.advance(700); // …and the dialog arrives after a slow fetch, focus untouched
+  for (const role of ["dialog"]) {
+    const portal = el();
+    node("DIV", portal, { role });
+    b.mutate(added(body, portal));
+  }
+  assert.deepEqual(v.seen, [true]);
+  for (const surface of [el("DIV", { role: "alertdialog" }), el("DIALOG")]) {
+    const late = fakeBrowser();
+    const j = createClickJudge(late.env);
+    const w = verdicts();
+    click(j, card, w.done);
+    j.hover(node("A", main));
+    late.advance(900);
+    late.mutate(added(body, surface));
+    assert.deepEqual(w.seen, [true], surface.nodeName + (surface.role ?? ""));
+  }
+});
+
+test("an accordion directly in <main> expanding below its header counts", () => {
+  // The header is a plain div with a listener; the panel is its sibling, and
+  // their parent is the page-sized <main>.
+  const header = node("DIV", main, { rect: { left: 0, top: 80, right: 900, bottom: 120 } });
+  const body = node("DIV", main, { rect: { left: 0, top: 120, right: 900, bottom: 600 } });
+  assert.equal(verdictAfter(idle, header, [attr(body, "hidden")]), true, "revealed below");
+  assert.equal(verdictAfter(idle, header, [added(body, el("P", { rect: { left: 0, top: 124, right: 900, bottom: 160 } }))]), true);
+  const far = node("DIV", main, { rect: { left: 0, top: 700, right: 900, bottom: 800 } });
+  assert.equal(verdictAfter(idle, header, [attr(far, "hidden")]), false, "far from the click");
+});
+
+test("a modal closing isn't hidden by tooltips that came and went on the page", () => {
+  const modal = node("DIV", body, { cls: "modal-root", big: true });
+  const overlay = node("DIV", modal, { big: true });
+  const worked = verdictAfter(
+    (b) => ambient(b, 6000, 2000, () => [added(body, el("DIV", { cls: "tooltip" })), removed(body, el("DIV", { cls: "tooltip" }))]),
+    overlay,
+    [removed(body, modal)],
+  );
+  assert.equal(worked, true);
+});
+
+test("a modal opened onto a tooltip-busy page still answers clicks inside it", () => {
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  ambient(b, 6000, 2000, () => [added(body, el("DIV", { cls: "tooltip" })), removed(body, el("DIV", { cls: "tooltip" }))]);
+  // A button opens the modal: appended to the same <body> the tooltips use.
+  const modal = node("DIV", null, { cls: "modal-root" });
+  const tabs = node("DIV", modal);
+  const tab = node("SPAN", tabs);
+  click(judge, button);
+  b.mutate(added(body, modal));
+  b.advance(2000);
+  // A plain-div tab inside it swaps the panel.
+  const v = verdicts();
+  click(judge, tab, v.done);
+  b.mutate(added(tabs, el("SECTION")));
+  assert.deepEqual(v.seen, [true]);
+});
+
+// ---- final-round probes: background the page keeps making -----------------------------
+
+const fadeCarousel = (slides: number) => {
+  const deck = node("DIV", main);
+  const all = Array.from({ length: slides }, () =>
+    node("DIV", deck, { rect: { left: 0, top: 0, right: 300, bottom: 200 } }),
+  );
+  return { deck, all };
+};
+
+for (const slides of [4, 5]) {
+  test(`a ${slides}-slide fading carousel is background, though its next slide last moved long ago`, () => {
+    const { all } = fadeCarousel(slides);
+    // One slide turns every 5s, so each slide's own last change is
+    // (slides - 1) × 5s ago — past the ten-second baseline on its own.
+    const worked = verdictAfter(
+      (b) => {
+        for (let t = 0; t < slides * 5000; t += 5000) {
+          const i = (t / 5000) % slides;
+          b.mutate(attr(all[i], "aria-hidden"), attr(all[(i + 1) % slides], "aria-hidden"));
+          b.advance(5000);
+        }
+      },
+      node("SPAN", main),
+      [attr(all[0], "aria-hidden"), attr(all[1], "aria-hidden")],
+    );
+    assert.equal(worked, false);
+  });
+}
+
+test("a carousel that only renders its active slide doesn't credit a click on it", () => {
+  const deck = node("DIV", main);
+  const b = fakeBrowser();
+  const judge = createClickJudge(b.env);
+  let current = node("DIV", deck, { cls: "slide" });
+  for (let i = 0; i < 3; i++) {
+    const next = node("DIV", deck, { cls: "slide" });
+    b.mutate({ type: "childList", target: deck, addedNodes: [next], removedNodes: [current] });
+    current = next;
+    b.advance(3000);
+  }
+  const image = node("IMG", current);
+  const v = verdicts();
+  click(judge, image, v.done);
+  b.mutate({ type: "childList", target: deck, addedNodes: [node("DIV", deck, { cls: "slide" })], removedNodes: [current] });
+  b.advance(1000);
+  assert.deepEqual(v.seen, [false]);
+});
+
+test("background keeps being learned while the visitor scrolls or types", () => {
+  const { all } = fadeCarousel(3);
+  const worked = verdictAfter(
+    (b, judge) => {
+      // Twelve seconds of steady scrolling, the carousel turning every 5s.
+      for (let t = 0; t < 12_000; t += 250) {
+        judge.interact();
+        if (t % 5000 === 0) b.mutate(attr(all[(t / 5000) % 3], "aria-hidden"));
+        b.advance(250);
+      }
+    },
+    node("SPAN", main),
+    [attr(all[0], "aria-hidden")],
+  );
+  assert.equal(worked, false);
+});
+
+test("typing in the focused element isn't learned as the page's churn", () => {
+  const editor = node("DIV", main, { rect: { left: 0, top: 0, right: 300, bottom: 200 } });
+  const worked = verdictAfter(
+    (b) => {
+      b.state.active = editor; // focused, and being typed into
+      ambient(b, 3000, 300, () => text(node("#text", editor)));
+      b.state.active = body;
+    },
+    node("SPAN", main), // a plain "clear" control beside it, without a role
+    [text(node("#text", editor))],
+  );
+  assert.equal(worked, true);
+});
+
+test("a chat message's paragraphs, appended next to the clicked bubble, are background", () => {
+  const thread = node("UL", main);
+  const bubble = node("LI", thread, { cls: "msg", rect: { left: 0, top: 0, right: 300, bottom: 200 } });
+  const worked = verdictAfter(
+    (b) => ambient(b, 8000, 4000, () => added(thread, node("LI", null, { cls: "msg" }))),
+    node("SPAN", bubble),
+    (() => {
+      const message = node("LI", thread, { cls: "msg", rect: { left: 0, top: 205, right: 300, bottom: 260 } });
+      return [added(thread, message), added(message, el("P", { rect: { left: 0, top: 205, right: 300, bottom: 230 } }))];
+    })(),
+  );
+  assert.equal(worked, false);
 });
 
 // ---- the newest interaction takes the credit ----------------------------------------

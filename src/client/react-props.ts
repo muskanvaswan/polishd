@@ -30,19 +30,28 @@
 
 const REACT_PROPS_PREFIX = "__reactProps$";
 
-/**
- * `(e) => e.stopPropagation()`, `function (e) { e.preventDefault(); e.stopPropagation(); }`
- * and their minified forms: a handler that only stops the event.
- */
-const GUARD_ONLY =
-  /^(?:async)?(?:function\w*)?\(?(\w+)?\)?(?:=>)?\{?(?:\1\.(?:stopPropagation|preventDefault|stopImmediatePropagation)\(\)[;,]?)+\}?;?$/;
+/** A handler's parameter, then its body: `e=>…`, `(e)=>…`, `function name(e){…}`. */
+const HANDLER = /^(?:async)?(?:function\w*)?\(?(\w+)\)?(?:=>)?(.*)$/;
+const GUARD_CALL = /^(\w+)\.(?:stopPropagation|preventDefault|stopImmediatePropagation)\(\)$/;
 
-/** True for a handler that does nothing but stop the event. */
+/**
+ * True for a handler that does nothing but stop the event:
+ * `(e) => e.stopPropagation()`, `function (e) { e.preventDefault(); e.stopPropagation(); }`,
+ * and what minifiers make of them, including the comma form
+ * `e=>(e.stopPropagation(),e.preventDefault())`.
+ */
 export const isPropagationGuard = (handler: unknown): boolean => {
   if (typeof handler !== "function") return false;
   try {
     const source = Function.prototype.toString.call(handler);
-    return source.length <= 200 && GUARD_ONLY.test(source.replace(/\s+/g, ""));
+    if (source.length > 200) return false;
+    const parts = HANDLER.exec(source.replace(/\s+/g, ""));
+    if (!parts) return false;
+    const [, param, rawBody] = parts;
+    // Unwrap one block and one parenthesised sequence: `{…}`, `(…)`.
+    const body = rawBody.replace(/^\{(.*)\}$/, "$1").replace(/^\((.*)\)$/, "$1");
+    const calls = body.split(/[;,]/).filter(Boolean);
+    return calls.length > 0 && calls.every((c) => GUARD_CALL.exec(c)?.[1] === param);
   } catch {
     return false;
   }

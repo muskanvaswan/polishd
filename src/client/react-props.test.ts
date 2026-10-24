@@ -49,9 +49,11 @@ test("a modal panel's stopPropagation guard is not a click handler", () => {
       e.preventDefault();
       e.stopPropagation();
     },
-    // What a minifier makes of them.
+    // What a minifier makes of them, including the comma sequence.
     new Function("t", "t.stopPropagation()"),
     eval("(e)=>{e.stopPropagation();}"),
+    eval("e=>(e.stopPropagation(),e.preventDefault())"),
+    eval("(function(t){t.stopPropagation(),t.preventDefault()})"),
   ];
   for (const onClick of guards) {
     assert.equal(isPropagationGuard(onClick), true, String(onClick));

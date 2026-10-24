@@ -87,7 +87,12 @@ export function buildDigest(data: PolishdDashboardData, context?: string): strin
   if (brokenEls.length) {
     lines.push("ELEMENTS USERS STRUGGLE WITH:");
     for (const e of brokenEls) {
-      const label = clip(e.sampleText) || e.label;
+      // A near miss names the control the clicks land beside — say so, so the
+      // model doesn't read it as the element's own label (and so as broken).
+      const label =
+        e.sampleIsNear && e.near
+          ? `${e.label} (clicks land beside "${clip(e.near)}")`
+          : clip(e.sampleText) || e.label;
       lines.push(`  - ${label}: ${e.rageClicks} rage, ${e.deadClicks} dead, ${e.pages} pages`);
     }
   }

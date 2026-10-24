@@ -15,21 +15,34 @@ card) counted as dead on every press, even when the press worked.
   the clicked element or its parent) counts as a control straight away,
   except a handler that only stops propagation, like a modal panel's.
 - **Only changes related to the click count.** Changes inside the clicked
-  component, on its nearest ancestors, or beside it within a component-sized
-  parent count. So do changes on an element under the click point, the clicked
-  element being removed, and a dialog, menu or listbox opening. A toast counts only beside the click, or within 300ms
-  of it. Everything else on the page is ignored, wherever it changes.
-- **Background activity doesn't hide real dead clicks.** Anything that changed
-  in the ten seconds before the click is background, however rarely it
-  changes: a carousel rotating every five seconds, a spinner that polls, a chat
-  stream. What the pointer moves onto after the click is hover, not a
-  response, and neither is a hover card opening once it has moved on. The
-  click, key press or scroll that comes next takes the credit for what follows
-  it, and polishd's own UI is ignored. Changes a visitor's own clicks caused
-  never count as background, so a drawer a button opened can still be closed
-  by its backdrop.
-  The trade-off: a click whose only effect is far from it (a plain div that
-  toggles a panel somewhere else) now reads as dead.
+  component, or on its nearest ancestors, count. So does any change within
+  64px of where the pointer was, such as the panel an accordion header reveals
+  below itself or an image swapped underneath, wherever it sits on the page.
+  The clicked element being removed counts, and so does a dialog or modal
+  opening at any point in the hold. A menu or listbox counts if it opens
+  before the pointer moves on. A toast counts only near the click, or within
+  300ms of it.
+- **Background activity doesn't hide real dead clicks.** The page's own churn
+  is learned continuously, per container. Every slide of a fading carousel
+  feeds one history, so a slide coming back after fifteen seconds is
+  background. Anything with a change in the ten seconds before the click is
+  background, however rarely it changes: a carousel, a polling spinner, a
+  chat stream (including the paragraphs of a brand-new message).
+  - Learning only pauses for the second after a press or click, so a drawer a
+    button opened can still be closed by its backdrop, and for typing in the
+    focused element. It never pauses for scrolling.
+  - What the pointer moves onto after the click is hover, not a response.
+  - The click, key press or scroll that comes next takes the credit for what
+    follows it.
+  - Polishd's own UI is ignored.
+- **Known limits.**
+  - A plain div whose only effect is far from it reads as dead, unless the
+    effect is a dialog.
+  - A hover card marked `role="dialog"` that opens as the pointer moves on
+    credits the click.
+  - The first change a busy region ever makes has no history yet.
+  - A second of steady clicking pauses learning.
+  - `showPopover()` and CSS-only effects leave no DOM change to see.
 - **Near misses.** A dead click beside a control names it in `meta.near`: a
   full-width row whose button is only its text, or the gap next to a tab. The
   click no longer carries the button's text as its own label, so it reads as
@@ -51,8 +64,10 @@ card) counted as dead on every press, even when the press worked.
   you can grep for: it stops at the nearest `data-component` or id, and names
   each level by its most distinctive class rather than a generic utility. A
   near miss adds `meta.nearHandle` for the control it missed.
-- **Rage clicks count hits on the same element**, not the same selector, so a
-  like button that gains `liked` as it's clicked still adds up to a burst.
+- **Rage clicks count hits on the same control**, not the same selector or
+  the exact node clicked. A like button that gains `liked` as it's clicked,
+  or an icon toggle whose `<svg>` is re-created on every click, still adds up
+  to a burst.
 - **The dashboard reads the new context.** The errors list keeps one entry per
   error however its context varies. Before, a frequent error whose throws
   differed by `afterMs` filled the list and pushed the others off. Each error

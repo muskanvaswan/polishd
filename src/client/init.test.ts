@@ -128,3 +128,18 @@ test("a click still being judged when the page goes away leaves as a click", asy
   const types = events.map((e) => e.type);
   assert.ok(types.indexOf("session_end") > types.lastIndexOf("click"), "settled before session_end");
 });
+
+test("hammering an icon toggle whose svg is re-created every click is rage", async () => {
+  // React swaps the icon on each toggle, so every click lands on a new
+  // <path>; the button around it is the element being hammered.
+  const toggle = element("button", { class: "fav" }, body);
+  for (let i = 0; i < 3; i++) {
+    const svg = element("svg", {}, toggle);
+    fire("click", element("path", {}, svg));
+  }
+  windowTarget.dispatchEvent(new Event("pagehide"));
+  const { events } = JSON.parse(await beacons[beacons.length - 1].text()) as {
+    events: Array<{ type: string; selector?: string }>;
+  };
+  assert.equal(events.filter((e) => e.type === "rage_click").length, 1);
+});

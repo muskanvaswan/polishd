@@ -29,6 +29,7 @@
 import { createClickJudge, DEAD_CLICK_HOLD_MS, type JudgeEnv, type MutationLike, type NodeLike } from "./click-outcome";
 import {
   componentOf,
+  controlOf,
   handleOf,
   hasTextSelection,
   isComponentSized,
@@ -40,7 +41,7 @@ import {
   selectorOf,
 } from "./dom";
 import type { InteractionLike } from "./error-context";
-import type { Point } from "./near-miss";
+import { distanceToRect, type Point } from "./near-miss";
 import { createRageTracker } from "./rage";
 
 /** Cap on `meta.near`, well inside ingest's 500-char per-value limit. */
@@ -94,11 +95,20 @@ const browserJudgeEnv = (): JudgeEnv => ({
     const el = elementOf(node);
     return !!el && isComponentSized(el);
   },
-  isUnderPoint(node, point) {
+  distanceTo(node, point) {
     const el = elementOf(node);
-    if (!el || !isComponentSized(el)) return false;
+    if (!el || !el.isConnected) return Infinity;
     const r = el.getBoundingClientRect();
-    return point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
+    if (r.width === 0 && r.height === 0) return Infinity;
+    const d = distanceToRect(point, r);
+    // Inside a page-sized element, everything is "near": not a measure.
+    return d === 0 && !isComponentSized(el) ? Infinity : d;
+  },
+  kindOf(node) {
+    const el = (node as unknown as Node).nodeType === 1 ? (node as unknown as Element) : null;
+    if (!el) return node.nodeName;
+    const cls = (el.getAttribute("class") || "").split(/\s+/).find(Boolean);
+    return cls ? `${el.tagName}.${cls}` : el.tagName;
   },
   isOwn: (node) => !!elementOf(node)?.closest(OWN_UI_SELECTOR),
   observe(onRecords) {
@@ -148,8 +158,15 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
   const judge = createClickJudge(browserJudgeEnv(), { holdMs: DEAD_CLICK_HOLD_MS });
   const rage = createRageTracker(opts.rageCount, opts.rageWindowMs);
   const active = opts.active ?? (() => true);
-  let last: { ts: number; component?: string; label?: string; selector?: string; el: Element } | null =
-    null;
+  // The last click's element is held weakly: it's only needed if an error
+  // follows, and a detached element must not stay alive waiting for one.
+  let last: {
+    ts: number;
+    component?: string;
+    label?: string;
+    selector?: string;
+    el: WeakRef<Element> | null;
+  } | null = null;
   const listen = { capture: true, passive: true } as const;
 
   // Watch from the press, so a widget that acts on pointerdown still counts.
@@ -197,14 +214,22 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
       const text = labelOf(target);
       const now = Date.now();
       const path = opts.path();
-      last = { ts: now, component, label: text, selector, el: target };
+      last = {
+        ts: now,
+        component,
+        label: text,
+        selector,
+        el: typeof WeakRef === "function" ? new WeakRef(target) : null,
+      };
 
       // Rage is decided here and now, never held: the burst is the signal. It
       // counts hits on this node, so an element whose classes change as it's
       // clicked (a like button gaining `liked`) is still one element.
       // Double/triple-clicking prose selects a word or paragraph — that burst
       // is intent to copy, not frustration.
-      if (rage.hit(target, now) && !isSelectionGesture(target)) {
+      // The control, not the raw target: an icon toggle whose `<svg>` React
+      // re-creates on every click is still the same button being hammered.
+      if (rage.hit(controlOf(target) ?? target, now) && !isSelectionGesture(target)) {
         const handle = handleOf(target);
         opts.emit({
           type: "rage_click",
@@ -277,7 +302,7 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
     lastInteraction() {
       if (!last) return null;
       const { el, ...click } = last;
-      return { ...click, handle: () => handleOf(el) };
+      return { ...click, handle: () => handleOf(el?.deref() ?? null) };
     },
     settle: () => judge.settleAll(),
   };

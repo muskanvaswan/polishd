@@ -18,10 +18,11 @@
  *            `handleOf`): the element that failed to load, else the one
  *            clicked just before.
  *
- * `afterMs` is rounded to the nearest 100ms. The recent-errors query groups
- * rows by their whole `meta`, and an exact delay would make every occurrence
- * of the same error a group of its own; to the tenth of a second it still
- * tells a throw inside the click handler (0) from one after a fetch (300).
+ * `afterMs` is rounded to the nearest 100ms: to the tenth of a second it still
+ * tells a throw inside the click handler (0) from one after a fetch (300),
+ * and anything that does group rows by their whole `meta` (the friction
+ * fold, older queries) sees a handful of variants per error rather than one
+ * per throw. The recent-errors list groups on stable fields only.
  *
  * Every key is optional — absent when there's nothing to say — so older
  * events, which have none of them, read the same. Every value is capped well

@@ -106,6 +106,7 @@ test("a near miss with no label of its own reads as “beside” the control", a
   const element = (await getElementStats(50)).find((e) => e.selector === "div.border-t");
   assert.equal(element?.sampleText, "beside “Show # more type styles ↓”");
   assert.equal(element?.near, "Show # more type styles ↓");
+  assert.equal(element?.sampleIsNear, true, "flagged, so it isn't rendered or read as the element's text");
 
   const steps = (await getSessionJourneys(20)).flatMap((j) => j.steps);
   assert.ok(steps.some((s) => s.type === "dead_click" && s.label === "beside “Show # more type styles ↓”"));
@@ -118,5 +119,6 @@ test("an element's own text still wins over its near miss", async () => {
   ]);
   const stats = await getElementStats(50);
   assert.equal(stats.find((e) => e.selector === "div.card")?.sampleText, "Weekly report");
+  assert.equal(stats.find((e) => e.selector === "div.card")?.sampleIsNear, undefined);
   assert.equal(stats.find((e) => e.selector === "div.plain")?.sampleText, null);
 });

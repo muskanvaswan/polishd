@@ -13,52 +13,80 @@
  * on the press: a layer that dismisses itself on `pointerdown` is already gone
  * by the time the click fires.
  *
- * The hard part is not mistaking the page's own activity for a response.
- * Timers, carousels, spinners, chat streams and hover cards mutate the DOM
- * constantly, so a mutation only counts when it is *related to the click*:
+ * The two ways to get this wrong, in the order they matter: a click that
+ * worked reported dead (a false alarm on a control that's fine), and a dead
+ * click hidden by the page's own activity. The rules below lean toward the
+ * first being rare.
  *
- *  • Inside the clicked element, when that element is component-sized (a
- *    bar, a card): anything — children, attributes, text. Inside `<body>` or a
- *    page wrapper "inside" means nothing, so a page-sized target only counts
- *    the changes listed for page-sized ancestors below.
+ * WHAT COUNTS. Only mutations related to the click:
+ *
+ *  • Inside the clicked element, when it's component-sized (a bar, a card):
+ *    anything — children, attributes, text. Inside `<body>` or a page wrapper
+ *    "inside" means nothing.
  *  • On one of its four nearest ancestors: any attribute but `style`; and
  *    children added or removed, if the ancestor is component-sized. A
  *    page-sized ancestor (where portals, tooltips and toasts get appended)
  *    only counts elements removed from it — something closing.
- *  • Beside it, inside its parent, when the parent is component-sized: the
- *    details revealed under a clicked card, an accordion's body. Anything but
- *    `style`.
- *  • The clicked element itself being removed, wherever from.
- *  • On a component-sized element under the click point (an overlapping
- *    layer, an image swapped beneath the pointer): anything but `style`.
- *  • A dialog, menu, listbox or modal surface added to the page, or a
- *    `<dialog>` opening or closing.
- *  • A status or alert — a toast — only beside the click (inside it, or under
- *    the click point), or within 300ms of it in a container that wasn't
- *    already busy. A spinner re-rendering every second is not a response.
+ *  • Near the click point: a change to an element within 64px of where the
+ *    pointer was — the panel an accordion header reveals below itself, the
+ *    image swapped under the pointer, a sibling card's state — wherever it
+ *    sits in the tree. Anything but `style`. An element that contains the
+ *    point only counts if it's component-sized: everything is "near" inside
+ *    `<main>`.
+ *  • The clicked element being removed (a dismissal).
+ *  • A dialog, alertdialog or modal surface opening, or a `<dialog>` opening
+ *    or closing, any time in the hold. A menu or listbox opening, unless the
+ *    pointer has moved on (see hover, below).
+ *  • A status or alert — a toast — only near the click, or within 300ms of it
+ *    in a container that wasn't already busy.
  *
- * And even a related mutation is discounted when:
+ * WHAT DOESN'T, even when related:
  *
- *  • It's background: the same node (for children, the container they're
- *    added to) changed the same way at any point in the ten seconds before the
- *    interaction began. An autoplaying carousel, a stream, a polling spinner.
- *    Changes made within a second of someone's press, click, key press or
- *    scroll, and changes credited to a judged click, are that interaction's
- *    and never count as background — so a panel a button opened can still
- *    close in response to a click.
- *  • It's under an element the pointer moved onto after the click, which is
- *    hover, not the click. Once the pointer has left the clicked element,
- *    page-level changes — surfaces, things removed from page-sized
- *    containers — only count within 300ms of the click: hover UI waits for a
- *    hover delay, a click's own render doesn't.
- *  • It's polishd's own UI (anything inside `[data-polishd-ui]`).
- *  • A newer interaction began: a visitor whose click on a bar did nothing
+ *  • Background. The page's own churn is learned all the time, by container:
+ *    a change to a node's children is kept against the node (and the kind of
+ *    child that changed), and an attribute change against both the element
+ *    and its parent — so in a fading carousel, every slide's `aria-hidden`
+ *    feeds one history, and the slide coming back in after fifteen seconds is
+ *    as much background as the one that changed a second ago. Anything whose
+ *    history has a change in the ten seconds before the interaction is
+ *    background, however rarely it changes, and so is anything inside a node
+ *    that was itself inserted into a busy container (a new chat message's
+ *    paragraphs). Learning only pauses for the second after a press or click
+ *    — what follows a click is that click's, so a drawer a button opened can
+ *    still be closed by its backdrop — and for changes inside the focused
+ *    element (typing); never for scrolling. Changes credited to a judged click
+ *    are never learned as background.
+ *  • Hover. Changes under an element the pointer moves onto after the click
+ *    are hover's. Once the pointer has left the clicked element, a menu, a
+ *    listbox or something removed from a page-sized container only counts
+ *    within 300ms of the click: hover UI waits for a hover delay, a click's
+ *    own render doesn't.
+ *  • Polishd's own UI (anything inside `[data-polishd-ui]`).
+ *  • A newer interaction's effects. A visitor whose click on a bar did nothing
  *    goes on to click the button in it, and the list that button opens must
  *    not make the bar's click look like it worked. Once a newer press, click,
  *    key press or scroll begins, an older click only gains credit inside its
- *    own component-sized scope (not inside the newer target), and its URL and
- *    focus are judged as they were at that moment. A repeat click on the same
- *    element shares credit: which one the page answered can't be told apart.
+ *    own component-sized scope (not inside the newer target, and nothing once
+ *    the newer click landed inside it), and its URL and focus are judged as
+ *    they were at that moment. A repeat click on the same element shares
+ *    credit: which one the page answered can't be told apart.
+ *
+ * KNOWN RESIDUALS — accepted, not bugs to chase:
+ *
+ *  • A click whose only effect is far from it and isn't a dialog (a plain
+ *    `<div>` that toggles a panel across the page) reads as dead.
+ *  • A role="dialog" hover card opening as the pointer moves on credits the
+ *    click: modal surfaces get the whole hold, because a click that opens a
+ *    dialog after a slow fetch must not read as dead.
+ *  • The first change a busy region ever makes — a chat's first message, a
+ *    carousel's first rotation — has no history yet, and credits a click
+ *    near it during the hold.
+ *  • A second of steady clicking pauses learning; a carousel that only
+ *    rotates while someone clicks continuously can mask a dead click.
+ *  • `showPopover()` and CSS-only effects make no DOM mutation, so a click
+ *    that only does that reads as dead; and a page that churns inside the
+ *    clicked component itself (a ticking clock in the card) hides that
+ *    component's dead clicks until the churn is learned.
  *
  * Import-free, with the browser behind {@link JudgeEnv}, so `node --test` can
  * drive it with fakes.
@@ -70,22 +98,28 @@ export const DEAD_CLICK_HOLD_MS = 1000;
 export const BACKGROUND_MS = 10_000;
 /** Page-level changes after the pointer moves on only count this soon after the click. */
 export const PAGE_LEVEL_GRACE_MS = 300;
+/** How close to the click point a change must be to be the click's. */
+export const NEAR_PX = 64;
 /** How long a press waits for its click before it's dropped (a drag, a scroll). */
 const ARM_MS = 3000;
 /** Ancestors of the clicked element whose changes are in the click's scope. */
 const ANCESTOR_DEPTH = 4;
+/** How far up a mutation's node to look for one inserted into a busy container. */
+const BORN_DEPTH = 8;
 /** Post-click hover targets remembered per click. */
 const MAX_HOVERED = 8;
-/** Background change times kept per node and kind. */
+/** Background change times kept per key. */
 const BACKGROUND_KEPT = 4;
 
-/** A newly opened surface: what a click that opens something adds. */
-export const SURFACE_SELECTOR = [
-  "dialog", '[role="dialog"]', '[role="alertdialog"]', '[role="menu"]', '[role="listbox"]',
-  '[aria-modal="true"]',
+/** A modal surface: what a click that opens a dialog adds. Counts for the whole hold. */
+export const MODAL_SELECTOR = [
+  "dialog", '[role="dialog"]', '[role="alertdialog"]', '[aria-modal="true"]',
 ].join(",");
 
-/** An announcement — a toast — which only counts beside the click. */
+/** A menu or listbox: opened by a click, or by hover — only before the pointer moves on. */
+export const MENU_SELECTOR = '[role="menu"],[role="listbox"]';
+
+/** An announcement — a toast — which only counts near the click. */
 export const ANNOUNCEMENT_SELECTOR = '[role="status"],[role="alert"]';
 
 export interface Point {
@@ -121,8 +155,14 @@ export interface JudgeEnv {
   activeElement(): unknown;
   /** Is this element small enough — a bar, a card — to be a component rather than layout? */
   isComponentSized(node: NodeLike): boolean;
-  /** Is this node, or the element holding it, component-sized and under `point`? */
-  isUnderPoint(node: NodeLike, point: Point): boolean;
+  /**
+   * How far `point` is from the element holding `node`, in CSS px: 0 inside
+   * it. `Infinity` when it can't be measured, or when the element contains the
+   * point but is page-sized — inside `<main>` everything is "near".
+   */
+  distanceTo(node: NodeLike, point: Point): number;
+  /** What kind of child a node is, for its container's history: tag and first class. */
+  kindOf(node: NodeLike): string;
   /** Is this node part of polishd's own UI? Its changes are never a response. */
   isOwn(node: NodeLike): boolean;
   /** Deliver every mutation in the document from now on (the judge never stops it). */
@@ -148,8 +188,6 @@ interface Gesture {
   local: boolean;
   /** Nearest ancestors, and whether each is component-sized. */
   ancestors: Map<NodeLike, boolean>;
-  /** The subject's parent, when it's component-sized: siblings' changes are related. */
-  container: NodeLike | null;
   point: Point | null;
   /** The interaction this gesture belongs to; older than the current one = superseded. */
   epoch: number;
@@ -209,86 +247,119 @@ export function createClickJudge(
   { holdMs = DEAD_CLICK_HOLD_MS, armMs = ARM_MS }: { holdMs?: number; armMs?: number } = {},
 ): ClickJudge {
   const live = new Set<Gesture>();
-  /** Per node, per kind of change: when it last changed on its own. */
-  const background = new WeakMap<object, Map<string, number[]>>();
+  /** Per node, per key: when the page last changed it on its own. */
+  const history = new WeakMap<object, Map<string, number[]>>();
+  /** Nodes inserted into a container that was already busy: background inside. */
+  const bornInBackground = new WeakSet<object>();
   let armed: Gesture | null = null;
   let epoch = 0;
   /** Target of the newest press or click; null after a key press or scroll. */
   let latest: NodeLike | null = null;
   /** When the press whose click hasn't arrived yet began, or null. */
   let pressedAt: number | null = null;
-  /** When someone last pressed, clicked, typed or scrolled. */
-  let lastInteraction = -Infinity;
+  /** When someone last pressed or clicked — learning pauses for a hold after. */
+  let lastPress = -Infinity;
 
   // ---- background --------------------------------------------------------------
 
-  /** Where a change is kept: children by their container, text by its element. */
-  const keyOf = (m: MutationLike): [object, string] => {
-    if (m.type === "characterData") return [m.target.parentNode ?? m.target, "text"];
-    return [m.target, m.type === "attributes" ? `@${m.attributeName}` : m.type];
+  const added = (m: MutationLike) => Array.from(m.addedNodes ?? []).filter((n) => !env.isOwn(n));
+  const removed = (m: MutationLike) => Array.from(m.removedNodes ?? []).filter((n) => !env.isOwn(n));
+  const changed = (m: MutationLike) => [...added(m), ...removed(m)];
+
+  /**
+   * Where a change is kept: children against their container (by the kind of
+   * child, and in general), text against its element, an attribute against
+   * the element and against its parent (so siblings share a history).
+   */
+  const keysOf = (m: MutationLike): Array<[object, string]> => {
+    if (m.type === "characterData") return [[m.target.parentNode ?? m.target, "text"]];
+    if (m.type === "attributes") {
+      const keys: Array<[object, string]> = [[m.target, `@${m.attributeName}`]];
+      if (m.target.parentNode) keys.push([m.target.parentNode, `>@${m.attributeName}`]);
+      return keys;
+    }
+    return changed(m).map((n) => [m.target, `+${env.kindOf(n)}`] as [object, string]);
   };
 
-  const noteBackground = (m: MutationLike, now: number) => {
-    const [node, kind] = keyOf(m);
-    let kinds = background.get(node);
-    if (!kinds) background.set(node, (kinds = new Map()));
-    const times = kinds.get(kind) ?? [];
+  const remember = (node: object, key: string, now: number) => {
+    let keys = history.get(node);
+    if (!keys) history.set(node, (keys = new Map()));
+    const times = keys.get(key) ?? [];
     times.push(now);
     if (times.length > BACKGROUND_KEPT) times.shift();
-    kinds.set(kind, times);
+    keys.set(key, times);
   };
 
-  /** Did this node change this way in the ten seconds before `since`? */
+  const learn = (m: MutationLike, now: number) => {
+    for (const [node, key] of keysOf(m)) remember(node, key, now);
+  };
+
+  const recent = (node: object, key: string, since: number) =>
+    !!history.get(node)?.get(key)?.some((t) => t < since && since - t <= BACKGROUND_MS);
+
+  /** Is this change the page's own — its node busy in the ten seconds before `since`? */
   const isBackground = (m: MutationLike, since: number): boolean => {
-    const [node, kind] = keyOf(m);
-    const times = background.get(node)?.get(kind);
-    return !!times?.some((t) => t < since && since - t <= BACKGROUND_MS);
+    if (keysOf(m).some(([node, key]) => recent(node, key, since))) return true;
+    let node: NodeLike | null | undefined = m.target;
+    for (let depth = 0; node && depth < BORN_DEPTH; depth++, node = node.parentNode) {
+      if (bornInBackground.has(node)) return true;
+    }
+    return false;
   };
 
   // ---- relating a mutation to a click ----------------------------------------------
 
-  const added = (m: MutationLike) => Array.from(m.addedNodes ?? []).filter((n) => !env.isOwn(n));
-  const removed = (m: MutationLike) => Array.from(m.removedNodes ?? []).filter((n) => !env.isOwn(n));
   const matching = (nodes: NodeLike[], selector: string) =>
     nodes.some((n) => isElement(n) && (!!n.matches?.(selector) || !!n.querySelector?.(selector)));
-
-  const opensSurface = (m: MutationLike): boolean => {
-    if (m.type === "attributes") return m.attributeName === "open" && m.target.nodeName === "DIALOG";
-    return m.type === "childList" && matching(added(m), SURFACE_SELECTOR);
-  };
 
   const inSubject = (g: Gesture, node: NodeLike) => g.local && g.subject.contains(node);
   const underHovered = (g: Gesture, node: NodeLike) => g.hovered.some((h) => h.contains(node));
   const pageLevelAllowed = (g: Gesture, now: number) =>
     g.hoveredAt === undefined || g.clickAt === undefined || now - g.clickAt <= PAGE_LEVEL_GRACE_MS;
 
+  /** Does this change show something — not just restyle it, not add a script? */
+  const visible = (m: MutationLike, styleCounts: boolean): boolean => {
+    if (m.type === "childList") return changed(m).some((n) => renders(n, false));
+    if (m.type === "attributes") return styleCounts || m.attributeName !== "style";
+    return m.type === "characterData";
+  };
+
   /** Is this a change in the subject's own scope — its subtree, or an ancestor? */
   const scopeChange = (g: Gesture, m: MutationLike, now: number): boolean => {
-    if (inSubject(g, m.target)) {
-      if (m.type === "childList") return [...added(m), ...removed(m)].some((n) => renders(n, false));
-      return m.type === "attributes" || m.type === "characterData";
-    }
+    if (inSubject(g, m.target)) return visible(m, true);
     const pageSizedSelf = !g.local && m.target === g.subject;
     const ancestorLocal = g.ancestors.get(m.target);
-    if (!pageSizedSelf && ancestorLocal === undefined) {
-      // Beside the subject, under a component-sized parent.
-      if (!g.container?.contains(m.target)) return false;
-      if (m.type === "childList") return [...added(m), ...removed(m)].some((n) => renders(n, false));
-      return m.type === "characterData" || (m.type === "attributes" && m.attributeName !== "style");
-    }
+    if (!pageSizedSelf && ancestorLocal === undefined) return false;
     if (m.type === "attributes") return m.attributeName !== "style";
     if (m.type !== "childList") return false;
-    if (ancestorLocal) return [...added(m), ...removed(m)].some((n) => renders(n, false));
+    if (ancestorLocal) return visible(m, false);
     // A page-sized container: only something closing counts.
     return pageLevelAllowed(g, now) && removed(m).some((n) => renders(n, true));
+  };
+
+  /** Is the changed element within reach of where the pointer was? */
+  const nearPoint = (g: Gesture, m: MutationLike, now: number): boolean => {
+    if (!g.point) return false;
+    const point = g.point;
+    const close = (n: NodeLike) => env.distanceTo(n, point) <= NEAR_PX;
+    if (m.type === "childList") {
+      // Appended to the page itself: a portal — a hover card, a tooltip — which
+      // only counts before the pointer moved on.
+      if (!env.isComponentSized(m.target) && !pageLevelAllowed(g, now)) return false;
+      const shown = added(m).filter((n) => renders(n, true));
+      return shown.some(close) || close(m.target);
+    }
+    return close(m.target);
   };
 
   const credits = (g: Gesture, m: MutationLike, now: number): boolean => {
     if (env.isOwn(m.target) || underHovered(g, m.target)) return false;
 
-    // The clicked thing itself went away: a dismissal, whatever else is going on.
+    // The clicked thing itself went away — a dismissal, unless removing and
+    // re-rendering children is what this container does all the time (a
+    // carousel that only renders its active slide).
     if (m.type === "childList" && removed(m).some((n) => g.subjects.some((s) => n.contains(s)))) {
-      return true;
+      return !isBackground(m, g.start);
     }
 
     if (g.epoch !== epoch && g.subject !== latest) {
@@ -299,26 +370,28 @@ export function createClickJudge(
       return (
         own &&
         !(latest && (latest.contains(m.target) || g.subject.contains(latest))) &&
-        !isBackground(m, g.start) &&
-        scopeChange(g, m, now) === true
+        scopeChange(g, m, now) &&
+        !isBackground(m, g.start)
       );
     }
 
-    if (scopeChange(g, m, now) && !isBackground(m, g.start)) return true;
-
-    if (opensSurface(m)) return pageLevelAllowed(g, now);
-
-    const near = !!g.point && env.isUnderPoint(m.target, g.point);
-    if (m.type === "childList" && matching(added(m), ANNOUNCEMENT_SELECTOR)) {
-      if (near) return !isBackground(m, g.start);
-      return (
-        g.clickAt !== undefined && now - g.clickAt <= PAGE_LEVEL_GRACE_MS && !isBackground(m, g.start)
-      );
+    // Surfaces first: a dialog the click opened counts however busy the page is.
+    if (m.type === "attributes" && m.attributeName === "open" && m.target.nodeName === "DIALOG") return true;
+    if (m.type === "childList") {
+      const shown = added(m);
+      if (matching(shown, MODAL_SELECTOR)) return true;
+      if (matching(shown, MENU_SELECTOR)) return pageLevelAllowed(g, now);
+      if (matching(shown, ANNOUNCEMENT_SELECTOR)) {
+        if (isBackground(m, g.start)) return false;
+        const quick = g.clickAt !== undefined && now - g.clickAt <= PAGE_LEVEL_GRACE_MS;
+        return quick || nearPoint(g, m, now);
+      }
     }
 
-    if (!near || isBackground(m, g.start)) return false;
-    if (m.type === "childList") return [...added(m), ...removed(m)].some((n) => renders(n, false));
-    return m.type === "characterData" || (m.type === "attributes" && m.attributeName !== "style");
+    // Cheap tests before any layout read.
+    if (scopeChange(g, m, now)) return !isBackground(m, g.start);
+    if (!visible(m, false) || isBackground(m, g.start)) return false;
+    return nearPoint(g, m, now);
   };
 
   // ---- gestures --------------------------------------------------------------
@@ -330,9 +403,22 @@ export function createClickJudge(
     g.done?.(worked);
   };
 
+  /** Typing changes the focused element (a contenteditable); that's not the page churning. */
+  const inFocused = (node: NodeLike) => {
+    const active = env.activeElement() as NodeLike | null;
+    return !!active?.contains && env.isComponentSized(active) && active.contains(node);
+  };
+
   env.observe((records) => {
     const now = env.now();
     for (const m of records) {
+      // A child born into a container that keeps receiving its kind (a new
+      // chat message) carries the container's churn into its own subtree.
+      if (m.type === "childList") {
+        for (const n of added(m)) {
+          if (recent(m.target, `+${env.kindOf(n)}`, now + 1)) bornInBackground.add(n);
+        }
+      }
       let credited = false;
       for (const g of [...live]) {
         if (g.worked || !credits(g, m, now)) continue;
@@ -340,9 +426,9 @@ export function createClickJudge(
         g.worked = true;
         if (g.done) finish(g, true);
       }
-      // What follows an interaction is that interaction's doing, and what a
-      // judged click caused is that click's — neither is the page's own churn.
-      if (!credited && now - lastInteraction > holdMs) noteBackground(m, now);
+      // What a judged click caused is that click's, and what follows any press
+      // or click is too — neither is the page's own churn.
+      if (!credited && now - lastPress > holdMs && !inFocused(m.target)) learn(m, now);
     }
   });
 
@@ -350,8 +436,6 @@ export function createClickJudge(
     g.subject = subject;
     if (!g.subjects.includes(subject)) g.subjects.push(subject);
     g.local = env.isComponentSized(subject);
-    const parent = subject.parentNode ?? null;
-    g.container = parent && isElement(parent) && env.isComponentSized(parent) ? parent : null;
     g.ancestors = new Map();
     let node = subject.parentNode ?? null;
     for (let depth = 0; node && depth < ANCESTOR_DEPTH; depth++, node = node.parentNode ?? null) {
@@ -376,7 +460,6 @@ export function createClickJudge(
   };
 
   const supersede = () => {
-    lastInteraction = env.now();
     epoch++;
     if (armed) finish(armed, false); // a press that never clicked
     const snapshot = { href: env.href(), active: env.activeElement() };
@@ -392,7 +475,7 @@ export function createClickJudge(
   return {
     begin(target, kind) {
       const now = env.now();
-      lastInteraction = now;
+      lastPress = now;
       latest = target;
       // A click that follows its own press is the same interaction.
       if (kind === "click" && pressedAt !== null && now - pressedAt <= armMs) {
