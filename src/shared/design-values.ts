@@ -12,11 +12,12 @@
  *     found again from the row the dashboard renders.
  *   • **Targets.** Which values are worth picturing: the ones flagged one-off
  *     or off-grid. Every other value is the system working as intended.
- *   • **Rules.** What earns those flags. A one-off is a *decision*, not a
- *     rare rendered value: a badge class repeated down a table is one
- *     declaration, however many rows render it. And a value on the
- *     framework's own spacing scale (Tailwind's 6px `1.5` step) is on-grid
- *     even though it isn't a multiple of 4.
+ *   • **Rules.** What earns those flags. A one-off is rare in what renders
+ *     *and* decided once: a value chosen in two places is a pattern, and a
+ *     badge class repeated down a table is one declaration, however many
+ *     rows render it. And a value on the framework's own spacing scale
+ *     (Tailwind's 6px `1.5` step) is on-grid even though it isn't a multiple
+ *     of 4.
  *
  * Pure: no DOM, no store, no React — the test file pins the edge cases.
  */
@@ -112,19 +113,28 @@ export function unpicturedReason(
 /**
  * One page's declarations for a value, as its scan tuple carries them: how
  * many distinct declarations rendered it, how many of those hand-typed it,
- * and up to a few of their ids (`!`-prefixed when hand-typed). Absent counts
- * mean a scan from before declarations were measured.
+ * and up to a few of their ids (`!`-prefixed when hand-typed) — plus the
+ * value's uses on that page. Absent counts mean a scan from before
+ * declarations were measured.
  */
 export interface DeclarationPart {
   declarations?: unknown;
   handTyped?: unknown;
   ids?: unknown;
+  uses?: unknown;
 }
 
-/** A value's declarations site-wide. Empty when any page's scan predates them. */
+/**
+ * A value's declarations site-wide, merged per row: scans that measured them
+ * contribute declarations, scans that predate them contribute their uses —
+ * the old reading, where every use was its own decision.
+ */
 export interface DeclarationCount {
+  /** From the scans that measured them; absent when none did. */
   declarations?: number;
   handTyped?: number;
+  /** Uses from scans that predate declarations; absent when every scan measured them. */
+  legacyUses?: number;
 }
 
 /**
@@ -135,12 +145,19 @@ export interface DeclarationCount {
  */
 export function mergeDeclarations(parts: DeclarationPart[]): DeclarationCount {
   const ids = new Map<string, boolean>();
+  let measured = 0;
+  let legacyUses = 0;
   let complete = true;
   let floor = 0;
   let handFloor = 0;
   for (const part of parts) {
     const declared = part.declarations;
-    if (typeof declared !== "number" || !Number.isFinite(declared)) return {};
+    if (typeof declared !== "number" || !Number.isFinite(declared)) {
+      const uses = Number(part.uses);
+      legacyUses += Number.isFinite(uses) && uses > 0 ? uses : 0;
+      continue;
+    }
+    measured++;
     const list = typeof part.ids === "string" ? part.ids.split(" ").filter(Boolean) : [];
     for (const raw of list) {
       const hand = raw.startsWith("!");
@@ -153,10 +170,37 @@ export function mergeDeclarations(parts: DeclarationPart[]): DeclarationCount {
       handFloor = Math.max(handFloor, part.handTyped);
     }
   }
-  if (parts.length === 0) return {};
-  const hand = [...ids.values()].filter(Boolean).length;
-  if (complete) return { declarations: ids.size, handTyped: hand };
-  return { declarations: Math.max(ids.size, floor), handTyped: Math.max(hand, handFloor) };
+  const out: DeclarationCount = {};
+  if (measured > 0) {
+    const hand = [...ids.values()].filter(Boolean).length;
+    out.declarations = complete ? ids.size : Math.max(ids.size, floor);
+    out.handTyped = complete ? hand : Math.max(hand, handFloor);
+  }
+  if (legacyUses > 0) out.legacyUses = legacyUses;
+  return out;
+}
+
+/** A value's counts, as the one-off rule and the weighting read them. */
+export interface ValueUsage {
+  count: number;
+  declarations?: number;
+  legacyUses?: number;
+  pages: string[];
+}
+
+/**
+ * The decisions behind a value, for weighing it against others: its
+ * declarations, plus one per use from scans that predate them. A value with
+ * neither recorded (built by hand, or before any of this) weighs its uses.
+ */
+export function decisionsOf(v: Omit<ValueUsage, "pages">): number {
+  if (v.declarations === undefined && v.legacyUses === undefined) return v.count;
+  return (v.declarations ?? 0) + (v.legacyUses ?? 0);
+}
+
+/** Every scan behind the value measured its declarations, so the count is whole. */
+export function declarationsWhole(v: Omit<ValueUsage, "pages" | "count">): boolean {
+  return v.declarations !== undefined && !v.legacyUses;
 }
 
 // ── One-offs ─────────────────────────────────────────────────────────────────
@@ -164,15 +208,11 @@ export function mergeDeclarations(parts: DeclarationPart[]): DeclarationCount {
 export interface OneOffRule {
   /** Uses a section needs before anything in it can be called rare. */
   minCount: number;
-  /** Share of the section's declarations a one-off stays within. */
+  /** Share of the section's uses — and of its decisions — a one-off stays within. */
   share: number;
 }
 
-/**
- * Per section. The use gates and shares are the ones the Design tab has
- * always applied; what they count changed from rendered elements to
- * declarations.
- */
+/** Per section: the gates and shares the Design tab has always applied. */
 export const ONE_OFF_RULES = {
   font: { minCount: 60, share: 0.015 },
   color: { minCount: 120, share: 0.005 },
@@ -180,51 +220,39 @@ export const ONE_OFF_RULES = {
   spacing: { minCount: 40, share: 0.02 },
 } as const satisfies Record<string, OneOffRule>;
 
-/**
- * Share of a section's uses past which a value is part of what the page is
- * built from, however few declarations produced it — a body text color set
- * once on `<body>` is one declaration and half the page.
- */
-export const DOMINANT_SHARE = 0.05;
-
-export interface ValueUsage {
-  count: number;
-  declarations?: number;
-  pages: string[];
-}
-
-/** A section's uses, and its declarations when every value carries them. */
+/** A section's uses, and its decisions (declarations, or uses for old scans). */
 export interface SectionTotals {
   count: number;
-  declarations?: number;
+  decisions: number;
 }
 
-export function sectionTotals(values: { count: number; declarations?: number }[]): SectionTotals {
+export function sectionTotals(values: Omit<ValueUsage, "pages">[]): SectionTotals {
   let count = 0;
-  let declarations: number | undefined = 0;
+  let decisions = 0;
   for (const v of values) {
     count += v.count;
-    declarations = declarations === undefined || v.declarations === undefined ? undefined : declarations + v.declarations;
+    decisions += decisionsOf(v);
   }
-  return { count, declarations };
+  return { count, decisions };
 }
 
 /**
- * Whether a value is a one-off: decided once (or within a sliver of the
- * section's declarations), on one page, and not something the page leans on.
- * Nothing is rare until the section has enough uses to compare against.
- * Scans from before declarations were measured keep the old reading, where
- * every use counted as its own decision.
+ * Whether a value is a one-off: rare in what the site renders — under the
+ * section's share of uses, on one page — and decided once. Rarity is the
+ * test the Design tab has always applied; declarations only narrow it, so a
+ * value chosen in two places is a pattern rather than a stray, and repeated
+ * copies never promote anything into a one-off. Nothing is rare until the
+ * section has enough uses to compare against.
+ *
+ * A value on one page comes from that page's one scan. When the scan
+ * predates declarations, the per-use reading stands alone — per row, so one
+ * stale page never changes how the rest of the section is read.
  */
 export function isOneOff(v: ValueUsage, totals: SectionTotals, rule: OneOffRule): boolean {
   if (totals.count < rule.minCount || v.pages.length !== 1) return false;
-  if (totals.declarations === undefined || v.declarations === undefined) {
-    return v.count <= Math.max(2, totals.count * rule.share);
-  }
-  return (
-    v.declarations <= Math.max(1, totals.declarations * rule.share) &&
-    v.count <= Math.max(2, totals.count * DOMINANT_SHARE)
-  );
+  if (v.count > Math.max(2, totals.count * rule.share)) return false;
+  if (v.declarations === undefined) return true;
+  return v.declarations <= Math.max(1, totals.decisions * rule.share);
 }
 
 // ── Spacing grid ─────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { register } from "node:module";
 import { test } from "node:test";
 
+import { buildBrandKit } from "../shared/brand-kit.ts";
 import type { DesignScanRow } from "./design-aggregate.ts";
 import type { PolishdDesignScanPayload } from "../shared/types";
 
@@ -77,7 +78,7 @@ test("an old-shape payload aggregates as it always did", () => {
   assert.ok(!data.flags.some((f) => /hand-typed/.test(f.message)));
 });
 
-test("a value also measured by an old scan keeps the old reading; the rest use declarations", () => {
+test("old and new scans merge row by row: old uses beside new declarations", () => {
   const fresh = scan(
     "/new",
     {
@@ -93,10 +94,59 @@ test("a value also measured by an old scan keeps the old reading; the rest use d
   );
   const data = aggregateDesignScans([fresh, scan("/", OLD_SHAPE)]);
   const font = (px: number) => data.fonts.find((f) => f.sizePx === px)!;
-  assert.equal(font(16).declarations, undefined, "16px is in the old scan too");
-  assert.equal(font(12).declarations, 1);
-  assert.equal(font(12).handTyped, 1);
+  // 16px: one declaration from the new page, 300 uses from the old one.
+  assert.deepEqual([font(16).count, font(16).declarations, font(16).legacyUses], [500, 1, 300]);
+  assert.deepEqual([font(12).declarations, font(12).handTyped, font(12).legacyUses], [1, 1, undefined]);
+  // The old page's stray still reads the old way.
+  assert.equal(font(17).outlier, true);
   assert.equal(data.system?.tailwind, true);
+});
+
+test("one stale old-shape page doesn't revert the rest of the section", () => {
+  // A new scan with a rare style declared twice — a pattern, not a stray —
+  // beside a page nobody has revisited since the upgrade.
+  const fresh = scan(
+    "/",
+    {
+      fonts: [
+        ["Inter", 16, 400, 300, "Body", "p", 1, 0, "body1"],
+        ["Inter", 14, 500, 60, "Label", "label", 3, 0, "l1 l2 l3"],
+        ["Inter", 13, 400, 2, "Meta", "span", 2, 0, "m1 m2"],
+        ["Inter", 15, 400, 1, "Odd", "span", 1, 1, "!odd"],
+      ],
+      tw: [40, 50],
+      rem: 16,
+    },
+    2,
+  );
+  const stale = scan("/legacy", { fonts: [["Inter", 16, 400, 40, "Body", "p"]] } as unknown as Partial<PolishdDesignScanPayload>);
+  const data = aggregateDesignScans([fresh, stale]);
+  const outlier = (px: number) => data.fonts.find((f) => f.sizePx === px)!.outlier;
+  assert.equal(outlier(13), false, "two declarations: still read by declarations");
+  assert.equal(outlier(15), true);
+});
+
+test("a brand CTA color from one class on a few elements stays in the brand kit", () => {
+  // One scanned page: 496 color uses, the CTA blue 12 of them, from one class.
+  const text: [string, number, number, number, string][] = [
+    ["#111111", 300, 6, 0, "a b c d e"],
+    ["#666666", 120, 4, 0, "f g h i"],
+    ["#ffffff", 64, 3, 0, "j k l"],
+  ];
+  const data = aggregateDesignScans([
+    scan("/", { text, bg: [["#2563eb", 12, 1, 0, "cta"]], tw: [40, 50], rem: 16 }),
+  ]);
+  const cta = data.colors.find((c) => c.hex === "#2563eb")!;
+  assert.deepEqual([cta.count, cta.declarations, cta.outlier], [12, 1, false]);
+  assert.ok(buildBrandKit(data).colors.some((c) => c.hex === "#2563eb"));
+  // The old-shape payload agrees.
+  const old = aggregateDesignScans([
+    scan("/", {
+      text: text.map(([hex, n]) => [hex, n]),
+      bg: [["#2563eb", 12]],
+    } as unknown as Partial<PolishdDesignScanPayload>),
+  ]);
+  assert.equal(old.colors.find((c) => c.hex === "#2563eb")!.outlier, false);
 });
 
 test("declarations merge across pages by id: a shared class is one decision", () => {

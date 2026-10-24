@@ -128,8 +128,8 @@ function OutlierBadge({ text = "one-off" }: { text?: string }) {
  * How a value was decided: "1 declaration", "5 declarations · 2 hand-typed".
  * Empty for data scanned before declarations were measured.
  */
-function declLabel(v: { declarations?: number; handTyped?: number }): string {
-  if (v.declarations === undefined) return "";
+function declLabel(v: { declarations?: number; handTyped?: number; legacyUses?: number }): string {
+  if (v.declarations === undefined || v.legacyUses) return "";
   const n = `${v.declarations.toLocaleString()} ${v.declarations === 1 ? "declaration" : "declarations"}`;
   return v.handTyped ? `${n} · ${v.handTyped.toLocaleString()} hand-typed` : n;
 }
@@ -226,7 +226,7 @@ function FontRow({
           {f.sizePx}px / {f.weight}
         </span>
         · {f.count.toLocaleString()} uses
-        {f.declarations !== undefined && <> · {declLabel(f)}</>} · {f.pages.length}{" "}
+        {declLabel(f) && <> · {declLabel(f)}</>} · {f.pages.length}{" "}
         {f.pages.length === 1 ? "page" : "pages"}
         {f.tags.length > 0 && <span className="text-[#444]">· {f.tags.join(", ")}</span>}
         {f.outlier && <OutlierBadge />}
@@ -478,7 +478,7 @@ function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; pr
       </div>
       <span className="text-[10px] tabular-nums text-[#555]" title={declLabel(r) || undefined}>
         ×{r.count.toLocaleString()}
-        {r.declarations !== undefined && ` · ${r.declarations.toLocaleString()} decl`}
+        {r.declarations !== undefined && !r.legacyUses && ` · ${r.declarations.toLocaleString()} decl`}
       </span>
     </Flaggable>
   );

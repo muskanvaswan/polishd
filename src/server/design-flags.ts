@@ -51,6 +51,16 @@ function colorDistance(a: string, b: string): number | null {
   return Math.sqrt((ra[0] - rb[0]) ** 2 + (ra[1] - rb[1]) ** 2 + (ra[2] - rb[2]) ** 2);
 }
 
+/**
+ * The decisions behind a value: its declarations, plus one per use from
+ * scans that predate them (`decisionsOf` in shared/design-values.ts — kept
+ * inline so this module stays importable on its own).
+ */
+function decisions(v: { count: number; declarations?: number; legacyUses?: number }): number {
+  if (v.declarations === undefined && v.legacyUses === undefined) return v.count;
+  return (v.declarations ?? 0) + (v.legacyUses ?? 0);
+}
+
 const list = (values: string[], cap: number) =>
   `${values.slice(0, cap).join(", ")}${values.length > cap ? ", …" : ""}`;
 
@@ -238,8 +248,10 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
   // Spacing ----------------------------------------------------------------------
   // Share of decisions, not of rendered sides: one off-grid class repeated
   // down a table is one thing to fix.
-  const declared = data.spacing.length > 0 && data.spacing.every((v) => v.declarations !== undefined);
-  const weight = (v: PolishdDesignData["spacing"][number]) => (declared ? v.declarations! : v.count);
+  // Scans from before declarations weigh each use as a decision, row by row.
+  const declared =
+    data.spacing.length > 0 && data.spacing.every((v) => v.declarations !== undefined && !v.legacyUses);
+  const weight = decisions;
   const totalPad = data.spacing.reduce((s, v) => s + weight(v), 0);
   const offGrid = data.spacing.filter((v) => v.offGrid).sort((a, b) => weight(b) - weight(a) || b.count - a.count);
   const offGridShare = totalPad > 0 ? offGrid.reduce((s, v) => s + weight(v), 0) / totalPad : 0;

@@ -33,8 +33,8 @@ import {
   declarationSignature,
   inheritedDeclarer,
   isHandTyped,
-  normalizedClass,
-  readClassString,
+  loadingReason,
+  readElementClasses,
   TRANSIENT_SELECTOR,
   transientReason,
   type ArbitraryProp,
@@ -66,6 +66,8 @@ const SKIP_TAGS = new Set([
   "BR",
   "WBR",
 ]);
+
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 const INTERACTIVE_TAGS = new Set(["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA", "SUMMARY"]);
 
@@ -210,13 +212,7 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
   // Class strings seen, and whether each reads as Tailwind — the reading is
   // per string, so a class repeated down a table is parsed once.
   const readings = new Map<string, ClassReading>();
-  const readingOf = (el: ElementLike): ClassReading | null => {
-    const cls = normalizedClass(el);
-    if (!cls) return null;
-    let r = readings.get(cls);
-    if (!r) readings.set(cls, (r = readClassString(cls)));
-    return r;
-  };
+  const readingOf = (el: ElementLike) => readElementClasses(el, readings);
   // Whether `el` hand-typed the value it renders — only an arbitrary class
   // whose literal is what's showing counts, so `sm:p-[13px]` below `sm` doesn't.
   const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
@@ -234,11 +230,15 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
   const sizeDeclarers = new Map<ElementLike, ElementLike>();
   const colorDeclarers = new Map<ElementLike, ElementLike>();
 
-  // Transient subtrees are rejected whole, so a skeleton's children never
-  // reach the tallies — or the walk's budget.
+  // Subtrees with no design signal are rejected whole — tags that never
+  // render, an icon's SVG internals, transient states — so their children
+  // never reach the tallies or the walk's budget. The cheap checks run first;
+  // only what survives them pays for a computed style.
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
     acceptNode: (node) => {
       const el = node as Element;
+      if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+      if (el.namespaceURI === SVG_NS && el.localName !== "svg") return NodeFilter.FILTER_REJECT;
       return transientReason(el, getComputedStyle(el)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -248,8 +248,6 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
   for (let node = walker.nextNode(); node && sampled < MAX_ELEMENTS && visited < 6000; node = walker.nextNode()) {
     visited++;
     const el = node as Element;
-    if (SKIP_TAGS.has(el.tagName)) continue;
-    if (el.closest("svg") && el.tagName !== "svg") continue;
 
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") continue;
@@ -400,7 +398,7 @@ const TRANSIENT_WAIT_MS = 1500;
 function loadingVisible(): boolean {
   try {
     for (const el of document.querySelectorAll(TRANSIENT_SELECTOR)) {
-      if (el.getClientRects().length > 0) return true;
+      if (loadingReason(el) && el.getClientRects().length > 0) return true;
     }
   } catch {
     /* a selector this browser can't parse — scan without waiting */

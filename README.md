@@ -473,7 +473,8 @@ The checks count **decisions, not copies**. Each value carries both its uses
 (elements rendering it) and its declarations (the distinct class strings
 behind them), so a badge class repeated down a 38-row table is one decision
 and a shared button-class constant is one decision. A one-off is a value
-declared once, on one page. On a Tailwind site, its spacing scale's half steps
+that's rare in what the page renders, on one page, and declared once; a
+value chosen in two places is a pattern. On a Tailwind site, its spacing scale's half steps
 (2px, 6px, 10px, 14px) count as on-grid. Loading skeletons, `aria-busy`
 regions and closed overlays are left out of the scan, which waits a few
 seconds for them to clear first.

@@ -86,15 +86,14 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
       .join(", ")}${data.pages.length > 10 ? ", …" : ""}).`,
   );
 
-  // Declarations appear once scans carry them; a value also measured by an
-  // older scan shows uses alone.
-  const declared = [data.fonts, data.colors, data.radii, data.spacing].some((list) =>
-    list.some((v) => v.declarations !== undefined),
-  );
-  const decl = (v: { declarations?: number }) =>
-    v.declarations === undefined ? "" : `${v.declarations} decl`;
+  // Declarations show only where every scan behind a value measured them;
+  // a value also measured by an older scan shows uses alone.
+  const whole = (v: { declarations?: number; legacyUses?: number }) =>
+    v.declarations !== undefined && !v.legacyUses;
+  const declared = [data.fonts, data.colors, data.radii, data.spacing].some((list) => list.some(whole));
+  const decl = (v: { declarations?: number; legacyUses?: number }) => (whole(v) ? `${v.declarations} decl` : "");
   const hand = (v: { handTyped?: number }) => (v.handTyped ? `${v.handTyped} hand-typed` : "");
-  const usage = (v: { count: number; declarations?: number; handTyped?: number }) =>
+  const usage = (v: { count: number; declarations?: number; handTyped?: number; legacyUses?: number }) =>
     [`${v.count} uses`, decl(v), hand(v)].filter(Boolean).join(", ");
   if (declared) {
     lines.push(
@@ -151,7 +150,7 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
         .filter(([, n]) => n > 0)
         .map(([r]) => r)
         .join("/");
-      const how = c.declarations === undefined ? "" : ` — ${usage(c)}`;
+      const how = whole(c) ? ` — ${usage(c)}` : "";
       lines.push(`  - ${c.hex}: ${c.pct}% (${roles})${how}${c.outlier ? " [one-off]" : ""}`);
     }
   }
@@ -165,8 +164,8 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
   }
 
   // `×uses/decl`, `!` when any declaration hand-typed it.
-  const tally = (v: { count: number; declarations?: number; handTyped?: number }) =>
-    `×${v.count}${v.declarations === undefined ? "" : `/${v.declarations}`}${v.handTyped ? "!" : ""}`;
+  const tally = (v: { count: number; declarations?: number; handTyped?: number; legacyUses?: number }) =>
+    `×${v.count}${whole(v) ? `/${v.declarations}` : ""}${v.handTyped ? "!" : ""}`;
   const marks = declared ? " (! = hand-typed)" : "";
 
   if (data.radii.length) {

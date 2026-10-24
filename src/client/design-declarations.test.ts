@@ -15,7 +15,9 @@ import {
   declarationSignature,
   inheritedDeclarer,
   isHandTyped,
+  loadingReason,
   readClassString,
+  readElementClasses,
   transientReason,
   type ElementLike,
 } from "./design-declarations.ts";
@@ -86,6 +88,12 @@ test("arbitrary values are read per property; token references are not", () => {
   assert.deepEqual(props("p-[13px]"), ["padBottom", "padLeft", "padRight", "padTop"]);
   // Theme references and non-color brackets.
   assert.deepEqual(props("text-[color:var(--muted)] bg-[var(--brand)] text-[--fg] border-[2px] bg-[url(/a.png)]"), []);
+  // A token wrapped in a function is still a token — the shadcn way of writing them.
+  assert.deepEqual(props("bg-[hsl(var(--card))]"), []);
+  assert.deepEqual(props("text-[rgb(var(--fg)/0.8)]"), []);
+  assert.deepEqual(props("rounded-[calc(var(--radius)-4px)]"), []);
+  assert.deepEqual(props("p-[calc(var(--gutter)*2)]"), []);
+  assert.deepEqual(props("text-[theme(fontSize.sm)] border-[theme(colors.zinc.800)]"), []);
   assert.deepEqual(props("text-gray-500 bg-white rounded-md p-2"), []);
   // Breakpoints and dark mode can describe what renders; hover and other states can't.
   assert.deepEqual(props("md:p-[13px]"), ["padBottom", "padLeft", "padRight", "padTop"]);
@@ -129,6 +137,50 @@ test("Tailwind is read from its utilities, not from any class at all", () => {
   }
 });
 
+test("a shadcn-style site built on CSS-variable tokens has nothing hand-typed", () => {
+  const card = readClassString("rounded-[calc(var(--radius)-4px)] bg-[hsl(var(--card))] p-[calc(var(--gutter)*2)] text-[rgb(var(--fg)/0.8)]");
+  assert.equal(card.arbitrary.size, 0);
+  assert.equal(isHandTyped(card, "background", "#ffffff"), false);
+  assert.equal(isHandTyped(card, "color", "#0a0a0a"), false);
+});
+
+test("inline style values are never read as hand-typed", () => {
+  // At runtime `style={{ color: theme.fg }}` and `style={{ color: "#555" }}`
+  // are the same literal, so only the class attribute is read.
+  const styled = el("p", { style: "color:#555555;padding:13px;border-radius:3px" });
+  assert.equal(readElementClasses(styled), null);
+  assert.equal(isHandTyped(readElementClasses(styled), "color", "#555555"), false);
+  const both = el("p", { class: "text-gray-600", style: "color:#555555" });
+  assert.equal(isHandTyped(readElementClasses(both), "color", "#555555"), false);
+  // The class attribute is what counts, cached per class string.
+  const cache = new Map();
+  const typed = el("p", { class: "text-[#555]", style: "color:var(--fg)" });
+  assert.equal(isHandTyped(readElementClasses(typed, cache), "color", "#555555"), true);
+  assert.equal(readElementClasses(el("span", { class: "text-[#555]" }), cache), cache.get("text-[#555]"));
+});
+
+test("only a pulse at rest or a real skeleton class is a loading state", () => {
+  const reason = (cls: string) => loadingReason(el("div", { class: cls }));
+  // Pulsing at rest: bare, or behind a variant that holds at rest.
+  assert.equal(reason("h-4 animate-pulse rounded"), "skeleton");
+  assert.equal(reason("motion-safe:animate-pulse"), "skeleton");
+  assert.equal(reason("md:animate-pulse"), "skeleton");
+  // Pulsing only under the pointer: not loading.
+  assert.equal(reason("hover:animate-pulse"), null);
+  assert.equal(reason("group-hover:animate-pulse"), null);
+  assert.equal(reason("focus-visible:animate-pulse"), null);
+  // Skeleton as a whole class or a segment at either end.
+  for (const cls of ["skeleton", "skeleton-line", "skeleton_root__a1", "react-loading-skeleton", "MuiSkeleton-root", "Skeleton_root__x1"]) {
+    assert.equal(reason(cls), "skeleton", cls);
+  }
+  // Merely containing the word isn't.
+  for (const cls of ["no-skeleton-here", "skeletonize", "has-skeletons", "boneskeleton"]) {
+    assert.equal(reason(cls), null, cls);
+  }
+  assert.equal(loadingReason(el("section", { "aria-busy": "true" })), "busy");
+  assert.equal(loadingReason(el("section", { "aria-busy": "false" })), null);
+});
+
 test("loading states and closed overlays are transient; scroll-reveal content isn't", () => {
   const shown = { display: "block", opacity: "1", position: "static" };
   assert.equal(transientReason(el("div", { "aria-busy": "true" }), shown), "busy");
@@ -143,4 +195,6 @@ test("loading states and closed overlays are transient; scroll-reveal content is
   assert.equal(transientReason(el("section"), { ...shown, opacity: "0" }), null);
   assert.equal(transientReason(el("svg", { "aria-hidden": "true" }), shown), null);
   assert.equal(transientReason(el("div", { class: "rounded bg-white p-4" }), shown), null);
+  assert.equal(transientReason(el("div", { class: "hover:animate-pulse rounded" }), shown), null);
+  assert.equal(transientReason(el("div", { class: "no-skeleton-here" }), shown), null);
 });

@@ -36,11 +36,18 @@ export interface DesignDeclarations {
   /**
    * Distinct declarations rendering the value site-wide: class strings, or
    * for an unclassed element its tag path. A component rendered on every row
-   * is one declaration.
+   * is one declaration. Counted from the scans that measured them; absent
+   * when none did.
    */
   declarations?: number;
   /** Of those, declarations that hand-typed it as an arbitrary value (`text-[#555]`). */
   handTyped?: number;
+  /**
+   * Uses from scans that predate declaration counting — each weighed as its
+   * own decision, the old reading. Absent when every scan measured them; only
+   * then is `declarations` the whole count.
+   */
+  legacyUses?: number;
 }
 
 export interface DesignFontUsage extends DesignDeclarations {

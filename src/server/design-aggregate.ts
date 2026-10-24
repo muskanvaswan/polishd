@@ -85,10 +85,10 @@ function toNum(v: unknown): number {
   return 0;
 }
 
-/** A tuple's declaration tail as a merge part; an old scan's tuple has none. */
-function declPart(tail: Partial<DesignDeclTail>): DeclarationPart {
+/** A tuple's declaration tail as a merge part; an old scan's tuple has none, and contributes its uses. */
+function declPart(tail: Partial<DesignDeclTail>, uses: unknown): DeclarationPart {
   const [declarations, handTyped, ids] = tail;
-  return { declarations, handTyped, ids };
+  return { declarations, handTyped, ids, uses };
 }
 
 /** Declaration and hand-typed totals across a section's values. */
@@ -180,7 +180,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       }
       f.count += count;
       f.pages.add(page);
-      f.decls.push(declPart(tail));
+      f.decls.push(declPart(tail, count));
       if (!f.sample && typeof sample === "string") f.sample = sample;
       if (typeof tags === "string") {
         for (const t of tags.split(",")) if (t && f.tags.size < 6) f.tags.add(t);
@@ -195,7 +195,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
     for (const [list, role] of roleLists) {
       for (const [hex, count, ...tail] of list) {
         if (typeof hex !== "string" || !hex.startsWith("#")) continue;
-        addColor(hex.toLowerCase(), role, toNum(count), page, declPart(tail));
+        addColor(hex.toLowerCase(), role, toNum(count), page, declPart(tail, count));
       }
     }
 
@@ -215,7 +215,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       if (!rd) radii.set(value, (rd = { count: 0, pages: new Set(), decls: [] }));
       rd.count += toNum(count);
       rd.pages.add(page);
-      rd.decls.push(declPart(tail));
+      rd.decls.push(declPart(tail, count));
     }
 
     for (const [px, count, ...tail] of rows<DesignPadTuple>(p.pad)) {
@@ -224,7 +224,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       if (!sp) spacing.set(px, (sp = { count: 0, pages: new Set(), decls: [] }));
       sp.count += toNum(count);
       sp.pages.add(page);
-      sp.decls.push(declPart(tail));
+      sp.decls.push(declPart(tail, count));
     }
 
     if (Array.isArray(p.tw)) {
@@ -258,6 +258,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       count: f.count,
       declarations: f.declarations,
       handTyped: f.handTyped,
+      legacyUses: f.legacyUses,
       sample: f.sample || null,
       tags: [...f.tags],
       pages: f.pages,
@@ -284,6 +285,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       count: c.count,
       declarations: c.declarations,
       handTyped: c.handTyped,
+      legacyUses: c.legacyUses,
       roles: c.roles,
       pages: c.pages,
       pct: colorTotals.count > 0 ? Math.round((c.count / colorTotals.count) * 1000) / 10 : 0,

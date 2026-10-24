@@ -351,10 +351,26 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
   // The scanner's transient states (design-declarations.ts `transientReason`):
   // a skeleton or busy region, an unrendered branch, a closed overlay at
   // opacity 0. Their values were never tallied, so they're never pictured.
-  const transient = (el: Element): boolean => {
+  // A pulse counts bare or behind a variant that holds at rest, never
+  // behind `hover:`; a skeleton class is `skeleton` as a whole segment.
+  const STANDING =
+    /^(?:sm|md|lg|xl|2xl|max-[\w[\]-]+|min-[\w[\]-]+|dark|light|print|portrait|landscape|motion-safe|motion-reduce|contrast-more|contrast-less|ltr|rtl|supports-[\w[\]()-]+|@[\w[\]-]*)$/;
+  const loading = (el: Element): boolean => {
     if (el.getAttribute("aria-busy") === "true") return true;
-    const cls = el.getAttribute("class");
-    if (cls && cls.split(/\s+/).some((t) => /(?:^|:)animate-pulse$/.test(t) || /skeleton/i.test(t))) return true;
+    return (el.getAttribute("class") ?? "").split(/\s+/).some((token) => {
+      const parts = token.split(":");
+      const u = (parts.pop() ?? "").replace(/^!|!$/g, "");
+      if (!parts.every((v) => STANDING.test(v))) return false;
+      return (
+        u === "animate-pulse" ||
+        /^skeleton(?:[-_]|$)/i.test(u) ||
+        /[-_]skeleton$/i.test(u) ||
+        /^(?:[A-Z][a-z0-9]*)+Skeleton(?:[-_]|$)/.test(u)
+      );
+    });
+  };
+  const transient = (el: Element): boolean => {
+    if (loading(el)) return true;
     const cs = getComputedStyle(el);
     if (cs.display === "none") return true;
     return (
@@ -363,7 +379,14 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
     );
   };
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
-    acceptNode: (node) => (transient(node as Element) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    // Cheap checks before any computed style: tags that never render, an
+    // icon's SVG internals, then transient states.
+    acceptNode: (node) => {
+      const el = node as Element;
+      if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+      if (el.namespaceURI === "http://www.w3.org/2000/svg" && el.localName !== "svg") return NodeFilter.FILTER_REJECT;
+      return transient(el) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
   });
   let sampled = 0;
   let visited = 0;
@@ -376,8 +399,6 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
   ) {
     visited++;
     const el = node as Element;
-    if (SKIP_TAGS.has(el.tagName)) continue;
-    if (el.closest("svg") && el.tagName !== "svg") continue;
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") continue;
     const rect = el.getBoundingClientRect();

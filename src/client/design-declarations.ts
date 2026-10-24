@@ -216,8 +216,10 @@ const PAD_SIDES: Record<string, ArbitraryProp[]> = {
 
 /** What one arbitrary-value utility (`name-[value]`) hand-types. */
 function arbitraryProps(name: string, value: string): ArbitraryProp[] {
-  // A `var(--…)` or theme() reference draws on a token; that's the opposite of hand-typed.
-  if (/^(?:[\w-]+:)?(?:var|theme)\(/i.test(value) || value.startsWith("--")) return [];
+  // A value built on a token — `var(--x)`, `hsl(var(--card))`,
+  // `calc(var(--radius)-4px)`, `theme(spacing.4)` — draws on the theme;
+  // that's the opposite of hand-typed, wherever in the value the reference sits.
+  if (/(?:^|[^\w-])(?:var|theme)\(/i.test(value) || value.startsWith("--")) return [];
   if (name === "text") {
     if (COLOR_VALUE.test(value)) return ["color"];
     return LENGTH_VALUE.test(value) ? ["fontSize"] : [];
@@ -251,6 +253,23 @@ export function readClassString(cls: string): ClassReading {
       list.push({ literal: m[2], variant: variants.length > 0 });
       reading.arbitrary.set(prop, list);
     }
+  }
+  return reading;
+}
+
+/**
+ * The reading for an element: its class attribute and nothing else. Inline
+ * `style` is deliberately never read (see the header) — a literal there may
+ * just as well have come from a theme object. `cache` holds readings per
+ * normalized class string, so a class repeated down a table is parsed once.
+ */
+export function readElementClasses(el: ElementLike, cache?: Map<string, ClassReading>): ClassReading | null {
+  const cls = normalizedClass(el);
+  if (!cls) return null;
+  let reading = cache?.get(cls);
+  if (!reading) {
+    reading = readClassString(cls);
+    cache?.set(cls, reading);
   }
   return reading;
 }
@@ -311,12 +330,47 @@ export function isHandTyped(
 // ── Transient states ─────────────────────────────────────────────────────────
 
 /**
- * Loading states visible anywhere on the page, for the scheduler to wait
- * out. Matches `motion-safe:animate-pulse` as well as the bare utility.
+ * A coarse net for loading states anywhere on the page — candidates only;
+ * `loadingReason` decides which really are.
  */
 export const TRANSIENT_SELECTOR = '[aria-busy="true"], [class*="animate-pulse"], [class*="skeleton" i]';
 
 export type TransientReason = "busy" | "skeleton" | "unrendered" | "invisible";
+
+/**
+ * A skeleton's class name: `skeleton` itself, or as a whole segment at
+ * either end — `skeleton-line`, `react-loading-skeleton`, a component's
+ * `MuiSkeleton-root` or `Skeleton_root__x1`. Not any token that happens to
+ * contain the word (`no-skeleton-here`).
+ */
+function isSkeletonClass(utility: string): boolean {
+  return (
+    /^skeleton(?:[-_]|$)/i.test(utility) ||
+    /[-_]skeleton$/i.test(utility) ||
+    /^(?:[A-Z][a-z0-9]*)+Skeleton(?:[-_]|$)/.test(utility)
+  );
+}
+
+/**
+ * Whether an element is a loading state at rest: busy, a skeleton class, or
+ * pulsing. `animate-pulse` counts bare or behind a variant that holds at
+ * rest (`motion-safe:`, a breakpoint, `dark:`) — the way skeletons are
+ * written — but not behind `hover:` or `group-hover:`, which don't pulse
+ * until someone points at them.
+ */
+export function loadingReason(el: ElementLike): "busy" | "skeleton" | null {
+  if (el.getAttribute("aria-busy") === "true") return "busy";
+  const cls = el.getAttribute("class");
+  if (!cls) return null;
+  for (const token of cls.split(/\s+/)) {
+    if (!token) continue;
+    const parts = splitVariants(token);
+    const utility = parts[parts.length - 1].replace(/^!|!$/g, "");
+    if (!parts.slice(0, -1).every((v) => STANDING_VARIANT.test(v))) continue;
+    if (utility === "animate-pulse" || isSkeletonClass(utility)) return "skeleton";
+  }
+  return null;
+}
 
 /**
  * Why a subtree isn't part of the design right now, or null when it is.
@@ -331,13 +385,8 @@ export function transientReason(
   el: ElementLike,
   style: { display: string; opacity: string; position: string },
 ): TransientReason | null {
-  if (el.getAttribute("aria-busy") === "true") return "busy";
-  const cls = el.getAttribute("class");
-  if (cls) {
-    for (const token of cls.split(/\s+/)) {
-      if (/(?:^|:)animate-pulse$/.test(token) || /skeleton/i.test(token)) return "skeleton";
-    }
-  }
+  const loading = loadingReason(el);
+  if (loading) return loading;
   if (style.display === "none") return "unrendered";
   if (
     parseFloat(style.opacity) <= 0.01 &&
