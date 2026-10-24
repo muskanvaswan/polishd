@@ -178,12 +178,12 @@ function isOff(mode: SnapshotMode, block: CaptureBlock | null): boolean {
   return mode.kind === "disabled" || block !== null;
 }
 
-function serviceHost(mode: SnapshotMode): string | null {
-  if (mode.kind !== "service" && mode.kind !== "consent") return null;
+function serviceHost(url: string | null): string | null {
+  if (!url) return null;
   try {
-    return new URL(mode.url).host;
+    return new URL(url).host;
   } catch {
-    return mode.url;
+    return url;
   }
 }
 
@@ -250,7 +250,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
     setSnapshotServiceConsentAction(allow)
       .then((res) => {
         if (res.ok) {
-          setAvailability({ mode: res.mode, storageIssue: res.storageIssue });
+          setAvailability({ mode: res.mode, storageIssue: res.storageIssue, serviceUrl: res.serviceUrl });
           setBlock(null);
           setError(null);
         } else {
@@ -278,7 +278,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
     turnOff: () => decide(false),
   };
 
-  const host = serviceHost(availability.mode);
+  const host = serviceHost(availability.serviceUrl);
   return (
     <SnapshotsContext.Provider value={state}>
       {children}

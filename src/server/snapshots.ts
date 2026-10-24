@@ -36,6 +36,7 @@ import { isAbsolute, join } from "node:path";
 
 import {
   decideSnapshotMode,
+  snapshotServiceUrl,
   type EncodedImage,
   type ShotResult,
   type SkipReason,
@@ -937,6 +938,8 @@ export interface SnapshotAvailability {
   mode: SnapshotMode;
   /** Set when images have nowhere to go — the message for `no_storage`. */
   storageIssue: string | null;
+  /** The service production captures would call (null when turned off) — for the consent dialog. */
+  serviceUrl: string | null;
 }
 
 /**
@@ -954,7 +957,7 @@ export async function snapshotAvailability(origin: string | null): Promise<Snaps
     storageReady: storageIssue === null,
     consent,
   });
-  return { mode, storageIssue };
+  return { mode, storageIssue, serviceUrl: snapshotServiceUrl(process.env.POLISHD_SNAPSHOT_SERVICE) };
 }
 
 /**

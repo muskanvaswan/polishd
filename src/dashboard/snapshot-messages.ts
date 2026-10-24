@@ -100,7 +100,7 @@ export function serviceFailureMessage(failure: ServiceFailure, ctx: FailureConte
       return (
         `Polishd's screenshot service can't reach ${host} — it only shoots sites the public ` +
         `internet can see${failure.message ? ` (${failure.message.replace(/\.$/, "")})` : ""}. ` +
-        "Open the dashboard on the site's public domain, or run it locally with `next dev`, " +
+        "Open the dashboard on the site's public domain, or run it locally with next dev, " +
         "where a browser on your machine takes the shots."
       );
     case "rejected":
@@ -127,8 +127,8 @@ export function disabledMessage(reason: SnapshotDisabledReason, storageIssue: st
     case "declined":
       return (
         "Site snapshots are off because Polishd's screenshot service wasn't allowed. In production " +
-        "it's the only way pages are shot — your server runs no browser. Review it below to turn " +
-        "snapshots on; local development (`next dev`) shoots with your own browser and needs nothing."
+        "it's the only way pages are shot — your server runs no browser. Use Review and allow to " +
+        "turn snapshots on; local development (next dev) shoots with your own browser and needs nothing."
       );
     case "turned_off":
       return (

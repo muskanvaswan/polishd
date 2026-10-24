@@ -395,6 +395,16 @@ function serviceOverride(override: string | undefined): string | null {
   }
 }
 
+/**
+ * The service a capture would use here — an override URL or the hosted one —
+ * or null when `POLISHD_SNAPSHOT_SERVICE=off` means it's never called. Named
+ * in the consent dialog, including when it's reopened after a "Not now".
+ */
+export function snapshotServiceUrl(override?: string): string | null {
+  if (["off", "local"].includes(override?.trim() ?? "")) return null;
+  return serviceOverride(override) ?? SNAPSHOT_SERVICE_URL;
+}
+
 /** Decide the section's mode. Pure: the dashboard and every capture action ask the same question. */
 export function decideSnapshotMode(input: SnapshotModeInput): SnapshotMode {
   const off = ["off", "local"].includes(input.override?.trim() ?? "");

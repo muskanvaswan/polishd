@@ -5,6 +5,7 @@ import {
   MAX_FIND_PER_REQUEST,
   SNAPSHOT_SERVICE_URL,
   decideSnapshotMode,
+  snapshotServiceUrl,
   MAX_ROUTES_PER_REQUEST,
   isRoutePath,
   looksPublicOrigin,
@@ -188,4 +189,10 @@ test("a service URL override applies even in development, consent included", () 
     kind: "consent",
     url: SNAPSHOT_SERVICE_URL,
   });
+});
+
+test("the service named in the consent dialog follows the override", () => {
+  assert.equal(snapshotServiceUrl(undefined), SNAPSHOT_SERVICE_URL);
+  assert.equal(snapshotServiceUrl("http://localhost:4100/api/v1/"), "http://localhost:4100/api/v1");
+  assert.equal(snapshotServiceUrl("off"), null);
 });

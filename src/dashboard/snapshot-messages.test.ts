@@ -62,7 +62,7 @@ test("a site the service can't reach is named, with the way out", () => {
 test("each reason the section is off says why", () => {
   assert.match(disabledMessage("no_storage", "Connect a Vercel Blob store."), /Connect a Vercel Blob store/);
   assert.match(disabledMessage("no_storage", null), /nowhere to be stored/);
-  assert.match(disabledMessage("declined", null), /wasn't allowed.*Review it/);
+  assert.match(disabledMessage("declined", null), /wasn.t allowed.*Review and allow/);
   assert.match(disabledMessage("turned_off", null), /POLISHD_SNAPSHOT_SERVICE=off/);
 });
 
