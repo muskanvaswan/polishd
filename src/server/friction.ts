@@ -326,3 +326,37 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
     capped,
   };
 }
+
+/** A target's capture handle, as a rage click recorded it. */
+export interface HandleRow {
+  selector: string | null;
+  component: string | null;
+  handle: string;
+  n: number;
+}
+
+/**
+ * Give click targets the handle their rage clicks recorded, where their dead
+ * clicks didn't already supply one. Rage rows are folded without their meta
+ * (see getFriction), so their handles arrive separately; counts are untouched.
+ */
+export function withRageHandles(index: FrictionIndex, rows: HandleRow[]): FrictionIndex {
+  if (!rows.length) return index;
+  const byKey = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const handle = r.handle.replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!handle || r.n <= 0) continue;
+    const key = r.component ? `component\u0000${r.component}` : `selector\u0000${r.selector ?? "(unknown)"}`;
+    let counts = byKey.get(key);
+    if (!counts) byKey.set(key, (counts = new Map()));
+    counts.set(handle, (counts.get(handle) ?? 0) + r.n);
+  }
+  return {
+    ...index,
+    clicks: index.clicks.map((c) => {
+      if (c.handle) return c;
+      const [top] = ranked(byKey.get(`${c.by}\u0000${c.key}`) ?? new Map(), 1);
+      return top ? { ...c, handle: top.label } : c;
+    }),
+  };
+}

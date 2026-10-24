@@ -250,6 +250,11 @@ export interface SourceSnapshot {
    * is then not proof of a unique one.
    */
   partial: boolean;
+  /**
+   * True when the file listing itself is incomplete (GitHub cut a huge
+   * repo's tree short): then not even a route can be verified from it.
+   */
+  truncated: boolean;
 }
 
 /**
@@ -278,6 +283,7 @@ export function diskSnapshot(sourceDirs?: string): SourceSnapshot | null {
     origin: "disk",
     files,
     partial,
+    truncated: false,
     read: (path) => {
       if (!searchable.has(path)) return null;
       if (cache.has(path)) return cache.get(path)!;
@@ -344,7 +350,8 @@ export async function githubSnapshot(
   return {
     origin: "github",
     files,
-    partial,
+    partial: partial || tree.truncated,
+    truncated: tree.truncated,
     read: (path) => content.get(path) ?? null,
   };
 }

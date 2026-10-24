@@ -367,17 +367,89 @@ test("a data-component anchor in a selector or handle decides; an ancestor id on
   assert.equal(m.location, "components/Hero.tsx");
 });
 
-test("variant prefixes, state classes and plugin utilities are not author names", () => {
+test("plugin utilities and variant-prefixed classes are not author names", () => {
   for (const c of [
     "tabular-nums", "transform-gpu", "no-scrollbar", "prose-lg", "prose-invert", "fade-in-0",
-    "zoom-in-95", "slide-in-from-top-2", "animate-in", "peer-checked", "aria-expanded",
-    "data-state", "group-hover", "is-active", "has-error", "focus-visible",
+    "zoom-in-95", "slide-in-from-top-2", "animate-in", "group-hover", "focus-visible",
     "peer-checked:bg-white", "aria-expanded:rotate-180", "data-[state=open]:flex",
     "supports-[backdrop-filter]:bg-white/60", "group-hover/item:visible",
   ]) {
     assert.equal(isUtilityClass(c), true, c);
   }
-  for (const c of ["filter-bar", "export-btn", "toggle-bar", "checkout-summary"]) {
+  // Author classes that merely start like a variant are kept.
+  for (const c of ["filter-bar", "export-btn", "toggle-bar", "checkout-summary", "data-table", "has-cards", "is-pinned", "aria-panel"]) {
     assert.equal(isUtilityClass(c), false, c);
   }
 });
+
+test("in a selector, a class cut off at a variant's colon or bracket is dropped; a plain one is kept", () => {
+  assert.deepEqual(sourceNeedles("div.flex>button.aria-expanded:rotate-180", NONE), []);
+  assert.deepEqual(sourceNeedles("div.flex>button.data-[state=open]:flex", NONE), []);
+  assert.deepEqual(sourceNeedles("div.flex>table.data-table", NONE), [
+    { kind: "identifier", value: "data-table", form: "literal" },
+  ]);
+  assert.deepEqual(sourceNeedles("div.flex>ul.has-cards", NONE), [
+    { kind: "identifier", value: "has-cards", form: "literal" },
+  ]);
+});
+
+test("part of a longer label matches in JSX text or a string, never an id value", () => {
+  assert.equal(labelMatches("Show more items", "<p>Click to Show more items below</p>"), true);
+  assert.equal(labelMatches("Show more items", 'const t = "Show more items now"'), true);
+  assert.equal(labelMatches("show more items", 'const t = "Show more items now"'), false, "strings match case");
+  assert.equal(labelMatches("Show more items", '<div id="Show more items x">'), false);
+});
+
+// ── Only what the citation names outright verifies ───────────────────────────
+
+const CSV = tree({
+  "components/Toolbar.tsx": `export const Toolbar = () => <div><button>Export</button></div>;`,
+  "components/CsvButton.tsx": `export const CsvButton = () => <button>Export CSV</button>;`,
+  "components/Nav.tsx": `export const Nav = () => <nav><a href="/pricing">Pricing</a><a>Settings</a></nav>;`,
+  "app/pricing/page.tsx": `export default () => <main />;`,
+});
+
+test("the longest name the citation is wins; a shorter known label inside it doesn't decide", () => {
+  const known: KnownNames = { components: [], labels: ["Export", "Export CSV"], paths: [] };
+  const m = matchSource(sourceNeedles("Export CSV", known), CSV.files, CSV.read);
+  assert.equal(m.location, "components/CsvButton.tsx");
+});
+
+test("a name found only inside the citation gives a candidate at most", () => {
+  const known: KnownNames = { components: [], labels: ["Export"], paths: [] };
+  const needles = sourceNeedles("Export CSV", known);
+  assert.ok(needles.some((n) => n.value === "Export" && n.contained));
+  const files = tree({ "components/Toolbar.tsx": `<button>Export</button>` });
+  const m = matchSource(needles, files.files, files.read);
+  assert.equal(m.location, undefined);
+  assert.deepEqual(m.candidates, ["components/Toolbar.tsx"]);
+});
+
+test("a selector's ancestor class or a label it happens to spell never verifies it", () => {
+  const known: KnownNames = { components: [], labels: ["Pricing", "Export"], paths: [] };
+  assert.deepEqual(matchSource(sourceNeedles("section.pricing-table>div.grid", known), CSV.files, CSV.read), {});
+});
+
+test("a path with no route file doesn't verify through a label in one of its segments", () => {
+  const known: KnownNames = { components: [], labels: ["Export", "Settings"], paths: [] };
+  const needles = sourceNeedles("/settings/export", known);
+  assert.deepEqual(needles, [{ kind: "route", value: "/settings/export" }]);
+  assert.deepEqual(matchSource(needles, CSV.files, CSV.read), {});
+});
+
+test("the digest's printed form `label <tag.class>` names both halves outright", () => {
+  const known: KnownNames = { components: [], labels: ["Export CSV", "Export"], paths: [] };
+  const needles = sourceNeedles("Export CSV <button.csv-export>", known);
+  assert.deepEqual(needles.filter((n) => !n.contained), [
+    { kind: "identifier", value: "csv-export", form: "literal" },
+    { kind: "label", value: "Export CSV" },
+  ]);
+  assert.equal(matchSource(needles, CSV.files, CSV.read).location, "components/CsvButton.tsx");
+});
+
+test("a truncated listing verifies nothing, not even a route", () => {
+  const m = matchSource(sourceNeedles("/pricing", NONE), CSV.files, CSV.read, { truncated: true });
+  assert.equal(m.location, undefined);
+  assert.deepEqual(m.candidates, ["app/pricing/page.tsx"]);
+});
+

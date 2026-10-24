@@ -355,26 +355,19 @@ const norm = (s: string): string =>
     .trim();
 
 /**
- * The target a citation refers to, or null when it names none — or names
- * more than one. An exact copy of a printed name wins; failing that, a
- * citation containing exactly one target's name (`Export <button.export> on
- * the toolbar`). Ties are never broken by volume: two targets both called
- * "Export" means the citation doesn't say which, so it gets neither.
+ * The target a citation refers to: the one digest line that printed exactly
+ * this string — or null, when none did or more than one did. Nothing looser:
+ * a citation that merely *contains* a printed name ("Export CSV" around the
+ * line "Export", an unmeasured `/docs/getting-started` around `/docs`) is
+ * about something else, and would carry another line's numbers. And ties are
+ * never broken by volume: two lines both printed "Export" means the citation
+ * doesn't say which, so it gets neither.
  */
 export function citedTarget(evidence: string, targets: DigestTarget[]): DigestTarget | null {
   const ev = norm(evidence);
   if (!ev) return null;
   const exact = targets.filter((t) => t.names.some((n) => norm(n) === ev));
-  if (exact.length) return exact.length === 1 ? exact[0] : null;
-  const within = targets.filter((t) =>
-    t.names.some((n) => {
-      const nn = norm(n);
-      if (nn.length >= 4 && ev.includes(nn)) return true;
-      // An error message cited by its opening words.
-      return t.section === "error" && ev.length >= 12 && nn.startsWith(ev);
-    }),
-  );
-  return within.length === 1 ? within[0] : null;
+  return exact.length === 1 ? exact[0] : null;
 }
 
 /**

@@ -278,6 +278,7 @@ async function matchLosses(
   return losses.map((l, i): PolishdLossItem => {
     const match = matchSource(needles[i], snapshot.files, snapshot.read, {
       partial: snapshot.partial,
+      truncated: snapshot.truncated,
     });
     return {
       ...l,

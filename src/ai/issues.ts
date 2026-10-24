@@ -23,12 +23,14 @@
 import { getMeta, setMeta } from "../server/store";
 import {
   createGithubIssue,
+  findRecentGithubIssue,
   getGithubStatus,
   isGithubConnected,
   readGithubFile,
   readGithubIssues,
   searchGithubCode,
 } from "./github";
+import { FILED_FOOTER, evidenceLine, filedFor } from "./issue-marker";
 import { loadProjectProfile } from "./profile";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
@@ -335,8 +337,7 @@ function issueBody(
   inv: Investigation,
   fileUrl: (path: string) => string,
 ): string {
-  const evidenceLabel = report.kind === "design" ? "from the design audit" : "from analytics";
-  const lines = [report.issue, "", `**Evidence (${evidenceLabel}):** \`${report.evidence}\``];
+  const lines = [report.issue, "", evidenceLine(report)];
   if (report.suggestion) {
     lines.push("", `**Suggested fix (from the design review):** ${report.suggestion}`);
   }
@@ -368,8 +369,8 @@ function issueBody(
     "",
     "---",
     inv.verdict === "confirmed"
-      ? `_Filed from the Polishd ${source} — ${observed} and confirmed against the source code._`
-      : `_Filed from the Polishd ${source} — ${observed}._`,
+      ? `${FILED_FOOTER}${source} — ${observed} and confirmed against the source code._`
+      : `${FILED_FOOTER}${source} — ${observed}._`,
   );
   return lines.join("\n");
 }
@@ -396,6 +397,19 @@ async function fileReport(report: Report): Promise<CreateIssueResult> {
       return { ok: false, error: "not-a-bug", message: existing.reason };
     }
     return { ok: true, url: existing.url, number: existing.number };
+  }
+
+  // An earlier attempt may have created the issue without us hearing back
+  // (the request failed after GitHub acted on it). Find it before filing again.
+  const earlier = await findRecentGithubIssue((i) => filedFor(report, i.body));
+  if (earlier) {
+    await recordLog(key, {
+      url: earlier.url,
+      number: earlier.number,
+      issue: report.issue,
+      filedAt: earlier.createdAt,
+    });
+    return { ok: true, url: earlier.url, number: earlier.number };
   }
 
   const inv = await investigate(report);

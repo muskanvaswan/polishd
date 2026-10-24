@@ -45,12 +45,15 @@ export async function isGithubConnected(): Promise<boolean> {
   return (await connection()) !== null;
 }
 
-/** How long one GitHub request may take before it's abandoned. */
+/** How long one GitHub read may take before it's abandoned. */
 const REQUEST_TIMEOUT_MS = 20_000;
 
 /**
  * Bounds on a request: `timeoutMs` for this one call, `signal` for the work
  * it's part of (a caller's overall budget). Either aborting fails the call.
+ * Reads get `REQUEST_TIMEOUT_MS` by default; writes get no timer unless one
+ * is passed — abandoning a create GitHub finishes anyway is how an issue
+ * gets filed twice.
  */
 export interface GithubRequestOptions {
   signal?: AbortSignal;
@@ -65,7 +68,11 @@ async function gh<T>(
   body?: unknown,
   opts: GithubRequestOptions = {},
 ): Promise<T> {
-  const timeout = AbortSignal.timeout(opts.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const timeoutMs = opts.timeoutMs ?? (method === "GET" ? REQUEST_TIMEOUT_MS : undefined);
+  const signals = [
+    ...(timeoutMs !== undefined ? [AbortSignal.timeout(timeoutMs)] : []),
+    ...(opts.signal ? [opts.signal] : []),
+  ];
   const res = await fetch(`${API}${path}`, {
     method,
     headers: {
@@ -76,7 +83,7 @@ async function gh<T>(
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
-    signal: opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout,
+    signal: signals.length ? AbortSignal.any(signals) : undefined,
   });
   if (!res.ok) {
     let message = `GitHub responded ${res.status}`;
@@ -378,6 +385,8 @@ interface IssueResponse {
   created_at: string;
   updated_at: string;
   closed_at?: string | null;
+  /** Present when the "issue" is a pull request (the issues API lists both). */
+  pull_request?: unknown;
 }
 
 function toIssue(raw: IssueResponse): PolishdGithubIssue {
@@ -482,6 +491,37 @@ export async function readGithubIssues(
     }
   }
   return found;
+}
+
+/** How many of the newest issues `findRecentGithubIssue` looks through. */
+const RECENT_ISSUES = 50;
+
+/**
+ * The newest issue among the repo's latest that `match` accepts, or null —
+ * including when the list can't be read. This is how a filing whose outcome
+ * was never heard (the request failed after GitHub may already have created
+ * the issue) is found again instead of being filed a second time.
+ */
+export async function findRecentGithubIssue(
+  match: (issue: PolishdGithubIssue) => boolean,
+): Promise<PolishdGithubIssue | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  try {
+    const batch = await gh<IssueResponse[]>(
+      conn.token,
+      "GET",
+      `/repos/${conn.repo}/issues?state=all&sort=created&direction=desc&per_page=${RECENT_ISSUES}`,
+    );
+    for (const raw of batch) {
+      if (raw.pull_request) continue;
+      const issue = toIssue(raw);
+      if (match(issue)) return issue;
+    }
+  } catch {
+    /* unreadable: nothing found */
+  }
+  return null;
 }
 
 /** File an issue in the connected repo. Throws on failure. */

@@ -197,10 +197,23 @@ test("a citation that names two digest lines equally attaches nothing", () => {
   assert.equal(lossSignal("Export <span>", "dead clicks", ts)?.count, 40, "the printed form tells them apart");
 });
 
-test("an error message, clipped or whole, gets the error's volume", () => {
+test("an error message cited as printed gets the error's volume; its opening words don't", () => {
   const s = { kind: "js_error", count: 2, sessions: 1, pages: ["/~polishd"] };
   assert.deepEqual(lossSignal(MESSAGE, "crash", targets()), s);
-  assert.deepEqual(lossSignal('"Cannot read properties of undefined"', "crash", targets()), s);
+  assert.deepEqual(lossSignal(`"${MESSAGE}"`, "crash", targets()), s);
+  assert.equal(lossSignal('"Cannot read properties of undefined"', "crash", targets()), undefined);
+});
+
+test("a citation that merely contains a printed name gets none of that line's numbers", () => {
+  const d = data();
+  d.elements.push({ label: "div.bar>button", selector: "div.bar>button", sampleText: "Export", pages: 1, clicks: 0, rageClicks: 0, deadClicks: 2, score: 4, lastInteraction: 0 });
+  d.topUsed = [{ label: "Export CSV", isComponent: false, selector: "a.csv", sampleText: "Export CSV", clicks: 30, sessions: 9, pages: 1 }];
+  d.pages.push({ path: "/docs", sessions: 50, pageViews: 70, rageClicks: 0, deadClicks: 0, jsErrors: 0, avgScrollDepth: null, trend: [] });
+  const f = foldFriction([row({ type: "dead_click", session: "a", selector: "div.bar>button", text: "Export", n: 2 })]);
+  const { targets: ts } = digestParts(d, undefined, f);
+  assert.equal(lossSignal("Export CSV", "people don't find the CSV export", ts), undefined);
+  assert.equal(lossSignal("/docs/getting-started", "few people finish the guide", ts), undefined);
+  assert.equal(lossSignal("Export", "dead clicks on Export", ts)?.count, 2, "the exact name still attaches");
 });
 
 // ── Item 2: the kind follows what the loss is about ──────────────────────────

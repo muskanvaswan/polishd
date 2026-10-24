@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { foldFriction, type FrictionRow } from "./friction.ts";
+import { foldFriction, withRageHandles, type FrictionRow } from "./friction.ts";
 
 const row = (r: Partial<FrictionRow> & Pick<FrictionRow, "type" | "session">): FrictionRow => ({
   path: "/",
@@ -123,4 +123,22 @@ test("handles are kept per target and per error, most frequent first; afterSelec
   assert.equal(idx.errors[0].afterSelector, "div#cart>button.pay");
   const old = foldFriction([row({ type: "dead_click", session: "a", selector: "div.x" })]);
   assert.equal("handle" in old.clicks[0], false, "older clients: no field at all");
+});
+
+test("rage-click handles arrive separately and fill only targets that lack one", () => {
+  // Rage rows are grouped without their meta (so they don't split per distinct meta).
+  const idx = foldFriction([
+    row({ type: "rage_click", session: "a", selector: "div.rage-only", n: 4 }),
+    row({ type: "dead_click", session: "b", selector: "div.both", meta: { handle: "div#a>div.both" } }),
+    row({ type: "rage_click", session: "b", selector: "div.both" }),
+  ]);
+  const withHandles = withRageHandles(idx, [
+    { selector: "div.rage-only", component: null, handle: "div#a>div.rage-only", n: 3 },
+    { selector: "div.rage-only", component: null, handle: "div#b>div.rage-only", n: 1 },
+    { selector: "div.both", component: null, handle: "div#z>div.both", n: 9 },
+  ]);
+  const by = (key: string) => withHandles.clicks.find((c) => c.key === key)!;
+  assert.equal(by("div.rage-only").handle, "div#a>div.rage-only");
+  assert.equal(by("div.both").handle, "div#a>div.both", "a dead-click handle is kept");
+  assert.equal(by("div.rage-only").rage.count, 4, "counts untouched");
 });

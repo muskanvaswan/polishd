@@ -53,6 +53,14 @@ export interface Needle {
    * class says nothing about which of its descendants was clicked.
    */
   narrowOnly?: boolean;
+  /**
+   * A name found *inside* a longer citation rather than the citation itself:
+   * the known label "Export" in the citation "Export CSV". It is only
+   * consulted when nothing the citation names outright matched, and then
+   * yields candidates at most — a shorter name it happens to contain must
+   * never verify the citation.
+   */
+  contained?: boolean;
 }
 
 /** Names the analytics (and the profile) already know, to recognize evidence by. */
@@ -167,9 +175,8 @@ const UTILITY_PREFIX = new RegExp(
       // Bootstrap & co. — framework classes, not the author's names
       "d", "mx", "my", "px", "py", "fs", "fw", "lh", "btn", "navbar", "input-group", "badge",
       "alert", "dropdown", "offcanvas", "list-group", "table", "bg-gradient",
-      // variant prefixes that survive as class names (`peer-checked`, `aria-expanded`),
-      // state classes (`is-active`, `has-error`), plugin utilities
-      "peer", "group", "aria", "data", "supports", "is", "has", "not", "focus", "motion",
+      // plugin utilities (variant prefixes cut off at their `:` are dropped by
+      // context in selectorNeedles, not here — `data-table` is an author's name)
       "contrast", "prose", "fade-in", "fade-out", "zoom-in", "zoom-out", "slide-in", "slide-out",
       "spin-in", "spin-out", "scrollbar", "transform", "backface", "perspective",
       "line", "normal", "ordinal", "tabular", "forced-color", "print", "portrait", "landscape",
@@ -257,13 +264,17 @@ export function selectorNeedles(selector: string): Needle[] {
     for (const m of seg.matchAll(/\[data-component\s*=\s*["']?([^"'\]]+)["']?\]/g)) {
       out.push({ kind: "component", value: m[1].trim() });
     }
-    const bare = seg.replace(/\[[^\]]*\]/g, ""); // attribute values aren't classes
+    // Attribute values aren't classes — but a bracket glued to a class is an
+    // arbitrary variant, so keep it visible to the variant check below.
+    const bare = seg.replace(/(^|[^\w-])\[[^\]]*\]/g, "$1");
     for (const m of bare.matchAll(/#([\w-]+)/g)) {
       if (!isGeneratedId(m[1]) && m[1].length >= 4) {
         out.push({ kind: "identifier", value: m[1], form: "literal", ...narrowOnly });
       }
     }
-    for (const m of bare.matchAll(/\.([\w-]+)/g)) {
+    // A class followed by `:` or `[` is a variant cut off at its prefix
+    // (`aria-expanded:rotate-180`, `data-[state=open]:flex`), not a name.
+    for (const m of bare.matchAll(/\.([\w-]+)(?![\w-]*[:[])/g)) {
       if (isDistinctiveName(m[1])) {
         out.push({ kind: "identifier", value: m[1], form: "literal", ...narrowOnly });
       }
@@ -298,73 +309,100 @@ export function sourceNeedles(
   const out: Needle[] = [];
   // A cited page path is the route's file. A component that happens to share
   // a path segment (`data-component="pricing"` for `/pricing`) can narrow
-  // that, never stand in for it.
+  // that, never stand in for it — and a label that happens to be a segment
+  // (`/settings/export` → "Export") isn't searched at all.
   const isPath = e.startsWith("/");
+  // The digest prints an element as `label <tag.class>`; cited that way, both
+  // halves are named outright.
+  const printed = isPath ? null : e.match(/^(.+?)\s+<([^<>]+)>$/);
+  const isSelector = !isPath && !printed && looksLikeSelector(e);
+  const contained = { contained: true } as const;
 
   // Components the analytics know, cited outright or inside a longer string.
   for (const c of known.components) {
     if (!c || c.length < 2) continue;
     const whole = new RegExp(`(?<![\\w-])${escapeRegExp(c)}(?![\\w-])`);
-    if (norm(c) === ne || (c.length >= 4 && whole.test(e))) {
-      out.push({ kind: "component", value: c, ...(isPath ? { narrowOnly: true } : {}) });
+    if (norm(c) === ne) out.push({ kind: "component", value: c });
+    else if (c.length >= 4 && whole.test(e)) {
+      out.push({ kind: "component", value: c, ...(isPath ? { narrowOnly: true } : contained) });
     }
   }
 
-  // Page paths.
-  const pathToken = e.split(/\s+/).find((t) => t.startsWith("/"));
-  if (pathToken && (e.startsWith("/") || known.paths.includes(pathToken))) {
-    const path = pathToken.replace(/[?#].*$/, "").replace(/[),.;:]+$/, "");
-    if (/^\/[\w\-./[\]%~@]*$/.test(path)) out.push({ kind: "route", value: path });
-  }
-
-  // Quoted text inside the citation: `button "Show 9 more"`, aria-label="Close".
-  // Not in a selector, whose quoted values are attributes (handled below).
-  if (!looksLikeSelector(e)) {
-    for (const m of e.matchAll(/["“]([^"”]{2,80})["”]|=\s*'([^']{2,80})'/g)) {
-      out.push({ kind: "label", value: (m[1] ?? m[2]).trim() });
+  // Page paths: the citation itself, or one known path inside it.
+  if (isPath) {
+    const path = e.split(/\s+/)[0].replace(/[?#].*$/, "").replace(/[),.;:]+$/, "");
+    if (/^\/[\w\-./[\]%~@]*$/.test(path)) {
+      out.push({ kind: "route", value: path, ...(path === e ? {} : contained) });
     }
+  } else {
+    const inside = e.split(/\s+/).find((t) => t.startsWith("/") && known.paths.includes(t));
+    if (inside) out.push({ kind: "route", value: inside, ...contained });
   }
 
-  // Labels the analytics recorded, cited outright or inside the citation. The
-  // digest clips labels to 40 characters, so the clipped form counts too.
-  for (const label of known.labels) {
-    for (const form of new Set([label, label.replace(/\s+/g, " ").trim().slice(0, 40)])) {
-      const nl = norm(form);
-      if (nl.length >= 3 && (nl === ne || (nl.length >= 4 && ne.includes(nl)))) {
-        out.push({ kind: "label", value: form.replace(/\s+/g, " ").trim() });
+  if (!isPath && !isSelector) {
+    const label = printed ? printed[1].trim() : e;
+    // Labels the analytics recorded: the citation's own label outright, or
+    // (weaker) a known label inside it. The digest clips labels to 40
+    // characters, so the clipped form counts too.
+    for (const known_ of known.labels) {
+      for (const form of new Set([known_, known_.replace(/\s+/g, " ").trim().slice(0, 40)])) {
+        const nl = norm(form);
+        const value = form.replace(/\s+/g, " ").trim();
+        if (nl.length >= 3 && nl === norm(label)) out.push({ kind: "label", value });
+        else if (nl.length >= 4 && ne.includes(nl)) out.push({ kind: "label", value, ...contained });
       }
+    }
+    // Quoted text inside the citation: `button "Show 9 more"`, aria-label="Close".
+    for (const m of e.matchAll(/["“]([^"”]{2,80})["”]|=\s*'([^']{2,80})'/g)) {
+      out.push({ kind: "label", value: (m[1] ?? m[2]).trim(), ...contained });
     }
   }
 
   if (isPath) {
     // A path is all it says; its words aren't identifiers or text.
-  } else if (looksLikeSelector(e)) {
+  } else if (isSelector) {
     out.push(...selectorNeedles(e));
+  } else if (printed) {
+    out.push(...selectorNeedles(printed[2]));
+    if (!out.some((n) => n.kind === "label" && !n.contained)) {
+      out.push({ kind: "label", value: printed[1].trim() });
+    }
   } else {
     for (const tok of e.match(/[A-Za-z_$][\w$-]*/g) ?? []) {
+      const whole = tok === e ? {} : contained;
       if (CODE_IDENTIFIER.test(tok) && tok.length >= 6 && !NOT_IDENTIFIERS.has(tok)) {
-        out.push({ kind: "identifier", value: tok, form: "word" });
+        out.push({ kind: "identifier", value: tok, form: "word", ...whole });
       } else if (/[-_]/.test(tok) && tok.length >= 6 && isDistinctiveName(tok)) {
-        out.push({ kind: "identifier", value: tok, form: "literal" });
+        out.push({ kind: "identifier", value: tok, form: "literal", ...whole });
       }
     }
-    if (looksLikePhrase(e) && !out.some((n) => n.kind === "label")) {
+    // The whole citation as visible text, unless a known label already is.
+    // A single short word ("OK") gets no needle at all: too common to search.
+    if (looksLikePhrase(e) && !out.some((n) => n.kind === "label" && !n.contained)) {
       out.push({ kind: "label", value: e });
     }
   }
 
   // The greppable path capture recorded for the cited target, when it did:
-  // the same kind of needles a cited selector gives.
+  // the same kind of needles a cited selector gives. The target was matched
+  // exactly (see digest.ts), so its handle names it outright.
   if (opts.handle) out.push(...selectorNeedles(opts.handle));
 
-  return dedupe(out).sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
+  return dedupe(out).sort(
+    (a, b) =>
+      Number(!!a.contained) - Number(!!b.contained) ||
+      KIND_RANK[a.kind] - KIND_RANK[b.kind] ||
+      b.value.length - a.value.length,
+  );
 }
 
 const KIND_RANK: Record<NeedleKind, number> = { component: 0, route: 1, identifier: 2, label: 3 };
 
 function dedupe(needles: Needle[]): Needle[] {
   const seen = new Set<string>();
-  return needles.filter((n) => {
+  const outright = [...needles].sort((a, b) => Number(!!a.contained) - Number(!!b.contained));
+  return outright.filter((n) => {
+    // An outright needle beats the same needle found inside the citation.
     const k = `${n.kind}:${n.form ?? ""}:${n.narrowOnly ? "~" : ""}${n.value.toLowerCase()}`;
     if (seen.has(k)) return false;
     seen.add(k);
@@ -509,10 +547,17 @@ export function labelPatterns(label: string, whole = false): RegExp[] {
   );
   const body = parts.join(String.raw`\s+`);
   const jsx = new RegExp(`${JSX_OPEN}${body}${JSX_CLOSE}`, "i");
+  // A short label ("Log in", "Pay") is only ever its whole JSX text. ("OK"
+  // never gets this far: sourceNeedles doesn't search two-letter labels.)
   if (isShortLabel(label)) return [jsx];
   const literal = new RegExp(`${LITERAL_OPEN}${body}${LITERAL_CLOSE}`);
   if (words.length === 1 || whole) return [jsx, literal];
-  return [new RegExp(body, "i")];
+  // Part of a longer text: still inside JSX text or a string — never an
+  // attribute value that names rather than says, and case-sensitive in one.
+  return [
+    new RegExp(String.raw`(?:>|\})[^<>{}]*?${body}`, "i"),
+    new RegExp(String.raw`${LITERAL_OPEN.replace(String.raw`(["'\x60])\s*`, String.raw`(["'\x60])`)}[^"'\x60\n]*?${body}[^"'\x60\n]*?\1`),
+  ];
 }
 
 /** Does any way of writing the label occur in the text? */
@@ -592,21 +637,26 @@ export function stripComments(source: string): string {
 }
 
 /**
- * Match evidence needles against the source. The strongest needle that
- * matches anything sets the candidates; the others can only narrow them.
- * Exactly one file left → that's the location. More than one → candidates,
- * and no location: picking one would be a guess dressed as a verification.
+ * Match evidence needles against the source. The strongest needle the
+ * citation names outright that matches anything sets the candidates; the
+ * others (and ancestor context) can only narrow them. Exactly one file left
+ * → that's the location. More than one → candidates, and no location:
+ * picking one would be a guess dressed as a verification.
+ *
+ * Needles found *inside* the citation (`contained`) are only consulted when
+ * nothing named outright matched, and then give candidates, never a location.
  *
  * `partial` says some files couldn't be read (over budget, a failed or timed
  * out request). Then one hit among what was read isn't proof it's the only
  * one, so a content match comes back as a candidate, never a location. A
- * route still verifies: it's decided from the complete file listing.
+ * route still verifies — it's decided from the file listing — unless
+ * `truncated` says the listing itself is incomplete, when nothing verifies.
  */
 export function matchSource(
   needles: Needle[],
   files: string[],
   read: (path: string) => string | null,
-  opts: { partial?: boolean } = {},
+  opts: { partial?: boolean; truncated?: boolean } = {},
 ): SourceMatch {
   if (!needles.length || !files.length) return {};
   const stripped = new Map<string, string | null>();
@@ -617,29 +667,49 @@ export function matchSource(
     }
     return stripped.get(path)!;
   };
-  const ordered = [...needles].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
+  const rank = (n: Needle) => KIND_RANK[n.kind];
+  const outright = needles
+    .filter((n) => !n.narrowOnly && !n.contained)
+    .sort((a, b) => rank(a) - rank(b) || b.value.length - a.value.length);
+  const context = needles.filter((n) => n.narrowOnly);
+  const inside = needles
+    .filter((n) => n.contained && !n.narrowOnly)
+    .sort((a, b) => rank(a) - rank(b) || b.value.length - a.value.length);
+
+  const hitsOf = (n: Needle) => [...new Set(filesFor(n, files, code))];
+  const candidatesOnly = (needle: Needle, hits: string[]): SourceMatch => ({
+    candidates: [...hits].sort().slice(0, MAX_CANDIDATES),
+    needle,
+  });
+
   let decided: { needle: Needle; files: string[] } | null = null;
-  const others: string[][] = [];
-  for (const needle of ordered) {
-    const hits = [...new Set(filesFor(needle, files, code))];
-    if (!hits.length) continue;
-    if (!decided && !needle.narrowOnly) decided = { needle, files: hits };
-    else others.push(hits);
+  for (const needle of outright) {
+    const hits = hitsOf(needle);
+    if (hits.length) {
+      decided = { needle, files: hits };
+      break;
+    }
   }
-  if (!decided) return {};
+  if (!decided) {
+    for (const needle of inside) {
+      const hits = hitsOf(needle);
+      if (hits.length) return candidatesOnly(needle, hits);
+    }
+    return {};
+  }
 
   let candidates = decided.files;
-  for (const hits of others) {
+  for (const needle of [...outright, ...context]) {
     if (candidates.length === 1) break;
+    if (needle === decided.needle) continue;
+    const hits = hitsOf(needle);
     const narrowed = candidates.filter((f) => hits.includes(f));
     if (narrowed.length) candidates = narrowed;
   }
-  const verifiable = !opts.partial || decided.needle.kind === "route";
+  const verifiable =
+    !opts.truncated && (!opts.partial || decided.needle.kind === "route");
   if (candidates.length === 1 && verifiable) {
     return { location: candidates[0], needle: decided.needle };
   }
-  return {
-    candidates: [...candidates].sort().slice(0, MAX_CANDIDATES),
-    needle: decided.needle,
-  };
+  return candidatesOnly(decided.needle, candidates);
 }

@@ -24,6 +24,7 @@ import { isIgnorableError } from "../shared/error-noise";
 import {
   EMPTY_FRICTION,
   foldFriction,
+  withRageHandles,
   type FrictionIndex,
   type FrictionKind,
   type FrictionRow,
@@ -1161,6 +1162,8 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
 
 /** Grouped friction rows read at most — well past what a small site produces. */
 const FRICTION_ROW_CAP = 10_000;
+/** Rage-click meta rows read for their handles, most recent first. */
+const RAGE_HANDLE_ROWS = 2_000;
 
 /**
  * Rage clicks, dead clicks and errors, folded per element, component, page
@@ -1170,21 +1173,36 @@ const FRICTION_ROW_CAP = 10_000;
  *
  * Deliberately not part of `loadPolishdDashboardData`: only the AI summary
  * reads it, so it runs when a summary is generated, never on a dashboard
- * render. One grouped query — events of one kind, on one page, target,
- * session and meta collapse to a row. Past the row cap the most recent
- * friction wins, and the index says it was capped.
+ * render. One grouped query — events of one kind, on one page, target and
+ * session (and, for dead clicks and errors, meta) collapse to a row. Past the
+ * row cap the most recent friction wins, and the index says it was capped.
+ *
+ * A rage click's meta only matters for its handle, which is the same on every
+ * click of one element, so rage rows aren't split by it; the handles come
+ * from a second, small query instead of spending the row cap.
  */
 export async function getFriction(): Promise<FrictionIndex> {
   if (!(await storeReady())) return EMPTY_FRICTION;
-  const rows = await query(
-    `SELECT type, path, selector, component, session_id, meta,
-            MAX(text) AS text, COUNT(*) AS n, MAX(id) AS last_id
-     FROM ${polishdEventsSource()}
-     WHERE type IN ('rage_click', 'dead_click', 'js_error')
-     GROUP BY type, path, selector, component, session_id, meta
-     ORDER BY last_id DESC LIMIT ?`,
-    [FRICTION_ROW_CAP + 1],
-  );
+  const metaExpr = `CASE WHEN type = 'rage_click' THEN NULL ELSE meta END`;
+  const [rows, rageMeta] = await Promise.all([
+    query(
+      `SELECT type, path, selector, component, session_id, ${metaExpr} AS meta,
+              MAX(text) AS text, COUNT(*) AS n, MAX(id) AS last_id
+       FROM ${polishdEventsSource()}
+       WHERE type IN ('rage_click', 'dead_click', 'js_error')
+       GROUP BY type, path, selector, component, session_id, ${metaExpr}
+       ORDER BY last_id DESC LIMIT ?`,
+      [FRICTION_ROW_CAP + 1],
+    ),
+    query(
+      `SELECT selector, component, meta, COUNT(*) AS n, MAX(id) AS last_id
+       FROM ${polishdEventsSource()}
+       WHERE type = 'rage_click' AND meta IS NOT NULL
+       GROUP BY selector, component, meta
+       ORDER BY last_id DESC LIMIT ?`,
+      [RAGE_HANDLE_ROWS],
+    ),
+  ]);
   const capped = rows.length > FRICTION_ROW_CAP;
   const parsed: FrictionRow[] = [];
   for (const r of rows.slice(0, FRICTION_ROW_CAP)) {
@@ -1207,7 +1225,18 @@ export async function getFriction(): Promise<FrictionIndex> {
       n: num(r, "n"),
     });
   }
-  return foldFriction(parsed, capped);
+  const handles = rageMeta.flatMap((r) => {
+    const handle = parseMeta(r.meta)?.handle;
+    return typeof handle === "string" && handle.trim()
+      ? [{
+          selector: (r.selector as string) ?? null,
+          component: (r.component as string) ?? null,
+          handle,
+          n: num(r, "n"),
+        }]
+      : [];
+  });
+  return withRageHandles(foldFriction(parsed, capped), handles);
 }
 
 // ── Cross-install telemetry (the installs view) ──────────────────────────────
