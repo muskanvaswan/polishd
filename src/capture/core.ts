@@ -366,7 +366,10 @@ function markDesignTargets({ refs, attr, perTarget }: MarkArgs): number[] {
         return true;
       }
       if (u !== "animate-pulse") return false;
-      return parts.length === 0 || /\bpulse\b/.test(getComputedStyle(el).animationName);
+      // Same rule as loadingReason: a motion variant marks a skeleton even when
+      // reduced motion stops it animating.
+      if (parts.length === 0 || parts.every((v) => v === "motion-safe" || v === "motion-reduce")) return true;
+      return /\bpulse\b/.test(getComputedStyle(el).animationName);
     });
   };
   const transient = (el: Element): boolean => {

@@ -96,6 +96,8 @@ test("arbitrary values are read per property; token references are not", () => {
   assert.deepEqual(props("text-[theme(fontSize.sm)] border-[theme(colors.zinc.800)]"), []);
   // Whatever operator precedes the call — including a minus.
   assert.deepEqual(props("p-[calc(2rem-var(--gutter))]"), []);
+  // Tailwind's `_` for a space.
+  assert.deepEqual(props("p-[calc(2rem_-_var(--gutter))]"), []);
   assert.deepEqual(props("rounded-[calc(1rem-var(--inset))]"), []);
   assert.deepEqual(props("text-[calc(1rem-theme(spacing.1))]"), []);
   assert.deepEqual(props("p-[calc(2rem+var(--gutter))] m-[calc(var(--a)*-1)]"), []);
@@ -173,6 +175,9 @@ test("only a pulse at rest or a real skeleton class is a loading state", () => {
   assert.equal(reason("h-4 animate-pulse rounded"), "skeleton");
   // Behind a variant that can hold at rest, only when the pulse is running here.
   assert.equal(reason("motion-safe:animate-pulse", "pulse"), "skeleton");
+  // Reduced motion stops the pulse, not the placeholder.
+  assert.equal(reason("motion-safe:animate-pulse", "none"), "skeleton", "reduced motion");
+  assert.equal(reason("motion-reduce:animate-pulse", "none"), "skeleton");
   assert.equal(reason("md:animate-pulse", "pulse"), "skeleton");
   assert.equal(reason("md:animate-pulse", "none"), null, "below md");
   assert.equal(reason("print:animate-pulse", "none"), null, "on screen");

@@ -221,7 +221,10 @@ function arbitraryProps(name: string, value: string): ArbitraryProp[] {
   // — draws on the theme; that's the opposite of hand-typed, wherever in the
   // value the call sits and whatever operator precedes it. Only a longer
   // identifier (`myvar(`) isn't the call.
-  if (/(?:^|[^a-z0-9_])(?:var|theme)\(/i.test(value) || value.startsWith("--")) return [];
+  // Tailwind writes a space as `_`: `calc(2rem_-_var(--gutter))` is
+  // `calc(2rem - var(--gutter))`.
+  const spaced = value.replace(/(?<!\\)_/g, " ");
+  if (/(?:^|[^a-z0-9_])(?:var|theme)\(/i.test(spaced) || value.startsWith("--")) return [];
   if (name === "text") {
     if (COLOR_VALUE.test(value)) return ["color"];
     return LENGTH_VALUE.test(value) ? ["fontSize"] : [];
@@ -361,6 +364,8 @@ function isSkeletonClass(utility: string): boolean {
  * — `print:animate-pulse` doesn't on screen. Behind `hover:` or
  * `group-hover:` it never counts: nothing pulses until someone points at it.
  */
+const isMotionVariant = (v: string): boolean => v === "motion-safe" || v === "motion-reduce";
+
 export function loadingReason(el: ElementLike, animationName?: string): "busy" | "skeleton" | null {
   if (el.getAttribute("aria-busy") === "true") return "busy";
   const cls = el.getAttribute("class");
@@ -373,7 +378,11 @@ export function loadingReason(el: ElementLike, animationName?: string): "busy" |
     if (!variants.every((v) => STANDING_VARIANT.test(v))) continue;
     if (isSkeletonClass(utility)) return "skeleton";
     if (utility !== "animate-pulse") continue;
-    if (variants.length === 0 || /\bpulse\b/.test(animationName ?? "")) return "skeleton";
+    // A motion variant marks a loading placeholder whatever the visitor's
+    // motion setting — with reduced motion on, `motion-safe:` computes to
+    // animation "none" but the element is still a skeleton.
+    if (variants.length === 0 || variants.every(isMotionVariant)) return "skeleton";
+    if (/\bpulse\b/.test(animationName ?? "")) return "skeleton";
   }
   return null;
 }
