@@ -51,7 +51,9 @@ calls straight from the owner's browser.
   - rate limits;
   - the service being down.
   
-  Production never falls back to a browser on the host.
+  A block found during a capture is kept per install, so the section stays
+  off at the bottom, across reloads, until "Try again" gets a capture
+  through. Production never falls back to a browser on the host.
 - **Removed:** the `@sparticuz/chromium` optional dependency and the
   serverless capture path. No host should need `next.config` changes for
   snapshots; any `outputFileTracingIncludes` added for them can be removed.

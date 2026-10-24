@@ -5,6 +5,7 @@ import {
   MAX_FIND_PER_REQUEST,
   SNAPSHOT_SERVICE_URL,
   decideSnapshotMode,
+  parseCaptureBlock,
   snapshotServiceUrl,
   MAX_ROUTES_PER_REQUEST,
   isRoutePath,
@@ -195,4 +196,15 @@ test("the service named in the consent dialog follows the override", () => {
   assert.equal(snapshotServiceUrl(undefined), SNAPSHOT_SERVICE_URL);
   assert.equal(snapshotServiceUrl("http://localhost:4100/api/v1/"), "http://localhost:4100/api/v1");
   assert.equal(snapshotServiceUrl("off"), null);
+});
+
+test("a stored capture block keeps only its own shape", () => {
+  assert.deepEqual(parseCaptureBlock({ reason: "csp", message: "blocked", extra: 1 }), {
+    reason: "csp",
+    message: "blocked",
+  });
+  assert.equal(parseCaptureBlock({ reason: "csp", message: "x".repeat(900) })?.message.length, 600);
+  for (const bad of [null, "csp", { reason: "nope", message: "m" }, { reason: "down", message: " " }, { reason: "down" }]) {
+    assert.equal(parseCaptureBlock(bad), null, JSON.stringify(bad));
+  }
 });

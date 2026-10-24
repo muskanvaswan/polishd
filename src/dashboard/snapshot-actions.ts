@@ -28,6 +28,7 @@ import { buildDesignDigest } from "../ai/design";
 import { fingerprintDigest } from "../ai/digest";
 import { requirePolishdAuth } from "../ai/guard";
 import { resolveSettings } from "../ai/settings";
+import { parseCaptureBlock, type StoredCaptureBlock } from "../capture/protocol";
 import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
 import type { ShotSlot } from "../server/snapshot-files";
@@ -40,6 +41,7 @@ import {
   finishSnapshot,
   readSnapshotImage,
   recordSnapshotShot,
+  saveSnapshotBlock,
   saveSnapshotConsent,
   snapshotAvailability,
   snapshotUploadTarget,
@@ -137,6 +139,24 @@ export async function setSnapshotServiceConsentAction(
     return { ok: true, ...(await snapshotAvailability(await resolveSiteOrigin())) };
   } catch (err) {
     return failed("Couldn't record the choice", err);
+  }
+}
+
+/**
+ * Remember why the last capture couldn't use the service (null: it got
+ * through), so the section stays off at the bottom of the tab until a
+ * capture succeeds — across reloads, not just this page view.
+ */
+export async function setSnapshotBlockAction(
+  block: unknown,
+): Promise<({ ok: true; block: StoredCaptureBlock | null }) | Failure> {
+  await requirePolishdAuth();
+  try {
+    const parsed = block === null ? null : parseCaptureBlock(block);
+    if (block !== null && !parsed) return { ok: false, message: "That isn't a capture block." };
+    return { ok: true, block: await saveSnapshotBlock(parsed) };
+  } catch (err) {
+    return failed("Couldn't record the capture's outcome", err);
   }
 }
 

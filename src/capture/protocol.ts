@@ -341,6 +341,40 @@ export function looksPublicOrigin(origin: string): boolean {
   return true;
 }
 
+/**
+ * Why a capture found the service can't be used from here. The section turns
+ * off and stays at the bottom of the Design tab, saying why, until a capture
+ * gets through again.
+ */
+export type CaptureBlockReason =
+  | "csp"
+  | "unreachable"
+  | "down"
+  | "rate_limited"
+  | "not_public"
+  | "protected";
+
+export interface CaptureBlock {
+  reason: CaptureBlockReason;
+  message: string;
+}
+
+/** A block as the store keeps it, with when it happened. */
+export interface StoredCaptureBlock extends CaptureBlock {
+  at: number;
+}
+
+const BLOCK_REASONS = new Set<string>(["csp", "unreachable", "down", "rate_limited", "not_public", "protected"]);
+
+/** Accept a block from the dashboard (or the store) only in its own shape. */
+export function parseCaptureBlock(value: unknown): CaptureBlock | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.reason !== "string" || !BLOCK_REASONS.has(v.reason)) return null;
+  if (typeof v.message !== "string" || v.message.trim().length === 0) return null;
+  return { reason: v.reason as CaptureBlockReason, message: v.message.slice(0, 600) };
+}
+
 /** Which engine shoots a capture: the hosted service, or a browser on the site's own server. */
 export type SnapshotEngine = { kind: "service"; url: string } | { kind: "local" };
 

@@ -486,6 +486,9 @@ flagged value on the Design tab to see that picture and the page it's on.
    - the service is rate-limiting;
    - the service is unreachable.
 
+   A block found during a capture is remembered: the section stays off at
+   the bottom, across reloads, until "Try again" gets a capture through.
+
 What the service does, plainly:
 
 - **Page URLs and pixels pass through Polishd's service.** It sees the paths

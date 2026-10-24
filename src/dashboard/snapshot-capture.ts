@@ -17,6 +17,7 @@
  * says why. Whatever was already shot is kept.
  */
 import type {
+  CaptureBlock,
   EncodedImage,
   FindTarget,
   ShootResponse,
@@ -60,11 +61,7 @@ export interface CaptureCallbacks {
   onProgress(done: number, total: number): void;
 }
 
-/** Why the service couldn't be used from here — the section turns off and says so. */
-export interface CaptureBlock {
-  reason: "csp" | "unreachable" | "down" | "rate_limited" | "not_public" | "protected";
-  message: string;
-}
+export type { CaptureBlock };
 
 export interface CaptureOutcome {
   /** The recorded snapshot — including a partial one when the run was cut short. */

@@ -36,7 +36,10 @@ import { isAbsolute, join } from "node:path";
 
 import {
   decideSnapshotMode,
+  parseCaptureBlock,
   snapshotServiceUrl,
+  type CaptureBlock,
+  type StoredCaptureBlock,
   type EncodedImage,
   type ShotResult,
   type SkipReason,
@@ -933,6 +936,36 @@ export async function saveSnapshotConsent(accepted: boolean): Promise<boolean> {
   return setMeta(CONSENT_KEY, JSON.stringify({ decision: accepted ? "accepted" : "declined", at: Date.now() }));
 }
 
+const BLOCK_KEY = "snapshot_capture_block";
+
+/**
+ * The last capture's block — the service couldn't be used from here (CSP,
+ * outage, rate limit, a site it can't reach). Kept until a capture gets
+ * through, so the section stays off at the bottom of the tab across reloads
+ * instead of reappearing as if nothing were wrong.
+ */
+export async function loadSnapshotBlock(): Promise<StoredCaptureBlock | null> {
+  const raw = await getMeta(BLOCK_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { at?: unknown };
+    const block = parseCaptureBlock(parsed);
+    return block && typeof parsed.at === "number" ? { ...block, at: parsed.at } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Record a capture's block, or clear it (null) once a capture got through. */
+export async function saveSnapshotBlock(block: CaptureBlock | null): Promise<StoredCaptureBlock | null> {
+  if (!block) {
+    await setMeta(BLOCK_KEY, "");
+    return null;
+  }
+  const stored = { ...block, at: Date.now() };
+  return (await setMeta(BLOCK_KEY, JSON.stringify(stored))) ? stored : null;
+}
+
 /** What the Site snapshots section may do here, and the storage problem when that's why it can't. */
 export interface SnapshotAvailability {
   mode: SnapshotMode;
@@ -940,6 +973,8 @@ export interface SnapshotAvailability {
   storageIssue: string | null;
   /** The service production captures would call (null when turned off) — for the consent dialog. */
   serviceUrl: string | null;
+  /** The last capture's block, until a capture gets through. Only applies to service captures. */
+  block: StoredCaptureBlock | null;
 }
 
 /**
@@ -957,7 +992,12 @@ export async function snapshotAvailability(origin: string | null): Promise<Snaps
     storageReady: storageIssue === null,
     consent,
   });
-  return { mode, storageIssue, serviceUrl: snapshotServiceUrl(process.env.POLISHD_SNAPSHOT_SERVICE) };
+  return {
+    mode,
+    storageIssue,
+    serviceUrl: snapshotServiceUrl(process.env.POLISHD_SNAPSHOT_SERVICE),
+    block: mode.kind === "service" ? await loadSnapshotBlock() : null,
+  };
 }
 
 /**

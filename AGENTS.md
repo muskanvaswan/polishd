@@ -390,7 +390,7 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Snapshot capture reports a CSP block | The app's `connect-src` omits the screenshot service or the Blob API | Add `https://shots.polishd.muskanvaswan.xyz` and `https://vercel.com` to `connect-src` |
 | Snapshot capture: "behind Vercel's Deployment Protection" | A protected preview deployment | Expected — capture from the production domain |
 | Snapshot capture: "nowhere to live on this deployment" | Vercel, no Blob store connected | Connect a Blob store (Storage → Blob), redeploy |
-| Site snapshots at the bottom of the Design tab, marked Off | No Blob store, the owner declined the screenshot service, or a capture found it unusable here (CSP, rate limit, outage, site not public) | Its message names which. Declining is the owner's choice — leave it |
+| Site snapshots at the bottom of the Design tab, marked Off | No Blob store, the owner declined the screenshot service, or the last capture found it unusable here (CSP, rate limit, outage, site not public). That last kind is remembered until "Try again" succeeds | Its message names which. Declining is the owner's choice — leave it |
 
 ## Entry points
 

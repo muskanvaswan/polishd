@@ -17,7 +17,8 @@
  * service and images have somewhere to go, it's near the top of the tab. In
  * production without one of those — or once a capture finds the service
  * can't be used from here (CSP, rate limit, outage, a site it can't reach) —
- * it moves to the bottom, turned off, saying why. The tab is server-rendered,
+ * it moves to the bottom, turned off, saying why — and stays there, across
+ * reloads, until a capture gets through again. The tab is server-rendered,
  * so the section lives in two slots and a provider holds its state; moving
  * between them never loses a capture in flight. The provider also asks the
  * consent question, once, in a dialog.
@@ -32,10 +33,14 @@ import {
   type ReactNode,
 } from "react";
 
-import type { SnapshotMode } from "../capture/protocol";
+import type { SnapshotMode, StoredCaptureBlock } from "../capture/protocol";
 import type { PolishdSnapshot, PolishdSnapshotShot, SnapshotAvailability } from "../server/snapshots";
-import { getSnapshotImageAction, setSnapshotServiceConsentAction } from "./snapshot-actions";
-import { runSnapshotCapture, type CaptureBlock, type LiveShot } from "./snapshot-capture";
+import {
+  getSnapshotImageAction,
+  setSnapshotBlockAction,
+  setSnapshotServiceConsentAction,
+} from "./snapshot-actions";
+import { runSnapshotCapture, type LiveShot } from "./snapshot-capture";
 import { disabledMessage } from "./snapshot-messages";
 import { border, card, ghostBtn, labelCls, primaryBtn, relTime, RefreshIcon } from "./ui";
 
@@ -151,8 +156,8 @@ function ShotTile({
 interface SnapshotsState {
   snapshots: PolishdSnapshot[];
   availability: SnapshotAvailability;
-  /** Set when a capture found the service can't be used from here. */
-  block: CaptureBlock | null;
+  /** Set while the last capture's finding stands: the service can't be used from here. */
+  block: StoredCaptureBlock | null;
   error: string | null;
   capturing: boolean;
   progress: { done: number; total: number } | null;
@@ -174,8 +179,8 @@ function useSnapshots(): SnapshotsState {
 }
 
 /** True when the section is off — it then renders in the bottom slot. */
-function isOff(mode: SnapshotMode, block: CaptureBlock | null): boolean {
-  return mode.kind === "disabled" || block !== null;
+function isOff(mode: SnapshotMode, block: StoredCaptureBlock | null): boolean {
+  return mode.kind === "disabled" || (mode.kind === "service" && block !== null);
 }
 
 function serviceHost(url: string | null): string | null {
@@ -197,7 +202,7 @@ export interface SnapshotsProviderProps {
 export function SnapshotsProvider({ initial, availability: initialAvailability, children }: SnapshotsProviderProps) {
   const [snapshots, setSnapshots] = useState<PolishdSnapshot[]>(initial);
   const [availability, setAvailability] = useState(initialAvailability);
-  const [block, setBlock] = useState<CaptureBlock | null>(null);
+  const [block, setBlock] = useState<StoredCaptureBlock | null>(initialAvailability.block);
   const [error, setError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -208,8 +213,10 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
 
   const capture = useCallback(() => {
     if (capturing) return;
+    // A standing block stays put while a retry runs: the section only comes
+    // back up once a capture actually gets through.
+    const blocked = block !== null;
     setError(null);
-    setBlock(null);
     setLive([]);
     setCapturing(true);
     const arrived = new Map<string, string>();
@@ -223,14 +230,21 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
       },
       onProgress: (done, total) => setProgress({ done, total }),
     })
-      .then((outcome) => {
+      .then(async (outcome) => {
         if (outcome.snapshot) {
           const snapshot = outcome.snapshot;
           fresh.current.set(snapshot.id, arrived);
           setSnapshots((prev) => [snapshot, ...prev]);
         }
-        setBlock(outcome.block);
         setError(outcome.error);
+        if (outcome.block) {
+          // Remembered server-side, so a reload keeps the section down too.
+          const saved = await setSnapshotBlockAction(outcome.block).catch(() => null);
+          setBlock(saved?.ok && saved.block ? saved.block : { ...outcome.block, at: Date.now() });
+        } else if (outcome.snapshot && blocked) {
+          await setSnapshotBlockAction(null).catch(() => null);
+          setBlock(null);
+        }
       })
       .catch(() =>
         setError(
@@ -243,15 +257,20 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
         setProgress(null);
         setLive([]);
       });
-  }, [capturing]);
+  }, [capturing, block]);
 
   const decide = useCallback((allow: boolean) => {
     setDeciding(true);
     setSnapshotServiceConsentAction(allow)
       .then((res) => {
         if (res.ok) {
-          setAvailability({ mode: res.mode, storageIssue: res.storageIssue, serviceUrl: res.serviceUrl });
-          setBlock(null);
+          setAvailability({
+            mode: res.mode,
+            storageIssue: res.storageIssue,
+            serviceUrl: res.serviceUrl,
+            block: res.block,
+          });
+          setBlock(res.block);
           setError(null);
         } else {
           setError(res.message);
@@ -392,18 +411,26 @@ function ConsentDialog({
 
 // ── The section ──────────────────────────────────────────────────────────────
 
-/** Why the section is off, and what can be done about it from here. */
+/**
+ * Why the section is off, and what can be done about it from here. A mode
+ * that's off (no storage, not allowed) outranks a capture's block: retrying
+ * can't help until that's settled.
+ */
 function offState(
   availability: SnapshotAvailability,
-  block: CaptureBlock | null,
+  block: StoredCaptureBlock | null,
 ): { message: string; action: "reconsider" | "retry" | null } | null {
-  if (block) return { message: block.message, action: "retry" };
-  if (availability.mode.kind !== "disabled") return null;
-  const { reason } = availability.mode;
-  return {
-    message: disabledMessage(reason, availability.storageIssue),
-    action: reason === "declined" ? "reconsider" : null,
-  };
+  const { mode } = availability;
+  if (mode.kind === "disabled") {
+    return {
+      message: disabledMessage(mode.reason, availability.storageIssue),
+      action: mode.reason === "declined" ? "reconsider" : null,
+    };
+  }
+  if (mode.kind === "service" && block) {
+    return { message: `Last capture, ${relTime(block.at)}: ${block.message}`, action: "retry" };
+  }
+  return null;
 }
 
 function SnapshotsCard() {
