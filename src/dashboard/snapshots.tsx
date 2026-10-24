@@ -162,6 +162,12 @@ interface SnapshotsState {
   block: StoredCaptureBlock | null;
   error: string | null;
   capturing: boolean;
+  /**
+   * False until this page is interactive. The section is server-rendered and
+   * a click on a button that isn't hydrated yet does nothing at all, so the
+   * buttons stay disabled until they can actually respond.
+   */
+  ready: boolean;
   progress: { done: number; total: number } | null;
   live: LiveShot[];
   /** Images the last capture already holds, by snapshot id then cell. */
@@ -212,6 +218,8 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   // The dialog only ever opens from a click — Capture, or "Review and
   // allow" — so it can't be answered before the page is interactive.
   const [consentOpen, setConsentOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   const [consentError, setConsentError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState(false);
   const fresh = useRef(new Map<string, Map<string, string>>());
@@ -313,6 +321,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
     block,
     error,
     capturing,
+    ready,
     progress,
     live,
     fresh: fresh.current,
@@ -481,6 +490,7 @@ function SnapshotsCard() {
     capture,
     openConsent,
     turnOff,
+    ready,
   } = useSnapshots();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
@@ -513,7 +523,7 @@ function SnapshotsCard() {
       type="button"
       data-component="design-snapshot-capture"
       onClick={capture}
-      disabled={capturing || (off !== null && off.action !== "retry")}
+      disabled={!ready || capturing || (off !== null && off.action !== "retry")}
       title={off?.message ?? "Screenshot every scanned page — phone and desktop, light and dark"}
       className={primaryBtn}
     >
@@ -595,6 +605,7 @@ function SnapshotsCard() {
               type="button"
               data-component="design-snapshot-consent-open"
               onClick={openConsent}
+              disabled={!ready}
               className={primaryBtn}
             >
               Review and allow…
@@ -739,7 +750,8 @@ function SnapshotsCard() {
               type="button"
               data-component="design-snapshot-consent-withdraw"
               onClick={turnOff}
-              className="underline decoration-[#444] underline-offset-2 hover:text-[#888]"
+              disabled={!ready}
+              className="underline decoration-[#444] underline-offset-2 hover:text-[#888] disabled:cursor-default disabled:no-underline"
             >
               Turn off
             </button>
