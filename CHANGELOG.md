@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### The codebase scan reads your GitHub repo, and comes after connecting it
+
+The one-time codebase scan only ever read source from disk, so on a deployed
+dashboard — any serverless host, where the bundle ships without its source
+tree — it had nothing to read and failed every time. And setup asked for the
+scan *before* GitHub, the one thing that could have given it the code.
+
+- **Where the source isn't on disk, the scan reads the connected repo**: one
+  tree listing of the default branch, then only the files the budget picks
+  (the same ranking and caps as the disk scan, planned from file sizes before
+  anything is downloaded). Local dev still scans the disk first, so it sees
+  uncommitted work and costs no API calls.
+- **Monorepos are handled.** The scan finds the Next.js app's folder in the
+  repo, preferring the one whose `package.json` installs `@polishd/next`, so
+  a repo with a library at its root and the site in `site/` scans the site.
+  **Source folders** stay relative to the app.
+- **Setup clubs GitHub and the scan into one step**, now four steps instead of
+  five. Connect the repo, then choose **Scan the codebase** and **Create
+  issues automatically** separately; each unlocks once what it needs is there
+  (any source to read; a repo with issues enabled). Where the source *is* on
+  disk, the scan can still run without GitHub. A failed scan stays on the step
+  with GitHub's reason, to retry or switch off.
+- The settled Settings tab lists GitHub above Codebase, its scan button
+  works with a connected repo, and a profile read from GitHub says which repo
+  it came from. The summary card's nudge points to connecting GitHub when
+  there's nothing on disk to scan.
+
 ### Hover a one-off to see where it renders
 
 The Design tab flags one-off type styles, colors and corner radii, and

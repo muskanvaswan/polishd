@@ -218,7 +218,7 @@ export interface SettingsViewProps {
   initialProfile: PolishdProjectProfile | null;
   /** Component identifiers in the analytics that the profile doesn't cover. */
   initialGaps: string[];
-  /** Whether the app's source tree is on disk here (scan possible). */
+  /** Whether the app's source tree is on disk here. A scan can also read the connected repo. */
   sourceAvailable: boolean;
 }
 
@@ -312,7 +312,56 @@ export default function SettingsView({
 }
 
 // ── Onboarding wizard ────────────────────────────────────────────────────────
-const STEPS = ["Model", "Your site", "Codebase", "GitHub", "Cadence"] as const;
+// GitHub and the codebase scan share a step. Wherever the source isn't on disk
+// — any deployed dashboard — the repo is what the scan reads, so the scan can
+// only come after the token; and once the repo is connected, scanning it and
+// filing issues to it are separate choices.
+const STEPS = ["Model", "Your site", "GitHub & codebase", "Cadence"] as const;
+
+/** " from owner/repo" for a profile read off GitHub; nothing for a disk scan. */
+function profileFrom(profile: PolishdProjectProfile): string {
+  const gh = profile.github;
+  return gh ? ` from ${gh.repo}${gh.root ? `/${gh.root}` : ""}` : "";
+}
+
+/** One opt-in, as a checkbox row; a disabled row says what unlocks it. */
+function OptionRow({
+  checked,
+  onChange,
+  disabled = false,
+  title,
+  hint,
+  children,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  disabled?: boolean;
+  title: string;
+  hint: string;
+  /** Shown under the row — e.g. the option's own settings. */
+  children?: ReactNode;
+}) {
+  return (
+    <div className={disabled ? "opacity-50" : undefined}>
+      <label
+        className={`flex max-w-xl items-start gap-2.5 ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-white disabled:cursor-not-allowed"
+        />
+        <span>
+          <span className="block text-[13px] font-medium text-white">{title}</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-[#666]">{hint}</span>
+        </span>
+      </label>
+      {children && <div className="mt-3 pl-6">{children}</div>}
+    </div>
+  );
+}
 
 function StepShell({
   step,
@@ -383,19 +432,27 @@ function OnboardingWizard({
   const [context, setContext] = useState(settings.context ?? "");
   const [audience, setAudience] = useState(settings.audience ?? "");
   const [ideology, setIdeology] = useState(settings.ideology ?? "");
-  // Step 3 — codebase
-  const [sourceDirs, setSourceDirs] = useState(settings.sourceDirs ?? "");
-  const [scanned, setScanned] = useState<PolishdProjectProfile | null>(null);
-  // Step 4 — GitHub
+  // Step 3 — GitHub & codebase
   const [githubRepo, setGithubRepo] = useState(settings.githubRepo ?? "");
   const [githubToken, setGithubToken] = useState("");
   const [githubStatus, setGithubStatus] = useState<PolishdGithubStatus | null>(null);
+  const [scanOn, setScanOn] = useState(true);
   const [autoIssues, setAutoIssues] = useState(settings.githubAutoIssues ?? false);
-  // Step 5 — cadence
+  const [sourceDirs, setSourceDirs] = useState(settings.sourceDirs ?? "");
+  const [scanned, setScanned] = useState<PolishdProjectProfile | null>(null);
+  // Step 4 — cadence
   const [cadence, setCadence] = useState<PolishdRefreshCadence>("manual");
 
   const [pending, startStep] = useTransition();
+  // Connecting has its own transition so its button, not the step's, says so.
+  const [connecting, startConnect] = useTransition();
   const prov = PROVIDERS.find((p) => p.value === provider);
+
+  // Each option unlocks with what it needs: the scan with any source to read
+  // (the repo, or a tree on disk here), issues with a repo that takes them.
+  const canScan = githubStatus !== null || sourceAvailable;
+  const canFile = githubStatus !== null && githubStatus.issuesEnabled;
+  const willScan = scanOn && canScan;
 
   const next = () => {
     setError(null);
@@ -420,27 +477,10 @@ function OnboardingWizard({
       next();
     });
 
-  const scan = () =>
-    startStep(async () => {
-      setError(null);
-      onSettings(await saveAISettingsAction({ sourceDirs }));
-      const res = await generateProfileAction();
-      if (res.ok) {
-        setScanned(res.profile);
-        onProfile(res.profile);
-      } else {
-        setError(res.message);
-      }
-    });
-
   const connectGithub = () =>
-    startStep(async () => {
+    startConnect(async () => {
       setError(null);
-      const saved = await saveAISettingsAction({
-        githubRepo,
-        githubToken,
-        githubAutoIssues: autoIssues,
-      });
+      const saved = await saveAISettingsAction({ githubRepo, githubToken });
       onSettings(saved);
       setGithubToken("");
       const res = await verifyGithubAction();
@@ -448,10 +488,23 @@ function OnboardingWizard({
       else setError(res.message);
     });
 
-  // The toggle stays visible after connecting — persist its latest state.
-  const finishGithub = () =>
+  // Apply the step's choices, then move on. A failed scan keeps the step open
+  // so it can be retried — or switched off and skipped.
+  const applyRepoStep = () =>
     startStep(async () => {
-      onSettings(await saveAISettingsAction({ githubAutoIssues: autoIssues }));
+      setError(null);
+      onSettings(
+        await saveAISettingsAction({ sourceDirs, githubAutoIssues: autoIssues && canFile }),
+      );
+      if (willScan) {
+        const res = await generateProfileAction();
+        if (!res.ok) {
+          setError(res.message);
+          return;
+        }
+        setScanned(res.profile);
+        onProfile(res.profile);
+      }
       next();
     });
 
@@ -611,67 +664,8 @@ function OnboardingWizard({
       {step === 2 && (
         <StepShell
           step={2}
-          title="Scan your codebase"
-          intro="A one-time scan teaches the model your pages and components, so every future summary understands the site without re-reading code. It's cached in your database — the codebase is only touched again if new components appear or you re-scan."
-        >
-          {scanned ? (
-            <div className="rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2.5 text-[12px] text-emerald-400">
-              Profiled {scanned.sourceFiles} files · {scanned.coveredIdentifiers.length} components
-              {scanned.truncated ? " (large app — clipped to budget)" : ""}. The model now knows your
-              site&apos;s structure.
-            </div>
-          ) : (
-            <>
-              {!sourceAvailable && (
-                <div className="mb-3 rounded-md border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-[12px] text-amber-400">
-                  No source tree found on disk here — this step needs to run where the code lives
-                  (local dev or CI). You can skip it now and scan later.
-                </div>
-              )}
-              <label className="block max-w-md">
-                <span className={labelCls}>Source folders</span>
-                <span className="ml-1 text-[11px] text-[#555]">
-                  — optional; defaults to src / app / components / pages / lib.
-                </span>
-                <input
-                  value={sourceDirs}
-                  onChange={(e) => setSourceDirs(e.target.value)}
-                  placeholder="e.g. src, content"
-                  className={`${inputCls} mt-1.5 font-mono`}
-                />
-              </label>
-            </>
-          )}
-          <div className="mt-4 flex items-center gap-3">
-            {scanned ? (
-              <button type="button" onClick={next} className={primaryBtn}>
-                Continue
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  data-component="settings-scan-codebase"
-                  onClick={scan}
-                  disabled={pending || !sourceAvailable}
-                  className={primaryBtn}
-                >
-                  {pending ? "Scanning…" : "Scan codebase"}
-                </button>
-                <button type="button" onClick={next} className={ghostBtn}>
-                  Skip for now
-                </button>
-              </>
-            )}
-          </div>
-        </StepShell>
-      )}
-
-      {step === 3 && (
-        <StepShell
-          step={3}
-          title="Connect your GitHub repository"
-          intro="Optional. With the repo connected, problems the model finds are verified against your actual source code — real ones become GitHub issues with the technical analysis and fix suggestions, false alarms are dropped. A fine-grained token scoped to just this repo is all it needs."
+          title="Connect GitHub and scan your codebase"
+          intro="Optional — one fine-grained token scoped to this repo covers both. The scan reads your source once, so every summary knows your pages and components; issues turn the problems the model finds into GitHub issues, verified against that same source. Connect the repo, then pick either or both."
         >
           {githubStatus ? (
             <div className="rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2.5 text-[12px] text-emerald-400">
@@ -681,96 +675,159 @@ function OnboardingWizard({
               {!githubStatus.canPush && " · token can't push (branches/PRs unavailable)"}
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className={labelCls}>Repository</span>
-                <input
-                  value={githubRepo}
-                  onChange={(e) => setGithubRepo(e.target.value)}
-                  placeholder="owner/repo"
-                  className={`${inputCls} mt-1.5 font-mono`}
-                />
-              </label>
-              <label className="block">
-                <span className={labelCls}>Access token</span>
-                <input
-                  type="password"
-                  value={githubToken}
-                  onChange={(e) => setGithubToken(e.target.value)}
-                  placeholder={
-                    settings.hasGithubToken
-                      ? "•••••••• (stored — leave blank to keep)"
-                      : "github_pat_…"
-                  }
-                  autoComplete="off"
-                  className={`${inputCls} mt-1.5`}
-                />
-                <span className="mt-1 block text-[11px] text-[#555]">
-                  Create a{" "}
-                  <a
-                    href="https://github.com/settings/personal-access-tokens/new"
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
-                  >
-                    fine-grained token
-                  </a>{" "}
-                  for this repo with Contents (read) and Issues &amp; Pull requests (write). Stored
-                  server-side; never sent to the browser.
-                </span>
-              </label>
-            </div>
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className={labelCls}>Repository</span>
+                  <input
+                    value={githubRepo}
+                    onChange={(e) => setGithubRepo(e.target.value)}
+                    placeholder="owner/repo"
+                    className={`${inputCls} mt-1.5 font-mono`}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelCls}>Access token</span>
+                  <input
+                    type="password"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder={
+                      settings.hasGithubToken
+                        ? "•••••••• (stored — leave blank to keep)"
+                        : "github_pat_…"
+                    }
+                    autoComplete="off"
+                    className={`${inputCls} mt-1.5`}
+                  />
+                  <span className="mt-1 block text-[11px] text-[#555]">
+                    Create a{" "}
+                    <a
+                      href="https://github.com/settings/personal-access-tokens/new"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+                    >
+                      fine-grained token
+                    </a>{" "}
+                    for this repo with Contents (read) and Issues &amp; Pull requests (write).
+                    Stored server-side; never sent to the browser.
+                  </span>
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={connectGithub}
+                disabled={
+                  connecting ||
+                  pending ||
+                  !githubRepo.trim() ||
+                  (!githubToken && !settings.hasGithubToken)
+                }
+                className={`${primaryBtn} mt-4`}
+              >
+                {connecting ? "Connecting…" : "Connect GitHub"}
+              </button>
+            </>
           )}
-          <label className="mt-4 flex max-w-xl cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              checked={autoIssues}
-              onChange={(e) => setAutoIssues(e.target.checked)}
-              className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-white"
+
+          <div className={`mt-5 space-y-4 border-t ${border} pt-4`}>
+            <OptionRow
+              checked={willScan}
+              onChange={setScanOn}
+              disabled={!canScan}
+              title="Scan the codebase"
+              hint={
+                sourceAvailable
+                  ? "Reads the source on disk here once to learn your pages and components — this part works without GitHub. Cached in your database; re-scan from Settings when the site changes."
+                  : githubStatus
+                    ? `Reads ${githubStatus.repo} (${githubStatus.defaultBranch}) once to learn your pages and components. Cached in your database; re-scan from Settings when the site changes.`
+                    : "Reads the repo's source once to learn your pages and components. Available once the repo is connected."
+              }
+            >
+              {willScan && (
+                <label className="block max-w-md">
+                  <span className={labelCls}>Source folders</span>
+                  <span className="ml-1 text-[11px] text-[#555]">
+                    — optional; defaults to src / app / components / pages / lib.
+                  </span>
+                  <input
+                    value={sourceDirs}
+                    onChange={(e) => setSourceDirs(e.target.value)}
+                    placeholder="e.g. src, content"
+                    className={`${inputCls} mt-1.5 font-mono`}
+                  />
+                </label>
+              )}
+            </OptionRow>
+            <OptionRow
+              checked={autoIssues && canFile}
+              onChange={setAutoIssues}
+              disabled={!canFile}
+              title="Create issues automatically"
+              hint={
+                githubStatus && !githubStatus.issuesEnabled
+                  ? "Issues are disabled on this repo — turn them on in its GitHub settings to use this."
+                  : `Every new problem a summary finds is verified against the source and — when it holds up — filed as a GitHub issue on its own, with technical details and fix suggestions. The same problem is never filed twice.${githubStatus ? "" : " Available once the repo is connected."}`
+              }
             />
-            <span>
-              <span className="block text-[13px] font-medium text-white">
-                Allow creating issues automatically
-              </span>
-              <span className="mt-0.5 block text-[11px] leading-snug text-[#666]">
-                Every new problem a summary finds is verified against the source and — when it holds
-                up — filed as a GitHub issue on its own, with technical details and fix suggestions.
-                The same problem is never filed twice.
-              </span>
-            </span>
-          </label>
-          <div className="mt-4 flex items-center gap-3">
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             {githubStatus ? (
-              <button type="button" onClick={finishGithub} disabled={pending} className={primaryBtn}>
-                {pending ? "Saving…" : "Continue"}
+              <button
+                type="button"
+                data-component={willScan ? "settings-scan-codebase" : undefined}
+                onClick={applyRepoStep}
+                disabled={pending}
+                className={primaryBtn}
+              >
+                {pending
+                  ? willScan
+                    ? "Scanning your codebase…"
+                    : "Saving…"
+                  : willScan
+                    ? "Scan & continue"
+                    : "Continue"}
+              </button>
+            ) : willScan ? (
+              <button
+                type="button"
+                data-component="settings-scan-codebase"
+                onClick={applyRepoStep}
+                disabled={pending || connecting}
+                className={ghostBtn}
+              >
+                {pending ? "Scanning your codebase…" : "Scan & continue without GitHub"}
               </button>
             ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={connectGithub}
-                  disabled={
-                    pending || !githubRepo.trim() || (!githubToken && !settings.hasGithubToken)
-                  }
-                  className={primaryBtn}
-                >
-                  {pending ? "Connecting…" : "Connect GitHub"}
-                </button>
-                <button type="button" onClick={next} className={ghostBtn}>
-                  Skip for now
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={next}
+                disabled={connecting}
+                className={ghostBtn}
+              >
+                Skip for now
+              </button>
             )}
           </div>
         </StepShell>
       )}
 
-      {step === 4 && (
+      {step === 3 && (
         <StepShell
-          step={4}
+          step={3}
           title="How often should the story refresh?"
           intro="With the profile cached, a refresh only spends tokens when there's new behavior to narrate — unchanged data is always free. Auto-refresh runs in the background when you open the dashboard past the cadence."
         >
+          {scanned && (
+            <div className="mb-4 rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2.5 text-[12px] text-emerald-400">
+              Profiled {scanned.sourceFiles} files{profileFrom(scanned)} ·{" "}
+              {scanned.coveredIdentifiers.length} components
+              {scanned.truncated ? " (large app — clipped to budget)" : ""}. The model now knows your
+              site&apos;s structure.
+            </div>
+          )}
           <div className="grid gap-2 sm:grid-cols-3">
             {CADENCES.map((c) => (
               <button
@@ -1028,33 +1085,6 @@ function SettingsForm({
       </Group>
 
       <Group
-        title="Codebase"
-        hint="One scan teaches the model your pages and components, and every later summary reuses it instead of re-reading code."
-      >
-        <ProfileStrip
-          profile={profile}
-          gaps={gaps}
-          hasApiKey={settings.hasApiKey}
-          sourceAvailable={sourceAvailable}
-          onScanned={onProfile}
-          onError={onError}
-        />
-        <label className="mt-4 block">
-          <span className={labelCls}>Source folders</span>
-          <span className="ml-1 text-[11px] text-[#555]">
-            — optional, comma-separated, relative to the project root. Defaults to src / app /
-            components / pages / lib.
-          </span>
-          <input
-            value={sourceDirs}
-            onChange={(e) => setSourceDirs(e.target.value)}
-            placeholder="e.g. src, content"
-            className={`${inputCls} mt-1.5 font-mono`}
-          />
-        </label>
-      </Group>
-
-      <Group
         title="GitHub"
         hint="Where findings go to get fixed. Problems are verified against the source first — false alarms never become issues."
       >
@@ -1105,6 +1135,33 @@ function SettingsForm({
         </label>
       </Group>
 
+      <Group
+        title="Codebase"
+        hint="One scan teaches the model your pages and components, and every later summary reuses it instead of re-reading code. It reads the source on disk here, or the connected GitHub repo where there isn't any."
+      >
+        <ProfileStrip
+          profile={profile}
+          gaps={gaps}
+          settings={settings}
+          sourceAvailable={sourceAvailable}
+          onScanned={onProfile}
+          onError={onError}
+        />
+        <label className="mt-4 block">
+          <span className={labelCls}>Source folders</span>
+          <span className="ml-1 text-[11px] text-[#555]">
+            — optional, comma-separated, relative to the project root. Defaults to src / app /
+            components / pages / lib.
+          </span>
+          <input
+            value={sourceDirs}
+            onChange={(e) => setSourceDirs(e.target.value)}
+            placeholder="e.g. src, content"
+            className={`${inputCls} mt-1.5 font-mono`}
+          />
+        </label>
+      </Group>
+
       <div className="flex flex-wrap items-center gap-3 pb-4">
         <button type="button" onClick={save} disabled={pending} className={primaryBtn}>
           {pending ? "Saving…" : "Save settings"}
@@ -1124,14 +1181,15 @@ function SettingsForm({
 function ProfileStrip({
   profile,
   gaps,
-  hasApiKey,
+  settings,
   sourceAvailable,
   onScanned,
   onError,
 }: {
   profile: PolishdProjectProfile | null;
   gaps: string[];
-  hasApiKey: boolean;
+  /** The saved settings — a repo typed but not yet saved can't be scanned. */
+  settings: PolishdAISettingsPublic;
   sourceAvailable: boolean;
   onScanned: (p: PolishdProjectProfile) => void;
   onError: (msg: string) => void;
@@ -1147,7 +1205,9 @@ function ProfileStrip({
     });
   };
 
-  const canScan = hasApiKey && sourceAvailable && !pending;
+  const repo = settings.hasGithubToken ? settings.githubRepo : undefined;
+  const hasSource = sourceAvailable || !!repo;
+  const canScan = settings.hasApiKey && hasSource && !pending;
 
   return (
     <div className={`rounded-md border ${border} bg-[#080808] px-3 py-2.5`}>
@@ -1157,8 +1217,8 @@ function ProfileStrip({
           {profile ? (
             <>
               <span>
-                scanned {relTime(profile.generatedAt)} · {profile.sourceFiles} files ·{" "}
-                {profile.coveredIdentifiers.length} components
+                scanned {relTime(profile.generatedAt)} · {profile.sourceFiles} files
+                {profileFrom(profile)} · {profile.coveredIdentifiers.length} components
                 {profile.truncated ? " · clipped to budget" : ""}
               </span>
               {gaps.length > 0 && (
@@ -1179,7 +1239,9 @@ function ProfileStrip({
             <span className="max-w-md">
               {sourceAvailable
                 ? "Not scanned yet."
-                : "Source not on disk here — run the scan in local dev; the saved profile then serves everywhere."}
+                : repo
+                  ? `Not scanned yet — the scan reads ${repo}.`
+                  : "The source isn't on disk here — connect a GitHub repository above and the scan reads it from there."}
             </span>
           )}
         </div>
@@ -1188,10 +1250,10 @@ function ProfileStrip({
           onClick={scan}
           disabled={!canScan}
           title={
-            !hasApiKey
+            !settings.hasApiKey
               ? "Add an API key first"
-              : !sourceAvailable
-                ? "No source tree found on disk"
+              : !hasSource
+                ? "Connect and save a GitHub repository first"
                 : undefined
           }
           className="rounded-md border border-[#2e2e2e] px-2.5 py-1 text-[11px] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"

@@ -299,9 +299,11 @@ citations that don't appear in the analytics are discarded as hallucinations,
 and the rest are matched to your source files so every loss shows the file it
 lives in (or an honest "not matched to source" tag for dynamic content). It's
 **bring-your-own-key**. The **Settings** tab in the sidebar walks a fresh
-install through a five-step setup — connect a model (Anthropic, OpenAI, any
-OpenAI-compatible endpoint, or Google), describe your site, scan your codebase,
-connect GitHub, pick a refresh cadence — and holds all of it afterwards. The
+install through a four-step setup — connect a model (Anthropic, OpenAI, any
+OpenAI-compatible endpoint, or Google), describe your site, connect GitHub and
+choose what it's used for (scanning your codebase, filing issues automatically
+— each its own toggle), pick a refresh cadence — and holds all of it
+afterwards. The
 card itself is only ever the story: the summary, when it was generated, a
 **refresh** icon to force a regenerate, and a **gear** that jumps to Settings.
 Nothing is sent to a model until you ask.
@@ -339,8 +341,9 @@ settings take precedence.
 
 To make the summary understand your *code* — not just the numbers — run the
 one-time **Scan codebase** step from Settings → Codebase. Polishd
-reads your app's source from disk (pages and layouts first, then component
-files, under a hard token budget), and asks the model to write a compact
+reads your app's source (pages and layouts first, then component files, under
+a hard token budget) — from disk where it's there, otherwise from the
+connected GitHub repo's default branch — and asks the model to write a compact
 profile: what the site is for, a map of its routes, and every interactive
 component by its exact identifier. Optionally tell it your **target audience**
 and **ideology / values** in Settings so the analysis judges the site by your
@@ -354,8 +357,11 @@ authoritative context, so:
   profile doesn't cover — a tiny targeted read of just the files naming it —
   or when you explicitly re-scan (the summary card shows a hint when new
   components appear).
-- On serverless hosts where source isn't on disk, scan in local dev; the saved
-  profile keeps serving in production.
+- On serverless hosts, where the source isn't on disk, the scan reads the
+  connected GitHub repo instead: one tree listing, then only the files the
+  budget picks. In a monorepo it finds the app's folder itself — the one whose
+  `package.json` installs `@polishd/next` — and **Source folders** are relative
+  to that folder.
 
 > **What the model sees.** A compact, server-side digest of the aggregated
 > analytics (page paths, element selectors, `data-component` names, sample

@@ -71,7 +71,8 @@ export async function saveAISettingsAction(
 
 /**
  * Scan the codebase and (re)build the project profile — the explicit setup
- * step. Passes current analytics so known component names steer the scan.
+ * step. Reads the disk where the source is there, otherwise the connected
+ * GitHub repo. Passes current analytics so known component names steer the scan.
  */
 export async function generateProfileAction(): Promise<GenerateProfileResult> {
   await requirePolishdAuth();

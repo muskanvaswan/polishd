@@ -1,81 +1,51 @@
 /**
  * Polishd — host-app source scanner (server only).
  *
- * Reads the consuming app's own source from disk (`process.cwd()`) so the
- * one-time project profile can be generated from real code. This is the ONLY
- * place the AI layer touches source files, and it runs only when the owner
- * clicks "Scan" (or when a summary hits a component the profile doesn't cover,
- * which triggers a tiny targeted read).
+ * Reads the consuming app's own source so the one-time project profile can be
+ * generated from real code — from disk (`process.cwd()`) where the source is
+ * there, otherwise from the connected GitHub repo. This is the ONLY place the
+ * AI layer reads source for the profile, and it runs only when the owner
+ * clicks "Scan" (or when a summary hits a component the profile doesn't
+ * cover, which triggers a tiny targeted read of the disk).
  *
- * Token thrift rules:
+ * Token thrift rules (the budgets themselves live in source-plan.ts, shared by
+ * both sources):
  *   - Hard budgets: per-file char cap and a total scan budget, so a big app
  *     can't produce a big prompt. Files are ranked (pages/layouts first, then
  *     files matching known component names, then components dirs) and the
  *     budget is spent in that order.
  *   - Only app code: node_modules/.next/tests/etc. are never read.
- *
- * On hosts where source isn't on disk (e.g. a serverless bundle), the scan
- * reports `available: false` and everything degrades gracefully — the profile
- * generated at dev/CI time keeps serving from the database.
+ *   - The plan is made from file sizes before anything is read, so a GitHub
+ *     scan downloads only the files that make it into the prompt.
  */
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-export interface ScannedFile {
-  /** Path relative to the project root. */
-  path: string;
-  content: string;
-}
+import { readGithubBlobs, readGithubTree } from "./github";
+import {
+  EMPTY_SCAN,
+  MAX_DEPTH,
+  ROOT_DOCS,
+  appRootCandidates,
+  buildScan,
+  chooseRoots,
+  clipFile,
+  fingerprintOf,
+  isCodeFile,
+  isWalkableDir,
+  pickAppRoot,
+  planReads,
+  repoCandidates,
+  type Candidate,
+  type ScannedFile,
+  type SourceScan,
+} from "./source-plan";
 
-export interface SourceScan {
-  /** False when no recognizable source tree exists on disk. */
-  available: boolean;
-  files: ScannedFile[];
-  /** PolishdMonitor / data-component identifiers found in the scanned source. */
-  identifiers: string[];
-  /** Hash of every candidate file's path+size — detects source drift cheaply. */
-  fingerprint: string;
-  /** True when the budget forced us to drop or clip files. */
-  truncated: boolean;
-}
-
-const IGNORE_DIRS = new Set([
-  "node_modules",
-  ".next",
-  ".git",
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".polishd",
-  ".vercel",
-  ".turbo",
-  "polishd-next", // never scan ourselves when developed in-repo
-]);
-
-const CODE_EXT = /\.(tsx|ts|jsx|js|mjs)$/;
-const SKIP_FILE = /(\.d\.ts$|\.test\.|\.spec\.|__tests__|\.stories\.)/;
-
-/** Roots tried in order when the owner hasn't configured `sourceDirs`. */
-const DEFAULT_ROOTS = ["src", "app", "components", "pages", "lib"];
-
-/** Root-level docs that anchor the model's understanding of the project. */
-const ROOT_DOCS = ["package.json", "README.md"];
-
-const PER_FILE_CHARS = 6_000;
-const TOTAL_BUDGET_CHARS = 90_000;
-const MAX_FILES = 60;
-const MAX_DEPTH = 7;
+export type { ScannedFile, SourceScan } from "./source-plan";
 
 /** Resolve the directories to walk, relative to the project root. */
 function resolveRoots(projectRoot: string, sourceDirs?: string): string[] {
-  const wanted = sourceDirs
-    ?.split(",")
-    .map((s) => s.trim().replace(/^\/+|\/+$/g, ""))
-    .filter(Boolean);
-  const candidates = wanted?.length ? wanted : DEFAULT_ROOTS;
-  const roots = candidates.filter((d) => {
+  return chooseRoots(sourceDirs, (d) => {
     const full = join(projectRoot, d);
     try {
       return existsSync(full) && statSync(full).isDirectory();
@@ -83,9 +53,6 @@ function resolveRoots(projectRoot: string, sourceDirs?: string): string[] {
       return false;
     }
   });
-  // With a `src/` layout everything lives inside it — don't double-walk.
-  if (!wanted?.length && roots.includes("src")) return ["src"];
-  return roots;
 }
 
 /** Recursively list candidate code files under the roots. */
@@ -100,11 +67,10 @@ function listFiles(projectRoot: string, roots: string[]): string[] {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!IGNORE_DIRS.has(entry.name)) walk(full, depth + 1);
-      } else if (CODE_EXT.test(entry.name) && !SKIP_FILE.test(entry.name)) {
+        if (isWalkableDir(entry.name)) walk(full, depth + 1);
+      } else if (isCodeFile(entry.name)) {
         found.push(full);
       }
     }
@@ -113,40 +79,21 @@ function listFiles(projectRoot: string, roots: string[]): string[] {
   return found;
 }
 
-/**
- * Rank a file for the budget. Lower = read first. Pages and layouts define the
- * site's structure; files matching component identifiers explain the things
- * the analytics actually talk about.
- */
-function priority(relPath: string, componentNames: string[]): number {
-  const base = relPath.toLowerCase();
-  if (/(^|\/)(page|layout|route)\.(tsx|ts|jsx|js)$/.test(base)) return 0;
-  if (componentNames.some((n) => n && base.includes(n.toLowerCase()))) return 1;
-  if (base.includes("/components/") || base.startsWith("components/")) return 2;
-  if (base.includes("/app/") || base.startsWith("app/")) return 3;
-  return 4;
+/** Whether there's a source tree on disk here for a scan to read. */
+export function sourceOnDisk(sourceDirs?: string): boolean {
+  return resolveRoots(process.cwd(), sourceDirs).length > 0;
 }
 
-const MONITOR_NAME = /<PolishdMonitor[^>]*\sname\s*=\s*["']([^"']+)["']/g;
-const DATA_COMPONENT = /data-component\s*=\s*["']([^"']+)["']/g;
-
-function extractIdentifiers(content: string, into: Set<string>): void {
-  for (const re of [MONITOR_NAME, DATA_COMPONENT]) {
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(content)) !== null) into.add(m[1]);
+function sizeOf(abs: string): number {
+  try {
+    return statSync(abs).size;
+  } catch {
+    return 0; // raced deletion
   }
 }
 
-/** Clip a file to the per-file cap, preferring its head (imports + exports). */
-function clipFile(content: string): { text: string; clipped: boolean } {
-  const clean = content.replace(/\r\n/g, "\n");
-  if (clean.length <= PER_FILE_CHARS) return { text: clean, clipped: false };
-  return { text: `${clean.slice(0, PER_FILE_CHARS)}\n/* …clipped by Polishd scan */`, clipped: true };
-}
-
 /**
- * Collect the host app's source for the project profile.
+ * Collect the host app's source from disk for the project profile.
  *
  * @param sourceDirs     Owner-configured comma-separated roots (optional).
  * @param componentNames Identifiers seen in analytics — used to prioritize the
@@ -157,79 +104,105 @@ export function collectSource(
   componentNames: string[] = [],
 ): SourceScan {
   const projectRoot = process.cwd();
-  const roots = resolveRoots(projectRoot, sourceDirs);
-
-  const absPaths = listFiles(projectRoot, roots);
-  if (!absPaths.length) {
-    return { available: false, files: [], identifiers: [], fingerprint: "", truncated: false };
-  }
-
-  // Fingerprint every candidate (path+size) BEFORE budgeting, so any source
-  // change — even in a file we later drop — flips the fingerprint.
-  const hash = createHash("sha256");
-  const sized = absPaths
-    .map((abs) => {
-      const rel = relative(projectRoot, abs);
-      let size = 0;
-      try {
-        size = statSync(abs).size;
-      } catch {
-        /* raced deletion — keep size 0 */
-      }
-      return { abs, rel, size };
-    })
-    .sort((a, b) => a.rel.localeCompare(b.rel));
-  for (const f of sized) hash.update(`${f.rel}:${f.size}\n`);
-  const fingerprint = hash.digest("hex").slice(0, 16);
-
-  const ranked = sized.sort(
-    (a, b) =>
-      priority(a.rel, componentNames) - priority(b.rel, componentNames) ||
-      a.rel.localeCompare(b.rel),
+  const code: Candidate[] = listFiles(projectRoot, resolveRoots(projectRoot, sourceDirs)).map(
+    (abs) => ({ path: relative(projectRoot, abs), size: sizeOf(abs) }),
+  );
+  if (!code.length) return EMPTY_SCAN;
+  const docs: Candidate[] = ROOT_DOCS.filter((d) => existsSync(join(projectRoot, d))).map(
+    (d) => ({ path: d, size: sizeOf(join(projectRoot, d)) }),
   );
 
-  const files: ScannedFile[] = [];
-  const identifiers = new Set<string>();
-  let spent = 0;
-  let truncated = false;
-
-  // Root docs first — cheap and high-signal for "what is this project".
-  for (const doc of ROOT_DOCS) {
-    const abs = join(projectRoot, doc);
-    if (!existsSync(abs)) continue;
+  const { reads, dropped } = planReads(docs, code, componentNames);
+  const docPaths = new Set(docs.map((d) => d.path));
+  const read = reads.flatMap((f) => {
     try {
-      const { text, clipped } = clipFile(readFileSync(abs, "utf8"));
-      files.push({ path: doc, content: text });
-      spent += text.length;
-      truncated ||= clipped;
+      const content = readFileSync(join(projectRoot, f.path), "utf8");
+      return [{ path: f.path, content, doc: docPaths.has(f.path) }];
     } catch {
-      /* unreadable — skip */
+      return []; // unreadable — skip
     }
+  });
+  return buildScan(read, dropped, fingerprintOf(code));
+}
+
+/** Where a GitHub scan read from: the repo, branch, and the app's folder in it. */
+export interface GithubScanOrigin {
+  repo: string;
+  ref: string;
+  /** The app's folder within the repo; "" for the repo root. */
+  root: string;
+}
+
+export type GithubSourceResult =
+  | { ok: true; scan: SourceScan; origin: GithubScanOrigin }
+  | { ok: false; error: "not-connected" | "github-error"; message: string };
+
+/** How many candidate app folders' manifests are read to find the right one. */
+const MAX_MANIFEST_READS = 8;
+
+/**
+ * Collect the app's source from the connected GitHub repo's default branch —
+ * the scan for hosts where the source isn't on disk. Same roots, ranking and
+ * budgets as the disk scan; paths come back relative to the repo root, since
+ * that's where they live. In a monorepo the app's folder is found from the
+ * listing (and, when several apps qualify, from which one installs Polishd);
+ * `sourceDirs` is relative to that folder, as it is to the project root on
+ * disk.
+ */
+export async function collectGithubSource(
+  sourceDirs?: string,
+  componentNames: string[] = [],
+): Promise<GithubSourceResult> {
+  let tree;
+  try {
+    tree = await readGithubTree();
+  } catch (err) {
+    return {
+      ok: false,
+      error: "github-error",
+      message: err instanceof Error ? err.message : "Could not reach GitHub.",
+    };
+  }
+  if (!tree) {
+    return { ok: false, error: "not-connected", message: "GitHub isn't connected." };
   }
 
-  for (const f of ranked) {
-    if (files.length >= MAX_FILES || spent >= TOTAL_BUDGET_CHARS) {
-      truncated = true;
-      break;
-    }
-    let raw: string;
-    try {
-      raw = readFileSync(f.abs, "utf8");
-    } catch {
-      continue;
-    }
-    extractIdentifiers(raw, identifiers);
-    const { text, clipped } = clipFile(raw);
-    if (spent + text.length > TOTAL_BUDGET_CHARS) {
-      truncated = true;
-      continue; // a later, smaller file may still fit
-    }
-    files.push({ path: f.rel, content: text });
-    spent += text.length;
-    truncated ||= clipped;
+  const shaOf = new Map(tree.files.map((f) => [f.path, f.sha]));
+  const candidates = appRootCandidates(tree.files.map((f) => f.path));
+  let root = candidates[0] ?? "";
+  if (candidates.length > 1) {
+    const manifestPath = (dir: string) => (dir ? `${dir}/package.json` : "package.json");
+    const checked = candidates.slice(0, MAX_MANIFEST_READS);
+    const blobs = await readGithubBlobs(checked.map((dir) => shaOf.get(manifestPath(dir))!));
+    root = pickAppRoot(checked, (dir) => blobs.get(shaOf.get(manifestPath(dir))!));
   }
+  const origin = { repo: tree.repo, ref: tree.ref, root };
 
-  return { available: true, files, identifiers: [...identifiers].sort(), fingerprint, truncated };
+  const { docs, code } = repoCandidates(tree.files, root, sourceDirs);
+  if (!code.length) return { ok: true, scan: EMPTY_SCAN, origin };
+
+  const { reads, dropped } = planReads(docs, code, componentNames);
+  const prefix = root ? `${root}/` : "";
+  const blobs = await readGithubBlobs(reads.map((f) => shaOf.get(prefix + f.path)!));
+  const docPaths = new Set(docs.map((d) => d.path));
+  const read = reads.flatMap((f) => {
+    const content = blobs.get(shaOf.get(prefix + f.path)!);
+    return content === undefined
+      ? []
+      : [{ path: prefix + f.path, content, doc: docPaths.has(f.path) }];
+  });
+  if (!read.some((f) => !f.doc)) {
+    return {
+      ok: false,
+      error: "github-error",
+      message: `Couldn't read any source files from ${tree.repo} — check the token has Contents (read) on it.`,
+    };
+  }
+  return {
+    ok: true,
+    scan: buildScan(read, dropped || tree.truncated, fingerprintOf(code)),
+    origin,
+  };
 }
 
 /**
