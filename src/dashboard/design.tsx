@@ -30,7 +30,17 @@ import { SnapshotsProvider, SnapshotsSlot } from "./snapshots";
 import { Annotated, ColorToken, ContrastMeter, contrastPercent } from "./design-tokens";
 import OverflowRow from "./overflow-row";
 import ShowMore from "./show-more";
-import { border, card, divider, labelCls as label } from "./ui";
+import {
+  Badge,
+  Callout,
+  Code,
+  EmptyState,
+  PageHeader,
+  Section,
+  StatusPill,
+  card,
+  divider,
+} from "./ui";
 import ValuePreview, { type ValuePreviewRef, type ValuePreviewState } from "./value-preview";
 
 /** Rows shown before a list collapses behind "Show more". */
@@ -114,14 +124,10 @@ function Flaggable({
 }
 
 /** Rows highlight on hover and keyboard focus alike. */
-const FLAGGED_ROW = "transition-colors hover:bg-[#111] focus-visible:bg-[#111]";
+const FLAGGED_ROW = "transition-colors hover:bg-raised/60 focus-visible:bg-raised/60";
 
 function OutlierBadge({ text = "one-off" }: { text?: string }) {
-  return (
-    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-950 text-amber-400">
-      {text}
-    </span>
-  );
+  return <Badge tone="warn">{text}</Badge>;
 }
 
 /**
@@ -144,26 +150,15 @@ function SectionFlags({ flags, section }: { flags: DesignFlag[]; section: Design
   if (own.length === 0) return null;
   const hasWarn = own.some((f) => f.severity === "warn");
   return (
-    <div
-      className={`mx-4 mt-4 rounded-md border px-3 py-2.5 sm:mx-5 ${
-        hasWarn
-          ? "border-amber-900/50 bg-amber-950/30"
-          : "border-[#1e3a5f]/60 bg-[#0c1a2b]/60"
-      }`}
-    >
+    <Callout tone={hasWarn ? "warn" : "info"} className="mx-4 mt-4 sm:mx-5">
       <ul className={own.length > 1 ? "space-y-1.5" : undefined}>
         {own.map((f, i) => (
-          <li
-            key={i}
-            className={`flex gap-2 text-[12px] leading-relaxed ${
-              f.severity === "warn" ? "text-amber-400" : "text-[#7fb2e5]"
-            }`}
-          >
+          <li key={i} className="flex gap-2 text-[12.5px] leading-relaxed text-fg-2">
             {own.length > 1 && (
               <span
                 aria-hidden
-                className={`mt-[7px] h-1 w-1 shrink-0 rounded-full ${
-                  f.severity === "warn" ? "bg-amber-400" : "bg-[#7fb2e5]"
+                className={`mt-[8px] h-1 w-1 shrink-0 rounded-full ${
+                  f.severity === "warn" ? "bg-warn" : "bg-info"
                 }`}
               />
             )}
@@ -173,19 +168,22 @@ function SectionFlags({ flags, section }: { flags: DesignFlag[]; section: Design
           </li>
         ))}
       </ul>
-    </div>
+    </Callout>
   );
 }
 
-function Section({ title, tip, children }: { title: string; tip?: string; children: ReactNode }) {
+/**
+ * The Design tab's sections lead with a sentence about what they measure, so
+ * that reads as the section's description rather than hiding behind a tip.
+ * The source copy opens with an em-dash (it used to trail the title inline);
+ * the dash is dropped now that it sits on its own line.
+ */
+function DesignSection({ title, tip, children }: { title: string; tip?: string; children: ReactNode }) {
+  const lead = tip?.replace(/^—\s*/, "");
   return (
-    <section className="mb-8">
-      <div className={`mb-3 flex items-baseline gap-2 ${label}`}>
-        {title}
-        {tip && <span className="normal-case tracking-normal text-[11px] font-normal text-[#888]">{tip}</span>}
-      </div>
+    <Section title={title} description={lead && lead[0].toUpperCase() + lead.slice(1)}>
       {children}
-    </section>
+    </Section>
   );
 }
 
@@ -207,11 +205,11 @@ function FontRow({
       label={`${f.sizePx}px / ${f.weight}`}
       pages={f.pages}
       previews={previews}
-      className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-3 sm:px-5 ${first ? "" : divider}`}
+      className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-3.5 sm:px-5 ${first ? "" : divider}`}
       flaggedClassName={FLAGGED_ROW}
     >
       <span
-        className="min-w-0 flex-1 truncate text-white"
+        className="min-w-0 flex-1 truncate text-fg"
         style={{
           fontFamily: `"${f.family}", ui-sans-serif, system-ui, sans-serif`,
           fontSize: `${Math.min(f.sizePx, 34)}px`,
@@ -221,14 +219,14 @@ function FontRow({
       >
         {f.sample || "The quick brown fox jumps over the lazy dog"}
       </span>
-      <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-[#888]">
-        <span className="text-[#aaa]">
+      <span className="flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums text-fg-3">
+        <span className="rounded-md bg-raised px-1.5 py-0.5 font-mono text-[11.5px] text-fg-2 ring-1 ring-inset ring-line-strong">
           {f.sizePx}px / {f.weight}
         </span>
-        · {f.count.toLocaleString()} uses
+        {f.count.toLocaleString()} uses
         {declLabel(f) && <> · {declLabel(f)}</>} · {f.pages.length}{" "}
         {f.pages.length === 1 ? "page" : "pages"}
-        {f.tags.length > 0 && <span className="text-[#888]">· {f.tags.join(", ")}</span>}
+        {f.tags.length > 0 && <span className="font-mono text-[11.5px]">· {f.tags.join(", ")}</span>}
         {f.outlier && <OutlierBadge />}
       </span>
     </Flaggable>
@@ -239,7 +237,7 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
   const visible = data.fonts.slice(0, VISIBLE_ROWS);
   const overflow = data.fonts.slice(VISIBLE_ROWS, 40);
   return (
-    <Section
+    <DesignSection
       title="Typography"
       tip="— every family / size / weight combination rendered on the site, most used first. Hover a one-off to see where it renders."
     >
@@ -250,14 +248,17 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
             {data.families.map((f) => (
               <span
                 key={f.family}
-                className="rounded-full border border-[#2e2e2e] px-2.5 py-1 text-[11px] text-[#aaa]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-raised px-3 py-1 text-[12px] font-medium text-fg"
               >
-                {f.family} <span className="text-[#888]">· {f.count.toLocaleString()} uses</span>
+                <span style={{ fontFamily: `"${f.family}", ui-sans-serif, system-ui, sans-serif` }}>
+                  {f.family}
+                </span>
+                <span className="font-normal text-fg-3">· {f.count.toLocaleString()} uses</span>
               </span>
             ))}
           </div>
         )}
-        <div className="mt-2">
+        <div className="mt-3">
           {visible.map((f, i) => (
             <FontRow
               key={`${f.family}|${f.sizePx}|${f.weight}`}
@@ -278,7 +279,7 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
           </ShowMore>
         </div>
       </div>
-    </Section>
+    </DesignSection>
   );
 }
 
@@ -298,14 +299,15 @@ function colorRef(c: PolishdDesignData["colors"][number]): DesignValueRef {
 }
 
 function ColorChip({ c, previews }: { c: PolishdDesignData["colors"][number]; previews: PreviewFor }) {
-  const chip = "flex items-center gap-1.5 rounded-full border border-[#2e2e2e] py-1 pl-1.5 pr-2.5";
+  const chip =
+    "flex items-center gap-1.5 rounded-full border border-line-strong bg-raised py-1 pl-1 pr-2.5";
   const body = (
     <>
       <span
-        className="h-4 w-4 rounded-full border border-[#2e2e2e]"
+        className="h-[18px] w-[18px] rounded-full ring-1 ring-inset ring-fg/15"
         style={{ backgroundColor: c.hex }}
       />
-      <span className="font-mono text-[10px] text-[#999]">{c.hex}</span>
+      <span className="font-mono text-[11.5px] text-fg-2">{c.hex}</span>
       {c.outlier && <OutlierBadge />}
     </>
   );
@@ -316,7 +318,7 @@ function ColorChip({ c, previews }: { c: PolishdDesignData["colors"][number]; pr
         label={c.hex}
         pages={c.pages}
         state={previews(colorRef(c))}
-        className={`${chip} transition-colors hover:border-[#555] focus-visible:border-[#777]`}
+        className={`${chip} transition-colors hover:border-fg-4 focus-visible:border-fg-3`}
       >
         {body}
       </ValuePreview>
@@ -338,14 +340,14 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
   const primary = data.colors.slice(0, 6);
   const chips = data.colors.slice(6, 48);
   return (
-    <Section
+    <DesignSection
       title="Color palette"
       tip="— the colors your pages actually paint, weighted by how much of the UI they cover. Hover a one-off to see where it renders."
     >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="color" />
         {primary.length > 0 && (
-          <div className="grid grid-cols-3 gap-3 px-4 pt-4 sm:grid-cols-6 sm:px-5">
+          <div className="grid grid-cols-3 gap-3 px-4 pt-5 sm:grid-cols-6 sm:px-5">
             {primary.map((c) => (
               <Flaggable
                 key={c.hex}
@@ -355,14 +357,14 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
                 pages={c.pages}
                 previews={previews}
                 className="min-w-0"
-                flaggedClassName="rounded-md focus-visible:ring-1 focus-visible:ring-amber-500/60"
+                flaggedClassName="rounded-lg"
               >
                 <div
-                  className="h-16 w-full rounded-md border border-[#2e2e2e]"
+                  className="h-20 w-full rounded-lg ring-1 ring-inset ring-fg/10"
                   style={{ backgroundColor: c.hex }}
                 />
-                <div className="mt-1.5 truncate font-mono text-[11px] text-[#ccc]">{c.hex}</div>
-                <div className="flex flex-wrap items-center gap-1 text-[10px] text-[#888]">
+                <div className="mt-2 truncate font-mono text-[12px] font-medium text-fg">{c.hex}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11.5px] text-fg-3">
                   <span className="tabular-nums">{c.pct}%</span>
                   <span>· {roleLabel(c.roles)}</span>
                   {c.outlier && <OutlierBadge />}
@@ -383,7 +385,7 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
           </OverflowRow>
         )}
       </div>
-    </Section>
+    </DesignSection>
   );
 }
 
@@ -391,23 +393,23 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
 
 function ContrastRow({ p, first }: { p: PolishdDesignData["contrast"][number]; first: boolean }) {
   return (
-    <div className={`flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5 ${first ? "" : divider}`}>
+    <div className={`flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5 ${first ? "" : divider}`}>
       <span
-        className="flex h-9 w-14 shrink-0 items-center justify-center rounded-md border border-[#2e2e2e] text-[14px] font-medium"
+        className="flex h-10 w-14 shrink-0 items-center justify-center rounded-lg text-[15px] font-semibold ring-1 ring-inset ring-fg/10"
         style={{ backgroundColor: p.bg, color: p.fg }}
       >
         Aa
       </span>
-      <span className="flex items-center gap-1.5 text-[11px] text-[#888]">
+      <span className="flex items-center gap-1.5 text-[12px] text-fg-3">
         <ColorToken hex={p.fg} /> on <ColorToken hex={p.bg} />
       </span>
-      <span className="flex items-center gap-2">
+      <span className="flex items-center gap-2.5">
         <ContrastMeter ratio={p.ratio} required={p.required} />
-        <span className="text-[11px] tabular-nums text-[#888]">
+        <span className="text-[12px] tabular-nums text-fg-3">
           needs {contrastPercent(p.required)}% at {p.minSizePx}px
         </span>
       </span>
-      <span className="text-[11px] text-[#888]">
+      <span className="font-mono text-[11.5px] text-fg-3">
         {p.pages.slice(0, 2).join(", ")}
         {p.pages.length > 2 ? ", …" : ""}
       </span>
@@ -421,7 +423,7 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
   const visible = failing.slice(0, VISIBLE_ROWS);
   const overflow = failing.slice(VISIBLE_ROWS, 25);
   return (
-    <Section
+    <DesignSection
       title="Contrast"
       tip="— every text-on-background pairing measured against WCAG AA."
     >
@@ -433,11 +435,11 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
       */}
       <div className={`${card} overflow-hidden`}>
         {failing.length === 0 ? (
-          <p className="px-4 py-4 text-[13px] text-emerald-500 sm:px-5">
+          <p className="px-4 py-4 text-[13px] text-ok sm:px-5">
             All {data.contrast.length} measured text/background pairs meet WCAG AA. Nice.
           </p>
         ) : (
-          <div className="mt-2">
+          <div>
             {visible.map((p, i) => (
               <ContrastRow key={`${p.fg}|${p.bg}`} p={p} first={i === 0} />
             ))}
@@ -449,7 +451,7 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
           </div>
         )}
       </div>
-    </Section>
+    </DesignSection>
   );
 }
 
@@ -464,19 +466,19 @@ function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; pr
       pages={r.pages}
       previews={previews}
       className="flex flex-col items-center gap-1.5"
-      flaggedClassName={`-m-1.5 rounded-md p-1.5 ${FLAGGED_ROW}`}
+      flaggedClassName={`-m-2 rounded-lg p-2 ${FLAGGED_ROW}`}
     >
       <div
-        className="h-12 w-12 border border-[#555] bg-[#1a1a1a]"
+        className="h-14 w-14 border-[1.5px] border-accent/70 bg-accent/[0.07]"
         style={{
           borderRadius: r.value === "full" ? "9999px" : r.value.replace(" (mixed)", ""),
         }}
       />
-      <div className="flex items-center gap-1 text-[11px] text-[#999]">
+      <div className="mt-0.5 flex items-center gap-1 text-[12px] text-fg-2">
         <span className="font-mono">{r.value}</span>
         {r.outlier && <OutlierBadge />}
       </div>
-      <span className="text-[10px] tabular-nums text-[#888]" title={declLabel(r) || undefined}>
+      <span className="text-[11.5px] tabular-nums text-fg-3" title={declLabel(r) || undefined}>
         ×{r.count.toLocaleString()}
         {r.declarations !== undefined && !r.legacyUses && ` · ${r.declarations.toLocaleString()} decl`}
       </span>
@@ -488,7 +490,7 @@ function RadiusSection({ data, previews }: { data: PolishdDesignData; previews: 
   if (data.radii.length === 0) return null;
   const radii = data.radii.slice(0, 20);
   return (
-    <Section
+    <DesignSection
       title="Corner radii"
       tip="— rounding in use on visible boxes and controls. Hover a one-off to see where it renders."
     >
@@ -497,14 +499,14 @@ function RadiusSection({ data, previews }: { data: PolishdDesignData; previews: 
         <OverflowRow
           label="radii"
           className="px-4 pt-4 sm:px-5"
-          rowClassName="flex flex-wrap items-end gap-4"
+          rowClassName="flex flex-wrap items-end gap-5"
         >
           {radii.map((r) => (
             <RadiusChip key={r.value} r={r} previews={previews} />
           ))}
         </OverflowRow>
       </div>
-    </Section>
+    </DesignSection>
   );
 }
 
@@ -525,26 +527,24 @@ function SpacingRow({
       pages={s.pages}
       previews={previews}
       className="flex items-center gap-3"
-      flaggedClassName={`-mx-1.5 rounded px-1.5 ${FLAGGED_ROW}`}
+      flaggedClassName={`-mx-1.5 rounded-md px-1.5 ${FLAGGED_ROW}`}
     >
-      <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-[#999]">
+      <span className="w-12 shrink-0 text-right font-mono text-[12px] tabular-nums text-fg-2">
         {s.px}px
       </span>
-      <div className="h-3 flex-1 overflow-hidden rounded bg-[#1a1a1a]">
+      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-raised">
         <div
-          className={`h-full rounded ${s.offGrid ? "bg-amber-500/70" : "bg-blue-500/80"}`}
+          className={`h-full rounded-full ${s.offGrid ? "bg-warn/80" : "bg-accent/80"}`}
           style={{ width: `${Math.max((s.px / max) * 100, 2)}%` }}
         />
       </div>
       <span
-        className="w-16 shrink-0 text-right text-[11px] tabular-nums text-[#888]"
+        className="w-16 shrink-0 text-right text-[12px] tabular-nums text-fg-3"
         title={declLabel(s) ? `${s.count.toLocaleString()} uses · ${declLabel(s)}` : undefined}
       >
         ×{s.count.toLocaleString()}
       </span>
-      <span className="w-14 shrink-0 text-[10px] text-amber-400">
-        {s.offGrid ? "off-grid" : ""}
-      </span>
+      <span className="w-16 shrink-0">{s.offGrid && <Badge tone="warn">off-grid</Badge>}</span>
     </Flaggable>
   );
 }
@@ -556,26 +556,26 @@ function SpacingSection({ data, previews }: { data: PolishdDesignData; previews:
   const visible = scale.slice(0, VISIBLE_ROWS);
   const overflow = scale.slice(VISIBLE_ROWS);
   return (
-    <Section
+    <DesignSection
       title="Spacing"
       tip="— padding values in use, as a scale. Bars are to scale. Hover an off-grid value to see where it renders."
     >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="spacing" />
-        <div className="space-y-1.5 px-4 pt-4 sm:px-5">
+        <div className="space-y-2 px-4 pb-1 pt-5 sm:px-5">
           {visible.map((s) => (
             <SpacingRow key={s.px} s={s} max={max} previews={previews} />
           ))}
         </div>
         <ShowMore count={overflow.length} label="padding values">
-          <div className="mt-1.5 space-y-1.5 px-4 pb-1 sm:px-5">
+          <div className="mt-2 space-y-2 px-4 pb-1 sm:px-5">
             {overflow.map((s) => (
               <SpacingRow key={s.px} s={s} max={max} previews={previews} />
             ))}
           </div>
         </ShowMore>
       </div>
-    </Section>
+    </DesignSection>
   );
 }
 
@@ -584,10 +584,10 @@ function SpacingSection({ data, previews }: { data: PolishdDesignData; previews:
 function PageRow({ p, first }: { p: PolishdDesignData["pages"][number]; first: boolean }) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 px-4 py-2.5 sm:px-5 ${first ? "" : divider}`}
+      className={`flex items-center justify-between gap-3 px-4 py-3 sm:px-5 ${first ? "" : divider}`}
     >
-      <span className="truncate font-mono text-[12px] text-[#ccc]">{p.path}</span>
-      <span className="shrink-0 text-[11px] tabular-nums text-[#888]">
+      <span className="truncate font-mono text-[12.5px] text-fg-2">{p.path}</span>
+      <span className="shrink-0 text-[12px] tabular-nums text-fg-3">
         {p.elements.toLocaleString()} elements ·{" "}
         {new Date(p.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
       </span>
@@ -600,7 +600,7 @@ function ScannedPages({ data }: { data: PolishdDesignData }) {
   const visible = data.pages.slice(0, VISIBLE_ROWS);
   const overflow = data.pages.slice(VISIBLE_ROWS);
   return (
-    <Section title="Scanned pages" tip="— latest design scan per route; the dashboard itself is never scanned.">
+    <DesignSection title="Scanned pages" tip="— latest design scan per route; the dashboard itself is never scanned.">
       <div className={`${card} overflow-hidden`}>
         {visible.map((p, i) => (
           <PageRow key={p.path} p={p} first={i === 0} />
@@ -611,7 +611,7 @@ function ScannedPages({ data }: { data: PolishdDesignData }) {
           ))}
         </ShowMore>
       </div>
-    </Section>
+    </DesignSection>
   );
 }
 
@@ -643,50 +643,46 @@ export function DesignPanel({
     new Set(designPreviewTargets(data).map((t) => t.key)),
   );
   return (
-    <main className="text-white">
+    <main className="text-fg">
       <SnapshotsProvider initial={snapshots} availability={snapshotMode}>
-        {/* Header */}
-        <div
-          className={`mb-8 flex flex-col gap-4 border-b ${border} pb-6 sm:flex-row sm:items-start sm:justify-between sm:gap-3`}
-        >
-          <div>
-            <h1 className="text-[22px] font-semibold tracking-tight text-white">Design review</h1>
-            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#888]">
+        <PageHeader
+          title="Design review"
+          description={
+            <>
               Your site&apos;s brand guideline, reverse-engineered from the rendered pages — the
               typography, palette, radii and spacing it actually ships, with anything that breaks
               the system flagged.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-            {hasScans && <BrandKitButton kit={buildBrandKit(data)} />}
-            <RefreshMetricsButton />
-            <div
-              className={`whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-                hasScans ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#888]"
-              }`}
-            >
-              {hasScans
-                ? `● ${data.pages.length} ${data.pages.length === 1 ? "page" : "pages"} scanned`
-                : "○ no scans yet"}
-            </div>
-          </div>
-        </div>
+            </>
+          }
+          actions={
+            <>
+              {hasScans && <BrandKitButton kit={buildBrandKit(data)} />}
+              <RefreshMetricsButton />
+              {hasScans ? (
+                <StatusPill tone="ok">
+                  {data.pages.length} {data.pages.length === 1 ? "page" : "pages"} scanned
+                </StatusPill>
+              ) : (
+                <StatusPill tone="neutral">No scans yet</StatusPill>
+              )}
+            </>
+          }
+        />
 
         {!data.ready && (
-          <div className="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-[13px] text-amber-400">
+          <Callout tone="warn" className="mb-8">
             The analytics store isn&apos;t writable in this environment. Run locally or configure a
-            database — see the <span className="font-mono text-amber-300">@polishd/next</span>{" "}
-            DATABASE.md guide.
-          </div>
+            database — see the <Code>@polishd/next</Code> DATABASE.md guide.
+          </Callout>
         )}
 
         {data.ready && !hasScans && (
-          <div className={`mb-8 ${card} px-5 py-8 text-center`}>
-            <p className="text-[13px] text-[#888]">
+          <div className={`mb-10 ${card}`}>
+            <EmptyState>
               No design scans captured yet. Each page measures its own rendered design (fonts,
               colors, radii, spacing) once per visitor session — browse a few pages of the site,
               then refresh the metrics.
-            </p>
+            </EmptyState>
           </div>
         )}
 

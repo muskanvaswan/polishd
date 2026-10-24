@@ -14,39 +14,33 @@
 import { useState } from "react";
 
 import type { TopInteraction } from "../server/queries";
-
-const border = "border-[#2e2e2e]";
-const divider = `border-t ${border}`;
+import { Badge, ChevronDownIcon, divider } from "./ui";
 
 /** Number of features shown before "Show more" is needed. */
 const COLLAPSED_COUNT = 3;
 
 function TopInteractionRow({ el }: { el: TopInteraction }) {
   return (
-    <tr className={`${divider} align-top`}>
-      <td className="py-2.5 pl-5 pr-6">
+    <tr className={`${divider} align-top transition-colors first:border-t-0 hover:bg-raised/50`}>
+      <td className="py-3 pl-5 pr-6">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-white">{el.label}</span>
-          <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-              el.isComponent ? "bg-blue-950 text-blue-400" : "bg-[#1a1a1a] text-[#888]"
-            }`}
-          >
+          <span className="text-[13px] font-medium text-fg">{el.label}</span>
+          <Badge tone={el.isComponent ? "info" : "neutral"}>
             {el.isComponent ? "component" : "selector"}
-          </span>
+          </Badge>
         </div>
         {el.sampleText && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#888]">"{el.sampleText}"</div>
+          <div className="mt-1 text-[12px] text-fg-2">&ldquo;{el.sampleText}&rdquo;</div>
         )}
         {el.isComponent && el.selector && (
-          <div className="mt-0.5 font-mono text-[11px] text-[#888]">{el.selector}</div>
+          <div className="mt-0.5 font-mono text-[11.5px] text-fg-3">{el.selector}</div>
         )}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums text-white">
+      <td className="py-3 px-4 text-right text-[13px] font-semibold tabular-nums text-fg">
         {el.clicks}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{el.sessions}</td>
-      <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums text-[#888]">{el.pages}</td>
+      <td className="py-3 px-4 text-right text-[13px] tabular-nums text-fg-2">{el.sessions}</td>
+      <td className="py-3 pl-4 pr-5 text-right text-[13px] tabular-nums text-fg-2">{el.pages}</td>
     </tr>
   );
 }
@@ -82,9 +76,13 @@ export default function TopFeaturesTable({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="w-full px-5 py-2.5 text-center text-[12px] font-medium text-[#888] transition-colors hover:bg-[#111] hover:text-white"
+            aria-expanded={expanded}
+            className="flex w-full items-center gap-1 px-5 py-2.5 text-left text-[12px] font-medium text-fg-3 transition-colors hover:bg-raised/50 hover:text-fg"
           >
             {expanded ? "Show less" : `Show ${hidden} more`}
+            <span className={`transition-transform ${expanded ? "rotate-180" : ""}`}>
+              <ChevronDownIcon size={13} />
+            </span>
           </button>
         </div>
       )}

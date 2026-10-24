@@ -26,23 +26,37 @@
 import type { PolishdFiledIssue, PolishdFixSuggestion } from "../ai/types";
 import { TabLink } from "./chrome";
 import IssueList from "./issue-list";
-import { border, card, labelCls as label } from "./ui";
+import {
+  ArrowUpRightIcon,
+  EmptyState,
+  PageHeader,
+  Section,
+  card,
+  ghostBtn,
+  labelCls as label,
+  toneDot,
+  type Tone,
+} from "./ui";
 
 function Stat({
   label: labelText,
   value,
-  tone = "text-white",
+  tone,
 }: {
   label: string;
   value: number;
-  tone?: string;
+  /** Status colour of the caption's dot; neutral when omitted. */
+  tone?: Tone;
 }) {
   return (
     <div className={`${card} px-4 py-4`}>
-      <div className={`text-[28px] font-semibold tabular-nums leading-none ${tone}`}>
+      <div className={`flex items-center gap-1.5 ${label}`}>
+        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone ? toneDot[tone] : "bg-fg-4"}`} />
+        {labelText}
+      </div>
+      <div className="mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums text-fg">
         {value.toLocaleString()}
       </div>
-      <div className={`mt-2 ${label}`}>{labelText}</div>
     </div>
   );
 }
@@ -69,61 +83,60 @@ export default function IssuesView({
   const verified = issues.filter((i) => i.verdict === "confirmed").length;
 
   return (
-    <main className="text-white">
-      <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-white">Issues</h1>
-          <p className="mt-1 text-[13px] text-[#888]">
+    <main className="text-fg">
+      <PageHeader
+        title="Issues"
+        description={
+          <>
             Bugs polishd filed from your analytics — each one traced back to the behavior that
             found it, and shown as your tracker has it now.
-          </p>
-        </div>
-        {repo && (
-          <a
-            href={`https://github.com/${repo}/issues`}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="shrink-0 whitespace-nowrap rounded-full bg-[#1a1a1a] px-3 py-1 font-mono text-[11px] text-[#888] transition-colors hover:text-white"
-          >
-            {repo} ↗
-          </a>
-        )}
-      </div>
+          </>
+        }
+        actions={
+          repo && (
+            <a
+              href={`https://github.com/${repo}/issues`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={`${ghostBtn} font-mono text-[12px]`}
+            >
+              {repo}
+              <ArrowUpRightIcon />
+            </a>
+          )
+        }
+      />
 
       {!connected ? (
-        <div className={`${card} px-5 py-8 text-center`}>
-          <p className="text-[13px] text-[#888]">No GitHub repository is connected.</p>
-          <p className="mx-auto mt-1.5 max-w-md text-[12px] leading-relaxed text-[#888]">
+        <div className={`${card} px-5 py-10 text-center`}>
+          <p className="text-[14px] font-medium text-fg">No GitHub repository is connected.</p>
+          <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-fg-3">
             Connect one in the settings and polishd can verify the problems it finds against
             your source and file them as issues — which is what this tab lists.
           </p>
-          <TabLink
-            tab="settings"
-            className="mt-4 inline-block rounded-md border border-[#2e2e2e] px-3 py-1.5 text-[12px] text-[#aaa] transition-colors hover:border-[#555] hover:text-white"
-          >
+          <TabLink tab="settings" className={`${ghostBtn} mt-5`}>
             Open settings
           </TabLink>
         </div>
       ) : (
         <>
-          <section className="mb-8">
+          <section className="mb-10">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat label="Filed by polishd" value={issues.length} />
-              <Stat label="Open" value={open} tone="text-emerald-400" />
-              <Stat label="Closed" value={closed} />
+              <Stat label="Open" value={open} tone="ok" />
+              <Stat label="Closed" value={closed} tone="violet" />
               <Stat label="Verified against source" value={verified} />
             </div>
           </section>
 
-          <section className="mb-8">
-            <div className={`mb-3 ${label}`}>Filed issues</div>
-            <div className={card}>
+          <Section title="Filed issues">
+            <div className={`${card} overflow-hidden`}>
               {issues.length === 0 ? (
-                <p className="px-5 py-8 text-center text-[13px] text-[#888]">
+                <EmptyState>
                   Nothing filed yet. Problems the summary finds on the Analytics tab carry a
                   &ldquo;File bug&rdquo; button — anything filed from there, or automatically,
                   lands here.
-                </p>
+                </EmptyState>
               ) : (
                 <IssueList
                   issues={issues}
@@ -133,7 +146,7 @@ export default function IssuesView({
                 />
               )}
             </div>
-          </section>
+          </Section>
         </>
       )}
     </main>

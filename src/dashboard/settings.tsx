@@ -34,13 +34,22 @@ import type {
   PolishdRefreshCadence,
 } from "../ai/types";
 import {
-  border,
+  Badge,
+  Callout,
+  CheckIcon,
+  Code,
+  PageHeader,
+  StatusPill,
   card,
+  cardHeader,
+  cardTitleCls,
+  fieldHintCls,
+  fieldLabelCls as labelCls,
   ghostBtn,
   inputCls,
-  labelCls,
   primaryBtn,
   relTime,
+  textLink,
 } from "./ui";
 
 export const PROVIDERS: {
@@ -176,7 +185,7 @@ function ModelField({
           <button
             type="button"
             onClick={() => setModels(null)}
-            className="mt-1 text-[11px] text-[#888] transition-colors hover:text-white"
+            className={`mt-1.5 text-[12px] ${textLink}`}
           >
             Type a different model id
           </button>
@@ -200,11 +209,11 @@ function ModelField({
                   ? "Fetch the list of models available to this key"
                   : "Add an API key first"
             }
-            className="mt-1 text-[11px] text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
+            className={`mt-1.5 text-[12px] ${textLink} disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40`}
           >
             {pending ? "Loading models…" : "Load available models"}
           </button>
-          {error && <span className="mt-1 block text-[11px] text-red-400">{error}</span>}
+          {error && <span className="mt-1 block text-[12px] text-bad">{error}</span>}
         </>
       )}
     </label>
@@ -243,34 +252,34 @@ export default function SettingsView({
     // Coarse tag for polishd's own dashboard telemetry: any settings click
     // without a finer data-component groups under "settings" on the
     // collecting side. Inert for host apps.
-    <main data-component="settings" className="text-white">
-      <div className={`mb-8 flex items-start justify-between gap-3 border-b ${border} pb-6`}>
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-white">Settings</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#888]">
+    <main data-component="settings" className="text-fg">
+      <PageHeader
+        title="Settings"
+        description={
+          <>
             The model Polishd calls, what it knows about your site, and where it files what it
             finds. One model serves both the analytics summary and the design review.
-          </p>
-        </div>
-        <div
-          className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-            settings.hasApiKey ? "bg-emerald-950 text-emerald-400" : "bg-[#1a1a1a] text-[#888]"
-          }`}
-        >
-          {settings.hasApiKey ? `● ${settings.provider}` : "○ no model"}
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          settings.hasApiKey ? (
+            <StatusPill tone="ok">{settings.provider}</StatusPill>
+          ) : (
+            <StatusPill tone="neutral">No model</StatusPill>
+          )
+        }
+      />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-[13px] text-red-400">
+        <Callout tone="bad" className="mb-6">
           {error}
-        </div>
+        </Callout>
       )}
 
       {onboarding ? (
         <section className={`${card} overflow-hidden`}>
-          <div className={`border-b ${border} px-4 py-3 sm:px-5`}>
-            <span className={labelCls}>First-time setup</span>
+          <div className={cardHeader}>
+            <span className={cardTitleCls}>First-time setup</span>
           </div>
           <OnboardingWizard
             settings={settings}
@@ -351,11 +360,11 @@ function OptionRow({
           checked={checked}
           disabled={disabled}
           onChange={(e) => onChange(e.target.checked)}
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-white disabled:cursor-not-allowed"
+          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--pd-accent)] disabled:cursor-not-allowed"
         />
         <span>
-          <span className="block text-[13px] font-medium text-white">{title}</span>
-          <span className="mt-0.5 block text-[11px] leading-snug text-[#888]">{hint}</span>
+          <span className="block text-[13px] font-medium text-fg">{title}</span>
+          <span className="mt-0.5 block text-[12px] leading-snug text-fg-3">{hint}</span>
         </span>
       </label>
       {children && <div className="mt-3 pl-6">{children}</div>}
@@ -375,29 +384,41 @@ function StepShell({
   children: ReactNode;
 }) {
   return (
-    <div className="px-4 py-5 sm:px-5">
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+    <div className="px-4 py-6 sm:px-6">
+      <ol className="mb-6 flex flex-wrap items-center gap-2" aria-label="Setup steps">
         {STEPS.map((name, i) => (
-          <span key={name} className="flex items-center gap-1.5">
+          <li
+            key={name}
+            className="flex items-center gap-2"
+            aria-current={i === step ? "step" : undefined}
+          >
             <span
-              className={`flex h-5 items-center rounded-full px-2 text-[10px] font-medium ${
-                i === step
-                  ? "bg-white text-black"
-                  : i < step
-                    ? "bg-[#1a1a1a] text-emerald-400"
-                    : "bg-[#1a1a1a] text-[#888]"
+              className={`flex items-center gap-2 text-[12px] font-medium ${
+                i === step ? "text-fg" : i < step ? "text-fg-2" : "text-fg-3"
               }`}
             >
-              {i < step ? "✓ " : `${i + 1} · `}
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ${
+                  i === step
+                    ? "bg-accent text-accent-fg"
+                    : i < step
+                      ? "bg-ok/15 text-ok ring-1 ring-inset ring-ok/30"
+                      : "bg-raised text-fg-3 ring-1 ring-inset ring-line-strong"
+                }`}
+              >
+                {i < step ? <CheckIcon size={11} /> : i + 1}
+              </span>
               {name}
             </span>
-            {i < STEPS.length - 1 && <span className="h-px w-3 bg-[#2e2e2e]" />}
-          </span>
+            {i < STEPS.length - 1 && (
+              <span className={`h-px w-6 ${i < step ? "bg-ok/40" : "bg-line-strong"}`} />
+            )}
+          </li>
         ))}
-      </div>
-      <h3 className="text-[15px] font-semibold text-white">{title}</h3>
-      <p className="mt-1 max-w-xl text-[12px] leading-relaxed text-[#888]">{intro}</p>
-      <div className="mt-4">{children}</div>
+      </ol>
+      <h3 className="text-[17px] font-semibold tracking-[-0.01em] text-fg">{title}</h3>
+      <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-fg-3">{intro}</p>
+      <div className="mt-5">{children}</div>
     </div>
   );
 }
@@ -519,11 +540,11 @@ function OnboardingWizard({
     });
 
   return (
-    <div className="bg-[#0a0a0a]">
+    <div>
       {error && (
-        <div className="mx-4 mt-4 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400 sm:mx-5">
+        <Callout tone="bad" className="mx-4 mt-5 sm:mx-6">
           {error}
-        </div>
+        </Callout>
       )}
 
       {step === 0 && (
@@ -568,13 +589,13 @@ function OnboardingWizard({
                 className={`${inputCls} mt-1.5`}
               />
               {prov && (
-                <span className="mt-1 block text-[11px] text-[#888]">
+                <span className="mt-1.5 block text-[12px] text-fg-3">
                   Get a key from{" "}
                   <a
                     href={prov.keyUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+                    className={textLink}
                   >
                     {prov.keyHost}
                   </a>
@@ -594,7 +615,7 @@ function OnboardingWizard({
               </label>
             )}
           </div>
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-6 flex items-center gap-3">
             <button
               type="button"
               onClick={saveModel}
@@ -606,7 +627,7 @@ function OnboardingWizard({
             <button
               type="button"
               onClick={onSkip}
-              className="text-[11px] text-[#888] transition-colors hover:text-white"
+              className="text-[12px] font-medium text-fg-3 transition-colors hover:text-fg"
             >
               Skip setup
             </button>
@@ -650,7 +671,7 @@ function OnboardingWizard({
               />
             </label>
           </div>
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-6 flex items-center gap-3">
             <button type="button" onClick={saveSite} disabled={pending} className={primaryBtn}>
               {pending ? "Saving…" : "Continue"}
             </button>
@@ -668,12 +689,12 @@ function OnboardingWizard({
           intro="Optional — one fine-grained token scoped to this repo covers both. The scan reads your source once, so every summary knows your pages and components; issues turn the problems the model finds into GitHub issues, verified against that same source. Connect the repo, then pick either or both."
         >
           {githubStatus ? (
-            <div className="rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2.5 text-[12px] text-emerald-400">
+            <Callout tone="ok">
               Connected to {githubStatus.repo} · default branch{" "}
-              <code className="font-mono">{githubStatus.defaultBranch}</code>
+              <Code>{githubStatus.defaultBranch}</Code>
               {!githubStatus.issuesEnabled && " · issues are disabled on this repo"}
               {!githubStatus.canPush && " · token can't push (branches/PRs unavailable)"}
-            </div>
+            </Callout>
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -700,13 +721,13 @@ function OnboardingWizard({
                     autoComplete="off"
                     className={`${inputCls} mt-1.5`}
                   />
-                  <span className="mt-1 block text-[11px] text-[#888]">
+                  <span className="mt-1.5 block text-[12px] leading-relaxed text-fg-3">
                     Create a{" "}
                     <a
                       href="https://github.com/settings/personal-access-tokens/new"
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+                      className={textLink}
                     >
                       fine-grained token
                     </a>{" "}
@@ -731,7 +752,7 @@ function OnboardingWizard({
             </>
           )}
 
-          <div className={`mt-5 space-y-4 border-t ${border} pt-4`}>
+          <div className="mt-6 space-y-4 border-t border-line pt-5">
             <OptionRow
               checked={willScan}
               onChange={setScanOn}
@@ -748,7 +769,7 @@ function OnboardingWizard({
               {willScan && (
                 <label className="block max-w-md">
                   <span className={labelCls}>Source folders</span>
-                  <span className="ml-1 text-[11px] text-[#888]">
+                  <span className={`ml-1 ${fieldHintCls}`}>
                     — optional; defaults to src / app / components / pages / lib.
                   </span>
                   <input
@@ -773,7 +794,7 @@ function OnboardingWizard({
             />
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             {githubStatus ? (
               <button
                 type="button"
@@ -821,31 +842,41 @@ function OnboardingWizard({
           intro="With the profile cached, a refresh only spends tokens when there's new behavior to narrate — unchanged data is always free. Auto-refresh runs in the background when you open the dashboard past the cadence."
         >
           {scanned && (
-            <div className="mb-4 rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2.5 text-[12px] text-emerald-400">
+            <Callout tone="ok" className="mb-5">
               Profiled {scanned.sourceFiles} files{profileFrom(scanned)} ·{" "}
               {scanned.coveredIdentifiers.length} components
               {scanned.truncated ? " (large app — clipped to budget)" : ""}. The model now knows your
               site&apos;s structure.
-            </div>
+            </Callout>
           )}
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2.5 sm:grid-cols-3">
             {CADENCES.map((c) => (
               <button
                 key={c.value}
                 type="button"
                 onClick={() => setCadence(c.value)}
-                className={`rounded-md border px-3 py-2.5 text-left transition-colors ${
+                aria-pressed={cadence === c.value}
+                className={`rounded-xl border px-3.5 py-3 text-left transition-colors ${
                   cadence === c.value
-                    ? "border-white bg-[#1a1a1a]"
-                    : "border-[#2e2e2e] hover:border-[#555]"
+                    ? "border-accent/70 bg-accent/[0.07] ring-[3px] ring-accent/15"
+                    : "border-line-strong bg-raised hover:border-fg-4"
                 }`}
               >
-                <span className="block text-[13px] font-medium text-white">{c.label}</span>
-                <span className="mt-0.5 block text-[11px] leading-snug text-[#888]">{c.hint}</span>
+                <span className="flex items-center justify-between text-[13px] font-medium text-fg">
+                  {c.label}
+                  <span
+                    className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                      cadence === c.value ? "border-accent bg-accent text-accent-fg" : "border-fg-4"
+                    }`}
+                  >
+                    {cadence === c.value && <CheckIcon size={10} />}
+                  </span>
+                </span>
+                <span className="mt-1 block text-[12px] leading-snug text-fg-3">{c.hint}</span>
               </button>
             ))}
           </div>
-          <div className="mt-4">
+          <div className="mt-6">
             <button type="button" onClick={finish} disabled={pending} className={primaryBtn}>
               {pending ? "Generating your first summary…" : "Finish & generate first summary"}
             </button>
@@ -869,12 +900,12 @@ function Group({
   children: ReactNode;
 }) {
   return (
-    <section className={`mb-4 ${card} overflow-hidden`}>
-      <div className={`border-b ${border} px-4 py-3 sm:px-5`}>
-        <span className={labelCls}>{title}</span>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#888]">{hint}</p>
+    <section className={`mb-5 ${card} overflow-hidden`}>
+      <div className="border-b border-line px-4 py-3.5 sm:px-5">
+        <h2 className={cardTitleCls}>{title}</h2>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-fg-3">{hint}</p>
       </div>
-      <div className="px-4 py-4 sm:px-5">{children}</div>
+      <div className="px-4 py-5 sm:px-5">{children}</div>
     </section>
   );
 }
@@ -985,13 +1016,13 @@ function SettingsForm({
               className={`${inputCls} mt-1.5`}
             />
             {prov && (
-              <span className="mt-1 block text-[11px] text-[#888]">
+              <span className="mt-1.5 block text-[12px] text-fg-3">
                 Get a key from{" "}
                 <a
                   href={prov.keyUrl}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+                  className={textLink}
                 >
                   {prov.keyHost}
                 </a>
@@ -1035,7 +1066,7 @@ function SettingsForm({
       >
         <label className="block">
           <span className={labelCls}>Site description</span>
-          <span className="ml-1 text-[11px] text-[#888]">
+          <span className={`ml-1 ${fieldHintCls}`}>
             — what the site is, who it&apos;s for, key flows.
           </span>
           <textarea
@@ -1071,7 +1102,7 @@ function SettingsForm({
 
         <label className="mt-4 block">
           <span className={labelCls}>Instructions</span>
-          <span className="ml-1 text-[11px] text-[#888]">
+          <span className={`ml-1 ${fieldHintCls}`}>
             — optional: tone, focus, what to call out.
           </span>
           <textarea
@@ -1101,7 +1132,7 @@ function SettingsForm({
 
           <label className="block">
             <span className={labelCls}>Access token</span>
-            <span className="ml-1 text-[11px] text-[#888]">
+            <span className={`ml-1 ${fieldHintCls}`}>
               — Contents (read), Issues &amp; Pull requests (write).
             </span>
             <input
@@ -1122,13 +1153,13 @@ function SettingsForm({
             type="checkbox"
             checked={autoIssues}
             onChange={(e) => setAutoIssues(e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-white"
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--pd-accent)]"
           />
           <span>
-            <span className="block text-[13px] text-white">
+            <span className="block text-[13px] font-medium text-fg">
               Allow creating issues automatically
             </span>
-            <span className="mt-0.5 block text-[11px] leading-snug text-[#888]">
+            <span className="mt-0.5 block text-[12px] leading-snug text-fg-3">
               New problems are verified against the source, then filed on their own; never twice.
             </span>
           </span>
@@ -1149,7 +1180,7 @@ function SettingsForm({
         />
         <label className="mt-4 block">
           <span className={labelCls}>Source folders</span>
-          <span className="ml-1 text-[11px] text-[#888]">
+          <span className={`ml-1 ${fieldHintCls}`}>
             — optional, comma-separated, relative to the project root. Defaults to src / app /
             components / pages / lib.
           </span>
@@ -1162,15 +1193,18 @@ function SettingsForm({
         </label>
       </Group>
 
-      <div className="flex flex-wrap items-center gap-3 pb-4">
+      <div className="flex flex-wrap items-center gap-3 pb-4 pt-1">
         <button type="button" onClick={save} disabled={pending} className={primaryBtn}>
           {pending ? "Saving…" : "Save settings"}
         </button>
-        {saved && <span className="text-[12px] text-emerald-400">Saved</span>}
-        {settings.fromEnv && (
-          <span className="text-[11px] text-[#888]">
-            Defaults loaded from environment variables.
+        {saved && (
+          <span role="status" className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ok">
+            <CheckIcon size={13} />
+            Saved
           </span>
+        )}
+        {settings.fromEnv && (
+          <span className="text-[12px] text-fg-3">Defaults loaded from environment variables.</span>
         )}
       </div>
     </>
@@ -1210,10 +1244,10 @@ function ProfileStrip({
   const canScan = settings.hasApiKey && hasSource && !pending;
 
   return (
-    <div className={`rounded-md border ${border} bg-[#0a0a0a] px-3 py-2.5`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#888]">
-          <span className={labelCls}>Project profile</span>
+    <div className="rounded-xl border border-line bg-sunken px-3.5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-3">
+          <span className="font-medium text-fg">Project profile</span>
           {profile ? (
             <>
               <span>
@@ -1222,15 +1256,16 @@ function ProfileStrip({
                 {profile.truncated ? " · clipped to budget" : ""}
               </span>
               {gaps.length > 0 && (
-                <span className="rounded-full bg-amber-950/50 px-2 py-0.5 text-amber-400">
+                <Badge tone="warn">
                   {gaps.length} new {gaps.length === 1 ? "component" : "components"} not covered —
                   re-scan
-                </span>
+                </Badge>
               )}
               <button
                 type="button"
                 onClick={() => setExpanded((e) => !e)}
-                className="text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+                aria-expanded={expanded}
+                className={textLink}
               >
                 {expanded ? "Hide" : "View"}
               </button>
@@ -1256,13 +1291,13 @@ function ProfileStrip({
                 ? "Connect and save a GitHub repository first"
                 : undefined
           }
-          className="rounded-md border border-[#2e2e2e] px-2.5 py-1 text-[11px] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          className={`${ghostBtn} h-7 px-2.5 text-[12px]`}
         >
           {pending ? "Scanning…" : profile ? "Re-scan codebase" : "Scan codebase"}
         </button>
       </div>
       {expanded && profile && (
-        <p className="mt-3 whitespace-pre-wrap text-[12px] leading-relaxed text-[#999]">
+        <p className="mt-3 whitespace-pre-wrap border-t border-line pt-3 text-[12.5px] leading-relaxed text-fg-2">
           {profile.text}
         </p>
       )}

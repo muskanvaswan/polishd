@@ -13,7 +13,7 @@
  * CSS parser and skips exactly the constructs that must stay at the top level.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -185,6 +185,13 @@ const banner =
   `/*! @polishd/next dashboard styles — generated, do not edit.\n` +
   ` * Scoped to ${SCOPE_CLASS}; contains no global preflight. */\n`;
 writeFileSync(OUT, banner + scoped);
+
+// 3. Ship the brand fonts the stylesheet's @font-face rules point at. The URLs
+//    are relative (`./fonts/…`), so they resolve beside dist/dashboard.css
+//    exactly as they do beside the source file, and the host's bundler picks
+//    the files up from there.
+cpSync(join(root, "src", "dashboard", "fonts"), join(dirname(OUT), "fonts"), { recursive: true });
+console.log("• copied dashboard fonts to dist/fonts");
 
 const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(1)}KB`;
 console.log(`✔ dist/dashboard.css  ${kb(compiled)} → ${kb(scoped)} scoped`);

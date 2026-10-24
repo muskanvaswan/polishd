@@ -15,7 +15,7 @@
 import { useState, useTransition } from "react";
 
 import type { CreateIssueResult } from "../ai/types";
-import { microBtn } from "./ui";
+import { ArrowUpRightIcon, Badge, IssueIcon, microBtn } from "./ui";
 
 export interface FileBugButtonProps {
   /** The issue already filed for this finding, when known at render time. */
@@ -39,21 +39,20 @@ export function FileBugButton({ filed, file, dataComponent, onFiled }: FileBugBu
         href={created.url}
         target="_blank"
         rel="noreferrer noopener"
-        className="rounded bg-[#101c14] px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 hover:text-emerald-400"
+        className="inline-flex h-6 items-center gap-1 rounded-md bg-ok/10 px-2 text-[11px] font-medium text-ok ring-1 ring-inset ring-ok/20 transition-colors hover:bg-ok/15"
       >
-        Issue #{created.number} ↗
+        <IssueIcon size={11} />
+        Issue #{created.number}
+        <ArrowUpRightIcon size={11} />
       </a>
     );
   }
 
   if (failed?.notABug) {
     return (
-      <span
-        className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] text-amber-400"
-        title={failed.message}
-      >
+      <Badge tone="warn" title={failed.message}>
         Checked the source — not an actual bug: {failed.message}
-      </span>
+      </Badge>
     );
   }
 
@@ -87,7 +86,7 @@ export function FileBugButton({ filed, file, dataComponent, onFiled }: FileBugBu
       >
         {pending ? "Verifying…" : "File bug"}
       </button>
-      {failed && <span className="text-[10px] text-red-400">{failed.message}</span>}
+      {failed && <span className="text-[11px] text-bad">{failed.message}</span>}
     </>
   );
 }

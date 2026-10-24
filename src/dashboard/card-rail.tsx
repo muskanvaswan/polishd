@@ -12,12 +12,12 @@
  * unit: its evidence above, its actions pinned to the bottom.
  *
  * The row bleeds to the card's edges (the cards scroll under the padding rather
- * than stopping short of it), fades whichever side has more to show, and grows
- * arrow buttons only once it actually overflows.
+ * than stopping short of it), so the next card is visibly cut off at the edge,
+ * and grows arrow buttons only once it actually overflows.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-import { labelCls } from "./ui";
+import { ChevronLeftIcon, ChevronRightIcon } from "./ui";
 
 /** Measure before paint in the browser; `useLayoutEffect` warns during SSR. */
 const useBeforePaint = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -27,7 +27,7 @@ const useBeforePaint = typeof window === "undefined" ? useEffect : useLayoutEffe
  * sliver of the next card in view on a phone, which is the cue that it scrolls.
  */
 export const railCard =
-  "flex w-[min(18.5rem,85%)] shrink-0 snap-start flex-col rounded-md border border-[#2e2e2e] bg-[#0d0d0d] p-3 text-[13px] leading-snug";
+  "flex w-[min(19rem,85%)] shrink-0 snap-start flex-col rounded-xl border border-line bg-sunken p-3.5 text-[13px] leading-snug";
 
 interface Edges {
   /** Content hidden off the left edge. */
@@ -44,7 +44,7 @@ export default function CardRail({
 }: {
   /** The row's heading — "Losses", "Breaking the system". */
   label: string;
-  /** Text color class for the heading, matching the finding's marker. */
+  /** Colour of the heading's marker dot, matching the finding's marker. */
   tone: string;
   count: number;
   /** The cards, each an `<li>` styled with `railCard`. */
@@ -88,9 +88,10 @@ export default function CardRail({
   return (
     <div className="mt-5">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className={`${labelCls} ${tone} flex items-center gap-2`}>
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-fg">
+          <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${tone}`} />
           {label}
-          <span className="rounded-full bg-[#1a1a1a] px-1.5 py-px text-[10px] tabular-nums tracking-normal text-[#888]">
+          <span className="rounded-md bg-raised px-1.5 py-px text-[11px] font-medium tabular-nums text-fg-3 ring-1 ring-inset ring-line-strong">
             {count}
           </span>
         </div>
@@ -110,30 +111,12 @@ export default function CardRail({
           onScroll={measure}
           tabIndex={overflowing ? 0 : undefined}
           aria-label={label}
-          className="flex snap-x snap-mandatory scroll-px-4 gap-2.5 overflow-x-auto px-4 pb-2 [scrollbar-color:#2e2e2e_transparent] [scrollbar-width:thin] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#555] sm:scroll-px-5 sm:px-5"
+          className="flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:thin] focus-visible:-outline-offset-2 sm:scroll-px-5 sm:px-5"
         >
           {children}
         </ul>
-        <Fade side="left" visible={edges.before} />
-        <Fade side="right" visible={edges.after} />
       </div>
     </div>
-  );
-}
-
-function Fade({ side, visible }: { side: "left" | "right"; visible: boolean }) {
-  // Matches `card`'s background so the cards dissolve into it at the edge.
-  const gradient =
-    side === "left"
-      ? "left-0 bg-linear-to-r from-[#0a0a0a] to-transparent"
-      : "right-0 bg-linear-to-l from-[#0a0a0a] to-transparent";
-  return (
-    <div
-      aria-hidden
-      className={`pointer-events-none absolute top-0 bottom-2 w-8 transition-opacity duration-150 ${gradient} ${
-        visible ? "opacity-100" : "opacity-0"
-      }`}
-    />
   );
 }
 
@@ -152,21 +135,9 @@ function RailButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={direction === 1 ? "Scroll to later findings" : "Scroll to earlier findings"}
-      className="flex h-6 w-6 items-center justify-center rounded-md border border-[#2e2e2e] text-[#aaa] transition-colors hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+      className="flex h-7 w-7 items-center justify-center rounded-lg border border-line-strong bg-raised text-fg-2 transition-colors hover:border-fg-4 hover:text-fg disabled:cursor-not-allowed disabled:opacity-30"
     >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        <polyline points={direction === 1 ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
-      </svg>
+      {direction === 1 ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
     </button>
   );
 }

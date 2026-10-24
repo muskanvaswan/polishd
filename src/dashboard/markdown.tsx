@@ -23,7 +23,7 @@ import {
 } from "./markdown-parse";
 
 const codeSpan =
-  "rounded bg-[#1a1a1a] px-1 py-0.5 font-mono text-[0.92em] text-[#ddd]";
+  "rounded-[5px] border border-line bg-raised px-1 py-px font-mono text-[0.9em] text-fg";
 
 function renderInline(nodes: MdInline[]): ReactNode {
   return nodes.map((node, i) => {
@@ -40,7 +40,7 @@ function renderInline(nodes: MdInline[]): ReactNode {
         );
       case "strong":
         return (
-          <strong key={i} className="font-semibold text-[#ddd]">
+          <strong key={i} className="font-semibold text-fg">
             {renderInline(node.children)}
           </strong>
         );
@@ -48,7 +48,7 @@ function renderInline(nodes: MdInline[]): ReactNode {
         return <em key={i}>{renderInline(node.children)}</em>;
       case "del":
         return (
-          <del key={i} className="text-[#888]">
+          <del key={i} className="text-fg-3">
             {renderInline(node.children)}
           </del>
         );
@@ -59,7 +59,7 @@ function renderInline(nodes: MdInline[]): ReactNode {
             href={node.href}
             target="_blank"
             rel="noreferrer noopener"
-            className="break-words text-[#8ab4f8] hover:underline"
+            className="break-words text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
           >
             {renderInline(node.children)}
           </a>
@@ -73,7 +73,7 @@ function renderInline(nodes: MdInline[]): ReactNode {
             src={node.src}
             alt={node.alt}
             loading="lazy"
-            className="my-1 max-w-full rounded-md border border-[#2e2e2e]"
+            className="my-1 max-w-full rounded-lg border border-line"
           />
         );
     }
@@ -86,14 +86,14 @@ function List({ list }: { list: MdList }) {
     <Tag
       className={`space-y-1 pl-5 ${
         list.ordered ? "list-decimal" : "list-disc"
-      } marker:text-[#555]`}
+      } marker:text-fg-4`}
     >
       {list.items.map((item, i) => (
         <li key={i}>
           {item.checked !== undefined && (
             <span
               aria-hidden
-              className={`mr-1.5 font-mono ${item.checked ? "text-emerald-500" : "text-[#888]"}`}
+              className={`mr-1.5 font-mono ${item.checked ? "text-ok" : "text-fg-4"}`}
             >
               {item.checked ? "☑" : "☐"}
             </span>
@@ -111,12 +111,12 @@ function List({ list }: { list: MdList }) {
 }
 
 const HEADING_CLS: Record<number, string> = {
-  1: "text-[15px] font-semibold text-white",
-  2: "text-[14px] font-semibold text-white",
-  3: "text-[13px] font-semibold text-[#ddd]",
-  4: "text-[12px] font-semibold text-[#ddd]",
-  5: "text-[12px] font-medium text-[#ccc]",
-  6: "text-[11px] font-medium uppercase tracking-[0.08em] text-[#888]",
+  1: "text-[16px] font-semibold text-fg",
+  2: "text-[14.5px] font-semibold text-fg",
+  3: "text-[13.5px] font-semibold text-fg",
+  4: "text-[13px] font-semibold text-fg-2",
+  5: "text-[12.5px] font-medium text-fg-2",
+  6: "text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3",
 };
 
 function renderBlock(block: MdBlock, key: number): ReactNode {
@@ -135,7 +135,7 @@ function renderBlock(block: MdBlock, key: number): ReactNode {
       return (
         <pre
           key={key}
-          className="overflow-x-auto rounded-md border border-[#2e2e2e] bg-[#111] px-3 py-2.5 font-mono text-[11px] leading-relaxed text-[#aaa]"
+          className="overflow-x-auto rounded-lg border border-line bg-canvas px-3.5 py-3 font-mono text-[12px] leading-relaxed text-fg-2"
         >
           <code>{block.text}</code>
         </pre>
@@ -144,7 +144,7 @@ function renderBlock(block: MdBlock, key: number): ReactNode {
       return (
         <blockquote
           key={key}
-          className="space-y-2 border-l-2 border-[#2e2e2e] pl-3 text-[#888]"
+          className="space-y-2 border-l-2 border-line-strong pl-3 text-fg-3"
         >
           {block.children.map(renderBlock)}
         </blockquote>
@@ -152,7 +152,7 @@ function renderBlock(block: MdBlock, key: number): ReactNode {
     case "list":
       return <List key={key} list={block.list} />;
     case "rule":
-      return <hr key={key} className="border-t border-[#2e2e2e]" />;
+      return <hr key={key} className="border-t border-line" />;
     case "table":
       return (
         <div key={key} className="overflow-x-auto">
@@ -162,7 +162,7 @@ function renderBlock(block: MdBlock, key: number): ReactNode {
                 {block.header.map((cell, i) => (
                   <th
                     key={i}
-                    className="border-b border-[#2e2e2e] py-1.5 pr-4 font-medium text-[#ddd]"
+                    className="border-b border-line-strong py-1.5 pr-4 font-medium text-fg"
                   >
                     {renderInline(cell)}
                   </th>
@@ -173,7 +173,7 @@ function renderBlock(block: MdBlock, key: number): ReactNode {
               {block.rows.map((row, r) => (
                 <tr key={r}>
                   {row.map((cell, c) => (
-                    <td key={c} className="border-b border-[#1f1f1f] py-1.5 pr-4">
+                    <td key={c} className="border-b border-line py-1.5 pr-4">
                       {renderInline(cell)}
                     </td>
                   ))}
@@ -189,7 +189,7 @@ function renderBlock(block: MdBlock, key: number): ReactNode {
 /** GitHub-flavored markdown → dashboard-styled elements. */
 export function Markdown({ text }: { text: string }) {
   return (
-    <div className="space-y-2.5 break-words text-[13px] leading-relaxed text-[#aaa]">
+    <div className="space-y-3 break-words text-[13.5px] leading-relaxed text-fg-2">
       {parseMarkdown(text).map(renderBlock)}
     </div>
   );

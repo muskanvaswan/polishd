@@ -166,7 +166,10 @@ Tailwind to the app, and do not add an `@source` line** — neither is needed, a
 the host's Tailwind version is irrelevant to how the dashboard renders.
 
 It carries no global preflight and every rule is scoped to `.polishd-root`, so
-it cannot restyle the host app.
+it cannot restyle the host app. It loads the dashboard's brand fonts from
+`dist/fonts` by relative URL. The host's bundler resolves them and serves them
+from the app's own origin, so there is nothing to configure and no CSP
+`font-src` change.
 
 **On an existing 0.1.x install**, a `@source ".../@polishd/next/dist"` line in
 the host's Tailwind config is still doing the styling and the dashboard is not

@@ -36,7 +36,20 @@ import { Annotated } from "./design-tokens";
 import { DismissedCard, IgnoreButton, useDismissal } from "./dismissable";
 import { FileBugButton } from "./file-bug-button";
 import type { LossChange } from "./summary";
-import { RefreshIcon, border, card, iconBtn, labelCls, primaryBtn, relTime } from "./ui";
+import {
+  ArrowRightIcon,
+  Badge,
+  Callout,
+  CheckIcon,
+  RefreshIcon,
+  SparkIcon,
+  card,
+  cardHeader,
+  cardTitleCls,
+  iconBtn,
+  primaryBtn,
+  relTime,
+} from "./ui";
 
 /** Re-run the deterministic metrics: refresh the server render in place. */
 export function RefreshMetricsButton() {
@@ -120,13 +133,18 @@ export default function DesignReviewCard({
   const canGenerate = hasApiKey && scannedPages > 0;
 
   return (
-    <section className={`mb-8 ${card} overflow-hidden`}>
-      <div className={`flex items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}>
-        <div className="flex items-center gap-2">
-          <span className={labelCls}>Aesthetic review</span>
+    <section className={`mb-10 ${card} overflow-hidden`}>
+      <div className={cardHeader}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="text-accent">
+            <SparkIcon size={15} />
+          </span>
+          <span className={cardTitleCls}>Aesthetic review</span>
           {hasApiKey && (
-            <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
-              {provider} · {model}
+            <span className="hidden min-w-0 sm:flex">
+              <Badge mono className="truncate">
+                {provider} · {model}
+              </Badge>
             </span>
           )}
         </div>
@@ -149,16 +167,16 @@ export default function DesignReviewCard({
         </button>
       </div>
 
-      <div className="px-4 py-4 sm:px-5 sm:py-5">
+      <div className="px-4 py-5 sm:px-5">
         {error && (
-          <div className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">
+          <Callout tone="bad" className="mb-4">
             {error}
-          </div>
+          </Callout>
         )}
 
         {review ? (
           <>
-            <p className="text-[14px] leading-relaxed text-[#e4e4e4]">
+            <p className="max-w-[72ch] text-[15px] leading-[1.7] text-fg">
               <Annotated text={review.text} />
             </p>
             <StrengthsIssues
@@ -168,20 +186,16 @@ export default function DesignReviewCard({
               onIssueChange={onIssueChange}
               dismissed={dismissed}
             />
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#888]">
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>
                 Generated {relTime(review.generatedAt)} · {review.provider}/{review.model}
               </span>
-              {stale && (
-                <span className="rounded-full bg-amber-950/50 px-2 py-0.5 text-amber-400">
-                  Something's changed since this review — refresh to update
-                </span>
-              )}
+              {stale && <Badge tone="warn">Something&apos;s changed since this review — refresh to update</Badge>}
             </div>
           </>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] leading-relaxed text-[#888]">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
               {!hasApiKey
                 ? "No model connected. The design review uses the same provider and key as the analytics summary — add one in Settings."
                 : scannedPages === 0
@@ -196,7 +210,12 @@ export default function DesignReviewCard({
                 disabled={pending || !canGenerate}
                 className={primaryBtn}
               >
-                {pending ? "Reviewing…" : "Generate review"}
+                {pending ? "Reviewing…" : (
+                  <>
+                    <SparkIcon size={13} />
+                    Generate review
+                  </>
+                )}
               </button>
             ) : (
               <TabLink tab="settings" className={primaryBtn}>
@@ -229,12 +248,17 @@ function StrengthsIssues({
   return (
     <>
       {hasStrengths && (
-        <div className="mt-4">
-          <div className={`${labelCls} mb-2 text-emerald-500`}>Working</div>
-          <ul className="space-y-1.5">
+        <div className="mt-5">
+          <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
+            Working
+          </div>
+          <ul className="space-y-2">
             {strengths!.map((s, i) => (
-              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
-                <span className="mt-px shrink-0 text-emerald-500">✓</span>
+              <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
+                <span className="mt-px shrink-0 text-ok">
+                  <CheckIcon size={13} />
+                </span>
                 <span>
                   <Annotated text={s} />
                 </span>
@@ -244,7 +268,7 @@ function StrengthsIssues({
         </div>
       )}
       {hasIssues && (
-        <CardRail label="Breaking the system" tone="text-amber-400" count={issues!.length}>
+        <CardRail label="Breaking the system" tone="bg-warn" count={issues!.length}>
           {issues!.map((iss, i) => (
             <IssueCard
               key={iss.evidence || i}
@@ -297,31 +321,36 @@ function IssueCard({
   }
 
   return (
-    <li className={`${railCard} text-[#bbb]`}>
+    <li className={`${railCard} text-fg-2`}>
       <div className="flex gap-2">
-        <span className="mt-px shrink-0 text-amber-400">✕</span>
-        <span>{iss.issue}</span>
+        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
+        <span className="text-fg">{iss.issue}</span>
       </div>
-      <div className="mt-2 flex flex-col items-start gap-1">
-        <span className="rounded bg-[#1a1a1a] px-2 py-1 text-[12px] leading-relaxed text-[#aaa]">
+      <div className="mt-2.5 flex flex-col items-stretch gap-1.5">
+        <span className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] leading-relaxed text-fg-2">
           <Annotated text={iss.evidence} />
         </span>
         {iss.suggestion && (
-          <span className="rounded bg-[#101c14] px-2 py-1 text-[12px] leading-relaxed text-emerald-400">
-            → <Annotated text={iss.suggestion} />
+          <span className="flex gap-1.5 rounded-lg border border-ok/20 bg-ok/[0.06] px-2.5 py-1.5 text-[12px] leading-relaxed text-fg-2">
+            <span className="mt-[3px] shrink-0 text-ok">
+              <ArrowRightIcon size={11} />
+            </span>
+            <span>
+              <Annotated text={iss.suggestion} />
+            </span>
           </span>
         )}
         {iss.suggestion && !!iss.newValues?.length && (
-          <span
-            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]"
+          <Badge
+            className="self-start"
             title="The suggestion names a value the site doesn't render anywhere yet"
           >
             New to the site: {iss.newValues.join(", ")}
-          </span>
+          </Badge>
         )}
         {iss.suggestionWithheld && (
           <span
-            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] leading-relaxed text-[#888]"
+            className="rounded-lg border border-line bg-raised px-2.5 py-1.5 text-[11.5px] leading-relaxed text-fg-3"
             title="Polishd dropped the model's suggested fix — the problem may still be real"
           >
             Suggestion withheld: {iss.suggestionWithheld}

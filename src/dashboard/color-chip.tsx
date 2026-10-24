@@ -112,12 +112,12 @@ export function ColorToken({ hex }: { hex: string }) {
       onClick={() => void copyText(hex).then((ok) => setState(ok ? "copied" : "failed"))}
       title={label}
       aria-label={label}
-      className="group/chip inline-flex cursor-pointer items-center gap-1 rounded border border-[#2e2e2e] bg-[#1a1a1a] px-1 py-px align-middle font-mono text-[11px] text-[#ccc] transition-colors hover:border-[#555] hover:bg-[#1f1f1f] focus:outline-none focus-visible:border-[#777]"
+      className="group/chip inline-flex cursor-pointer items-center gap-1 rounded-[5px] border border-line-strong bg-raised px-1 py-px align-middle font-mono text-[11.5px] text-fg-2 transition-colors hover:border-fg-4 hover:bg-overlay hover:text-fg"
     >
       <span className="relative h-2.5 w-2.5 shrink-0">
         <span
           aria-hidden
-          className={`absolute inset-0 rounded-[2px] border border-white/20 transition-opacity ${
+          className={`absolute inset-0 rounded-[3px] ring-1 ring-inset ring-fg/20 transition-opacity ${
             state === "idle" ? "group-hover/chip:opacity-0 group-focus-visible/chip:opacity-0" : "opacity-0"
           }`}
           style={{ backgroundColor: hex }}
@@ -126,10 +126,10 @@ export function ColorToken({ hex }: { hex: string }) {
           aria-hidden
           className={`absolute inset-0 flex items-center justify-center transition-opacity ${
             state === "copied"
-              ? "text-emerald-400 opacity-100"
+              ? "text-ok opacity-100"
               : state === "failed"
-                ? "text-red-400 opacity-100"
-                : "text-[#ddd] opacity-0 group-hover/chip:opacity-100 group-focus-visible/chip:opacity-100"
+                ? "text-bad opacity-100"
+                : "text-fg opacity-0 group-hover/chip:opacity-100 group-focus-visible/chip:opacity-100"
           }`}
         >
           {state === "copied" ? TICK_GLYPH : state === "failed" ? CROSS_GLYPH : COPY_GLYPH}

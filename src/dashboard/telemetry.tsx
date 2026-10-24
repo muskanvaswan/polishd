@@ -48,6 +48,7 @@ import { errorContextMeta } from "../client/error-context";
 import { errorOrigin, startScriptProvenance } from "../client/script-provenance";
 import type { PolishdTelemetryInstallState } from "../server/telemetry";
 import { denyPolishdTelemetry, grantPolishdTelemetry } from "./telemetry-consent";
+import { ghostBtn, primaryBtn } from "./ui";
 
 const PATH_PREFIX = "/~polishd";
 const SESSION_KEY = "polishd_telemetry_session";
@@ -368,22 +369,25 @@ export function PolishdTelemetryConsent() {
       aria-label="Polishd telemetry consent"
       // polishd's own UI: its appearing or changing is never a click's response.
       data-polishd-ui=""
-      className="fixed bottom-4 right-4 z-50 w-[340px] max-w-[calc(100vw-2rem)] rounded-lg border border-[#2e2e2e] bg-[#111] p-4 shadow-2xl"
+      className="fixed bottom-4 right-4 z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-line-strong bg-overlay p-4 shadow-pop"
     >
-      <p className="text-[13px] font-medium text-white">Help improve polishd?</p>
-      <p className="mt-1.5 text-[12px] leading-relaxed text-[#888]">
-        Share anonymous usage of <span className="text-[#aaa]">this dashboard</span> — clicks and
+      <p className="text-[14px] font-semibold text-fg">Help improve polishd?</p>
+      <p className="mt-1.5 text-[12.5px] leading-relaxed text-fg-3">
+        Share anonymous usage of <span className="text-fg-2">this dashboard</span> — clicks and
         tab views inside it, plus your polishd version and which model provider you&apos;ve
         connected (never the key) — reported under your site&apos;s domain. Never your
         site&apos;s analytics, never your visitors&apos; data. Opt out any time with{" "}
-        <code className="font-mono text-[11px] text-[#aaa]">POLISHD_TELEMETRY=off</code>.
+        <code className="rounded-[5px] border border-line bg-raised px-1 py-px font-mono text-[11.5px] text-fg-2">
+          POLISHD_TELEMETRY=off
+        </code>
+        .
       </p>
       <div className="mt-3 flex gap-2">
         <button
           type="button"
           disabled={pending}
           onClick={() => decide(true)}
-          className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+          className={primaryBtn}
         >
           Share
         </button>
@@ -391,7 +395,7 @@ export function PolishdTelemetryConsent() {
           type="button"
           disabled={pending}
           onClick={() => decide(false)}
-          className="rounded-lg border border-[#2e2e2e] px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:text-white disabled:opacity-50"
+          className={ghostBtn}
         >
           No thanks
         </button>

@@ -15,7 +15,7 @@
  */
 import { useEffect, type ReactNode } from "react";
 
-import { border, labelCls } from "./ui";
+import { XIcon, eyebrowCls, iconBtn } from "./ui";
 
 export default function BottomDrawer({
   open,
@@ -55,13 +55,13 @@ export default function BottomDrawer({
         tabIndex={-1}
         aria-hidden="true"
         onClick={onClose}
-        className={`absolute inset-0 cursor-default bg-black/60 transition-opacity duration-200 ${
+        className={`absolute inset-0 cursor-default bg-black/60 backdrop-blur-[2px] transition-opacity duration-200 ${
           open ? "opacity-100" : "opacity-0"
         }`}
       />
       {/* panel */}
       <div
-        className={`absolute inset-x-0 bottom-0 transition-transform duration-200 ease-out ${
+        className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
           open ? "translate-y-0" : "translate-y-full"
         }`}
       >
@@ -69,10 +69,10 @@ export default function BottomDrawer({
           role="dialog"
           aria-modal="true"
           aria-label={label}
-          className={`mx-auto max-h-[80vh] max-w-5xl overflow-y-auto rounded-t-lg border ${border} bg-[#0a0a0a] px-4 pb-6 pt-4 shadow-2xl sm:px-6 sm:pb-8 sm:pt-5`}
+          className="mx-auto max-h-[85vh] max-w-5xl overflow-y-auto rounded-t-2xl border border-b-0 border-line-strong bg-surface px-4 pb-6 pt-3 shadow-pop sm:px-7 sm:pb-8"
         >
           {/* drag affordance */}
-          <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#2e2e2e]" />
+          <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line-strong" />
           {children}
         </div>
       </div>
@@ -99,9 +99,9 @@ export function DrawerHeader({
 }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <div className={labelCls}>{eyebrow}</div>
-        <div className="mt-1">{title}</div>
+      <div className="min-w-0">
+        <div className={eyebrowCls}>{eyebrow}</div>
+        <div className="mt-1.5">{title}</div>
       </div>
       <div className="flex items-center gap-2">
         {children}
@@ -110,9 +110,9 @@ export function DrawerHeader({
           data-component="drawer-close"
           onClick={onClose}
           aria-label="Close"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#2e2e2e] text-[#888] transition-colors hover:bg-[#111] hover:text-white"
+          className={iconBtn}
         >
-          ✕
+          <XIcon size={15} />
         </button>
       </div>
     </div>
