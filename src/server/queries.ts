@@ -97,11 +97,22 @@ export interface PageStat {
   score: number;
 }
 
+/**
+ * One distinct error, with every recorded throw of it folded in. Identity is
+ * the message, component and origin — not the page, so a bug that fires on
+ * every product page is one entry rather than one per URL.
+ */
 export interface RecentError {
+  /** The page it was most recently seen on. */
   path: string;
   message: string;
   component?: string;
+  /** When it was most recently seen. */
   ts: number;
+  /** How many times it was recorded, across all pages. */
+  count: number;
+  /** Every page it was seen on, most recent first. */
+  paths: string[];
   /**
    * Who the client attributed the throw to. Absent means the site's own code —
    * the common case, left unlabeled. `foreign` is a script this page never
@@ -1070,7 +1081,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     getDeviceBreakdown(),
     getTopInteractions(12),
     getSessionJourneys(6),
-    getRecentErrors(8),
+    getRecentErrors(20),
     getMonitoredComponents(),
   ]);
   return {
@@ -1087,36 +1098,58 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
   };
 }
 
+/**
+ * The most recently seen distinct errors, up to `limit`, each with its total
+ * count. The SQL collapses identical rows (a throw site's meta is the same
+ * every time it fires); the message itself lives inside that JSON, which the
+ * two backends extract differently, so the final fold by message happens here.
+ */
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
-  // Extension errors are dropped at capture and again at ingest, but rows
-  // written before that filter existed are still in the table — and this list
-  // is where they were loudest. Over-fetch and drop them on the way out, so
-  // the fix applies to history and not just to new sessions.
+  // A message can span many SQL groups — one per page and throw site — so
+  // fetch well past `limit`. The cap only bounds history: an error whose
+  // older variants fall past it reads a little low, never wrong in kind.
   const rows = await query(
-    `SELECT path, component, meta, ts
+    `SELECT path, component, meta, COUNT(*) AS n, MAX(ts) AS last_ts, MAX(id) AS last_id
      FROM ${polishdEventsSource()} WHERE type = 'js_error'
-     ORDER BY id DESC LIMIT ?`,
-    [limit * 4],
+     GROUP BY path, component, meta
+     ORDER BY last_id DESC LIMIT ?`,
+    [limit * 20],
   );
-  return rows
-    .map((r) => {
-      const meta = parseMeta(r.meta);
-      const message = meta && typeof meta.message === "string" ? meta.message : "Unknown error";
-      const source = meta && typeof meta.source === "string" ? meta.source : "";
-      const origin: RecentError["origin"] =
-        meta?.origin === "foreign" || meta?.origin === "unknown" ? meta.origin : undefined;
-      return {
-        path: r.path as string,
-        component: (r.component as string) ?? undefined,
+  const errors = new Map<string, RecentError>();
+  for (const r of rows) {
+    const meta = parseMeta(r.meta);
+    const message = meta && typeof meta.message === "string" ? meta.message : "Unknown error";
+    const source = meta && typeof meta.source === "string" ? meta.source : "";
+    // Extension errors are dropped at capture and again at ingest, but rows
+    // written before that filter existed are still in the table — and this
+    // list is where they were loudest. Drop them on the way out, so the fix
+    // applies to history and not just to new sessions.
+    if (isIgnorableError({ message, source })) continue;
+    const origin: RecentError["origin"] =
+      meta?.origin === "foreign" || meta?.origin === "unknown" ? meta.origin : undefined;
+    const component = (r.component as string) ?? undefined;
+    const path = r.path as string;
+    const key = JSON.stringify([message, component ?? null, origin ?? null]);
+    const seen = errors.get(key);
+    if (seen) {
+      // Rows arrive most recent first, so the first one already set the
+      // latest page; later rows only add to the tally.
+      seen.count += num(r, "n");
+      seen.ts = Math.max(seen.ts, num(r, "last_ts"));
+      if (!seen.paths.includes(path)) seen.paths.push(path);
+    } else if (errors.size < limit) {
+      errors.set(key, {
+        path,
+        component,
         message,
-        source,
         origin,
-        ts: num(r, "ts"),
-      };
-    })
-    .filter(({ message, source }) => !isIgnorableError({ message, source }))
-    .slice(0, limit)
-    .map(({ source: _source, ...error }) => error);
+        ts: num(r, "last_ts"),
+        count: num(r, "n"),
+        paths: [path],
+      });
+    }
+  }
+  return [...errors.values()];
 }
 
 // ── Cross-install telemetry (the installs view) ──────────────────────────────

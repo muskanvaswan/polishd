@@ -49,7 +49,7 @@ export const loadElements = swept(() => getElementStats(12));
 export const loadDevices = swept(getDeviceBreakdown);
 export const loadTopUsed = swept(() => getTopInteractions(12));
 export const loadJourneys = swept(() => getSessionJourneys(6));
-export const loadErrors = swept(() => getRecentErrors(8));
+export const loadErrors = swept(() => getRecentErrors(20));
 export const loadMonitored = swept(getMonitoredComponents);
 
 /**
