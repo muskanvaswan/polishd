@@ -18,8 +18,8 @@
  * Overview reads back, so a finding the agent showed isn't real, or is
  * deliberate, isn't reported again.
  *
- * Pure, with type-only imports, for two reasons: the Overview builds the
- * prompt in the browser from whatever its cards currently show — a
+ * Pure, importing only other pure modules, for two reasons: the Overview
+ * builds the prompt in the browser from whatever its cards currently show — a
  * regenerated review, an ignored loss or a freshly filed bug is in the very
  * next copy, with no round trip — and the wording is pinned by tests.
  */
@@ -29,6 +29,7 @@ import type {
   PolishdLossItem,
   PolishdSummary,
 } from "../ai/types";
+import { previewCaption, usageFacts } from "../shared/design-evidence";
 
 /** Which findings a prompt covers. */
 export type FixPromptScope = "all" | "analytics" | "design";
@@ -81,15 +82,9 @@ export interface FixPromptFinding {
   evidence: string;
 }
 
-/**
- * A finding's identity in the dashboard: its citation and its wording. Two
- * design issues can cite identical evidence ("#888888 on #0a0a0a" for
- * captions, and for placeholders), so evidence alone would make ignoring one
- * hide both — the same reason the dismissal log stores each issue apart.
- */
-export function findingKey(f: { issue: string; evidence: string }): string {
-  return `${f.evidence.trim()}\u0000${f.issue.trim()}`;
-}
+// A finding's identity in the dashboard — its citation and its wording — is
+// defined with the actionables, which are what it identifies.
+export { findingKey } from "./actionable-model";
 
 /** How many problems each half has to hand over. A half with none gets no prompt. */
 export function fixableCounts(input: FixPromptInput): { analytics: number; design: number } {
@@ -527,6 +522,16 @@ function suggestionLines(iss: PolishdDesignIssue): string[] {
   return lines;
 }
 
+/** Where the cited values render, one line each — three at most, which is what a citation names. */
+function usageLines(usages: PolishdDesignIssue["usages"]): string[] {
+  if (!usages?.length) return [];
+  return usages.slice(0, 3).map(
+    (u) =>
+      `  - Where it renders: ${code(u.label)} — ${usageFacts(u)}` +
+      (u.preview ? ` (pictured on ${previewCaption(u.preview)} in the dashboard)` : ""),
+  );
+}
+
 function designSection(review: PolishdDesignReview, kinds: Set<FindingKind>): string[] {
   const issues = review.issues ?? [];
   kinds.add("design");
@@ -556,6 +561,7 @@ function designSection(review: PolishdDesignReview, kinds: Set<FindingKind>): st
     lines.push(`  - Evidence: ${iss.evidence.trim()}`);
     const handles = designHandles(iss.evidence);
     if (handles.length) lines.push(`  - Search for: ${handles.join(", ")}`);
+    lines.push(...usageLines(iss.usages));
     lines.push(...suggestionLines(iss));
     const tracked = trackedIn(iss.issueUrl, iss.issueNumber);
     if (tracked) lines.push(tracked);

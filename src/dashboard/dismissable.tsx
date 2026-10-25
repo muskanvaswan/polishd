@@ -1,25 +1,27 @@
 "use client";
 
 /**
- * Polishd — ignoring a finding, shared by every card that holds model
- * findings: the summary's losses and the design review's issues.
+ * Polishd — ignoring a finding: the summary's losses and the design review's
+ * issues, as the actionable list shows them.
  *
- * Ignoring takes one click and no explanation — a reason is offered
- * afterwards, because the fast path is "this isn't a problem, stop showing me
- * it" and typing shouldn't be the toll for that. A reason is worth giving
- * though: it's replayed to the model on every later run, so "the second CTA is
- * deliberate" stops the same finding coming back in different words.
+ * Ignoring asks once — a small dialog with an optional reason — and happens
+ * on its second Ignore, so a stray click on a row can't dismiss a finding. A
+ * reason is worth giving: it's replayed to the model on every later run, so
+ * "the second CTA is deliberate" stops the same finding coming back in
+ * different words. It can be added or edited afterwards from the struck-out
+ * row, which is all the "ignored" a row needs to say.
  *
- * The dismissal is stored server-side immediately; the card stays put, struck
+ * The dismissal is stored server-side immediately; the row stays put, struck
  * through with an undo, and only disappears on the next render. A dismissal
  * recorded elsewhere — from a coding agent's verdict block on the Overview —
- * arrives as `adopted`, and the card shows it the same way.
+ * arrives as `adopted`, and the row shows it the same way. `useDismissal` is
+ * the hook form of the same state, for a component that owns one finding; the
+ * actionable list drives the same shape from list-level state instead.
  */
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 
 import type { IgnoreLossResult, PolishdIgnoredLoss, UnignoreLossResult } from "../ai/types";
-import { railCard } from "./card-rail";
-import { Badge, XIcon, microBtn } from "./ui";
+import { XIcon, microBtn } from "./ui";
 
 /** The verdict buttons on a finding share their style with the shared microBtn. */
 export const microLink =
@@ -93,37 +95,47 @@ export function useDismissal({
   return { ignored, pending, error, ignore, undo };
 }
 
-/** The "Ignore" button on a live finding. */
+/**
+ * The "Ignore" button on a live finding. `onPress` is what a click does —
+ * open the confirming dialog, where the list has one; the dismissal itself
+ * otherwise.
+ */
 export function IgnoreButton({
   state,
   dataComponent,
   title,
+  className = microBtn,
+  onPress,
 }: {
   state: Dismissal;
   dataComponent: string;
   title: string;
+  /** The button's classes — a micro button by default. */
+  className?: string;
+  onPress?: () => void;
 }) {
   return (
     <>
       <button
         type="button"
         data-component={dataComponent}
-        onClick={() => state.ignore()}
+        onClick={onPress ?? (() => state.ignore())}
         disabled={state.pending}
         title={title}
-        className={microBtn}
+        className={className}
       >
         {state.pending ? "Ignoring…" : "Ignore"}
       </button>
-      {state.error && <span className="text-[11px] text-bad">{state.error}</span>}
+      {state.error && <span className="text-[12px] text-bad">{state.error}</span>}
     </>
   );
 }
 
 /**
- * A finding after it was ignored: struck through, with its reason, and the two
- * follow-ups — give or edit the reason, or undo. `componentPrefix` names the
- * buttons for the dashboard's own telemetry (`loss-ignore-reason`…).
+ * A finding after it was ignored: struck through — which says "ignored" on
+ * its own — with its reason in quiet text when one was given, and the two
+ * follow-ups: give or edit the reason, or undo. `componentPrefix` names the
+ * buttons for the dashboard's own telemetry (`actionable-ignore-reason`…).
  */
 export function DismissedCard({
   issue,
@@ -131,6 +143,8 @@ export function DismissedCard({
   componentPrefix,
   readBy,
   noun,
+  className,
+  marker,
 }: {
   issue: string;
   state: Dismissal;
@@ -139,6 +153,10 @@ export function DismissedCard({
   readBy: string;
   /** What's being ignored, for the reason field's label: "loss", "issue". */
   noun: string;
+  /** The `<li>`'s classes: the list row's, struck-out text included. */
+  className: string;
+  /** What leads the row — the finding's source icon, where the list has one; an ✕ otherwise. */
+  marker?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -149,18 +167,18 @@ export function DismissedCard({
   useEffect(() => setEditing(false), [ignored]);
 
   return (
-    <li className={`${railCard} text-fg-3`}>
-      <div className="flex gap-2">
-        {/* A struck-out marker, not something to read: the badge says it. */}
-        <span className="mt-0.5 shrink-0 text-fg-4">
-          <XIcon size={13} />
+    <li className={className}>
+      <div className="flex gap-3">
+        {/* Muted, like the text: the strike-through is what says ignored. */}
+        <span aria-hidden className="mt-[3px] inline-flex shrink-0 text-fg-4">
+          {marker ?? <XIcon size={13} />}
         </span>
         <span className="line-through decoration-fg-4">{issue}</span>
       </div>
-      <Badge className="mt-2.5 self-start">
-        Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
-      </Badge>
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+      <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1.5 pt-2.5">
+        {!editing && ignored.reason && (
+          <span className="text-[12px] italic leading-snug text-fg-3">&ldquo;{ignored.reason}&rdquo;</span>
+        )}
         {editing ? (
           <ReasonForm
             draft={draft}

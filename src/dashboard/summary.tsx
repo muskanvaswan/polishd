@@ -4,10 +4,13 @@
  * Polishd — AI summary card (client).
  *
  * Sits at the top of the Analytics tab, and is now only ever the story: the
- * summary text, its wins and losses, when it was generated, and a refresh to
- * force a regenerate. Configuring the model — provider, key, site context,
- * codebase profile, GitHub — moved to the Settings tab, so the first thing you
- * see on the dashboard is what Polishd found rather than a form.
+ * summary text, its wins, when it was generated, and a refresh to force a
+ * regenerate. Configuring the model — provider, key, site context, codebase
+ * profile, GitHub — moved to the Settings tab, so the first thing you see on
+ * the dashboard is what Polishd found rather than a form. The losses moved
+ * too: they're actionables now, listed with the design review's issues and
+ * the GitHub issues filed for either (actionable-list.tsx), and the card ends
+ * with how many of its findings are waiting there.
  *
  * The card renders the cached summary handed down from the server on first
  * paint — no model call on load. A model is only hit on explicit actions or
@@ -15,23 +18,13 @@
  */
 import { useState, useTransition } from "react";
 
-import {
-  createIssueFromLossAction,
-  generateSummaryAction,
-  ignoreLossAction,
-  unignoreLossAction,
-} from "../ai/actions";
-import CardRail, { railCard } from "./card-rail";
+import { generateSummaryAction } from "../ai/actions";
 import { TabLink } from "./chrome";
 import type {
   PolishdAISettingsPublic,
-  PolishdIgnoredLoss,
-  PolishdLossItem,
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
-import { DismissedCard, IgnoreButton, useDismissal } from "./dismissable";
-import { FileBugButton } from "./file-bug-button";
 import {
   ArrowRightIcon,
   Badge,
@@ -59,14 +52,12 @@ export interface SummaryCardProps {
   sourceAvailable: boolean;
   /** Told when a regenerate lands — the Overview builds its fix prompt from it. */
   onSummaryChange?: (summary: PolishdSummary) => void;
-  /** Told when a loss is ignored, restored or filed, keyed by its evidence. */
-  onLossChange?: (evidence: string, change: LossChange) => void;
-  /** Dismissals recorded elsewhere (a pasted verdict block), keyed by evidence. */
-  dismissed?: ReadonlyMap<string, PolishdIgnoredLoss>;
+  /**
+   * Whether the losses pointer links to the Actionables tab. The Overview
+   * passes false: its own Actionables section sits right below the card.
+   */
+  actionablesLink?: boolean;
 }
-
-/** What can happen to a loss after it renders. */
-export type LossChange = { ignored: boolean } | { filed: { url: string; number: number } };
 
 export default function SummaryCard({
   initialSummary,
@@ -76,8 +67,7 @@ export default function SummaryCard({
   initialGaps,
   sourceAvailable,
   onSummaryChange,
-  onLossChange,
-  dismissed,
+  actionablesLink = true,
 }: SummaryCardProps) {
   const [summary, setSummary] = useState<PolishdSummary | null>(initialSummary);
   const [stale, setStale] = useState(initialStale);
@@ -88,7 +78,16 @@ export default function SummaryCard({
   const generate = (force: boolean) => {
     setError(null);
     startGenerate(async () => {
-      const res = await generateSummaryAction(force);
+      let res: Awaited<ReturnType<typeof generateSummaryAction>>;
+      try {
+        res = await generateSummaryAction(force);
+      } catch {
+        // The action threw rather than returning a result — an expired
+        // dashboard session, a function timeout. Uncaught inside a transition
+        // it takes the whole tab down.
+        setError("Couldn't reach the server — reload the page and try again.");
+        return;
+      }
       if (res.ok) {
         setSummary(res.summary);
         setStale(false);
@@ -157,12 +156,12 @@ export default function SummaryCard({
         {hasSummary ? (
           <>
             <p className="max-w-[72ch] text-[15px] leading-[1.7] text-fg">{summary!.text}</p>
-            <WinsLosses
-              wins={summary!.wins}
-              losses={summary!.losses}
-              githubConnected={settings.hasGithubToken && !!settings.githubRepo}
-              onLossChange={onLossChange}
-              dismissed={dismissed}
+            <Wins wins={summary!.wins} />
+            <ActionablesPointer
+              count={summary!.losses?.length ?? 0}
+              tone="bg-bad"
+              from="the analytics"
+              link={actionablesLink}
             />
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>
@@ -266,153 +265,73 @@ function ProfileNudge({
   );
 }
 
-// ── Wins & losses ────────────────────────────────────────────────────────────
+// ── Wins, and the handoff to the actionables ─────────────────────────────────
 
-/**
- * One loss, and the two things you can do with it: file it as a bug, or ignore
- * it (see dismissable.tsx). Ignored losses never reappear — not from the
- * cached summary, and not from a regenerate.
- */
-function LossCard({
-  loss,
-  githubConnected,
-  onChange,
-  adopted,
-}: {
-  loss: PolishdLossItem;
-  githubConnected: boolean;
-  onChange?: (change: LossChange) => void;
-  adopted?: PolishdIgnoredLoss;
-}) {
-  const dismissal = useDismissal({
-    dismiss: (reason) => ignoreLossAction({ issue: loss.issue, evidence: loss.evidence }, reason),
-    restore: () => unignoreLossAction(loss.evidence),
-    onChange: (ignored) => onChange?.({ ignored }),
-    adopted,
-  });
-
-  if (dismissal.ignored) {
-    return (
-      <DismissedCard
-        issue={loss.issue}
-        state={dismissal}
-        componentPrefix="loss"
-        readBy="summary"
-        noun="loss"
-      />
-    );
-  }
-
+/** What's working, as the model listed it. */
+function Wins({ wins }: { wins: PolishdSummary["wins"] }) {
+  if (!wins?.length) return null;
   return (
-    <li className={`${railCard} text-fg-2`}>
-      <div className="flex gap-2">
-        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-bad" aria-hidden />
-        <span className="text-fg">{loss.issue}</span>
+    <div className="mt-5">
+      <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
+        Wins
       </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <Badge mono className="break-all">
-          {loss.evidence}
-        </Badge>
-        {loss.signal && loss.signal.count > 0 && (
-          <Badge
-            title={`From the captured analytics${loss.signal.pages.length ? `, on ${loss.signal.pages.join(", ")}` : ""}`}
-          >
-            {loss.signal.count} {loss.signal.kind.replace(/_/g, " ")}
-            {loss.signal.count === 1 ? "" : "s"} · {loss.signal.sessions} session
-            {loss.signal.sessions === 1 ? "" : "s"}
-          </Badge>
-        )}
-        {loss.location ? (
-          <Badge tone="ok" mono className="break-all">
-            {loss.location}
-          </Badge>
-        ) : loss.candidates?.length ? (
-          <Badge
-            title={`Not verified — the citation could be in any of these, so none was picked:\n${loss.candidates.join("\n")}`}
-          >
-            {loss.candidates.length} possible file{loss.candidates.length === 1 ? "" : "s"}
-          </Badge>
-        ) : (
-          <Badge title="The citation is real analytics data, but nothing specific in it (a component name, page route, id or visible label) was found in the source — on disk, or in the connected GitHub repo where the source isn't on disk.">
-            <span className="text-fg-3">not matched to source</span>
-          </Badge>
-        )}
-      </div>
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-        {(githubConnected || !!loss.issueUrl) && (
-          <FileBugButton
-            dataComponent="loss-file-bug"
-            onFiled={(filed) => onChange?.({ filed })}
-            filed={loss.issueUrl ? { url: loss.issueUrl, number: loss.issueNumber ?? 0 } : null}
-            file={() =>
-              createIssueFromLossAction({
-                issue: loss.issue,
-                evidence: loss.evidence,
-                location: loss.location,
-              })
-            }
-          />
-        )}
-        <IgnoreButton
-          state={dismissal}
-          dataComponent="loss-ignore"
-          title="Not a problem — drop it from this summary and stop the model reporting it again"
-        />
-      </div>
-    </li>
+      <ul className="space-y-2">
+        {wins.map((w, i) => (
+          <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
+            <span className="mt-px shrink-0 text-ok">
+              <CheckIcon size={13} />
+            </span>
+            <span>{w}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-function WinsLosses({
-  wins,
-  losses,
-  githubConnected,
-  onLossChange,
-  dismissed,
+/**
+ * The handoff from a review card to the actionables: how many of this
+ * review's findings are waiting there. The findings themselves — evidence,
+ * pictures, file-bug and ignore — live in one list for both reviews, so a
+ * card is only ever the story and what's working. Shared with the design
+ * review card.
+ */
+export function ActionablesPointer({
+  count,
+  tone,
+  from,
+  link = true,
 }: {
-  wins: PolishdSummary["wins"];
-  losses: PolishdSummary["losses"];
-  /** True when a GitHub repo + token are configured — enables "File bug". */
-  githubConnected: boolean;
-  onLossChange?: (evidence: string, change: LossChange) => void;
-  dismissed?: ReadonlyMap<string, PolishdIgnoredLoss>;
+  count: number;
+  /** Colour of the marker dot — the finding's colour on the list. */
+  tone: string;
+  /** "the analytics", "the design review". */
+  from: string;
+  /** Whether to link to the Actionables tab; off when the list is right below. */
+  link?: boolean;
 }) {
-  const hasWins = !!wins?.length;
-  const hasLosses = !!losses?.length;
-  if (!hasWins && !hasLosses) return null;
+  if (count === 0) return null;
   return (
-    <>
-      {hasWins && (
-        <div className="mt-5">
-          <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
-            Wins
-          </div>
-          <ul className="space-y-2">
-            {wins!.map((w, i) => (
-              <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
-                <span className="mt-px shrink-0 text-ok">
-                  <CheckIcon size={13} />
-                </span>
-                <span>{w}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-lg border border-line bg-sunken px-3 py-2">
+      <span className="flex items-center gap-2 text-[12.5px] text-fg-2">
+        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone}`} />
+        <span>
+          <span className="font-semibold text-fg">{count}</span> {count === 1 ? "problem" : "problems"}{" "}
+          from {from} to act on{link ? "" : " — below"}
+        </span>
+      </span>
+      {link && (
+        <TabLink
+          tab="actionables"
+          className="group inline-flex items-center gap-1 text-[12px] font-medium text-fg-3 transition-colors hover:text-fg"
+        >
+          Actionables
+          <span className="transition-transform group-hover:translate-x-0.5">
+            <ArrowRightIcon />
+          </span>
+        </TabLink>
       )}
-      {hasLosses && (
-        <CardRail label="Losses" tone="bg-bad" count={losses!.length}>
-          {losses!.map((l, i) => (
-            <LossCard
-              key={l.evidence || i}
-              loss={l}
-              githubConnected={githubConnected}
-              onChange={onLossChange && ((change) => onLossChange(l.evidence, change))}
-              adopted={dismissed?.get(l.evidence)}
-            />
-          ))}
-        </CardRail>
-      )}
-    </>
+    </div>
   );
 }

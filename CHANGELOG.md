@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Actionables: one list of what to fix, and design issues that show where
+
+The summary's losses, the design review's issues and the GitHub issues filed
+from them used to be three places: a rail under each review card, and an
+**Issues** tab that only appeared once a repository was connected. They are
+one list now.
+
+- **The Issues tab is the Actionables tab.** It lists every problem both
+  reviews found — what still needs a decision first, then what's already in
+  the tracker, open before closed — with **File bug** and **Ignore** on each
+  row. It's always shown; without GitHub it lists the findings and says that
+  filing needs a repository. `?tab=issues` still lands on it.
+- **The review cards are the story and what's working.** The *Losses* and
+  *Breaking the system* rails are gone from the summary and design review
+  cards; each card ends with how many of its findings are waiting on the
+  Actionables tab.
+- **A filed issue stays linked on its actionable**, from the moment it's filed
+  and with the tracker's live state on the next load. A filed issue whose
+  finding the current reviews no longer hold stays listed on its own, as the
+  Issues tab listed it.
+- **Design issues show where their values render.** Each color, size or
+  padding a design issue cites is looked up in the measurements — how much of
+  the UI it covers, on which pages, how many declarations chose it, whether
+  one hand-typed it — and in the newest site snapshot that pictured it. The
+  picture shows on the actionable's row and in its drawer, goes into the issue
+  body when it's filed (embedded when the image is in a public Vercel Blob
+  store GitHub can fetch, named otherwise), into the verification prompt, and
+  into the fix prompt as a *Where it renders* line.
+- `PolishdDashboard`'s `showIssues` prop is accepted and ignored; the
+  `PolishdDashboardTab` type names the tab `actionables`.
+- `POLISHD_GITHUB_API` points the GitHub client at a GitHub Enterprise
+  Server's REST base instead of `api.github.com`.
 ### The Overview is a board of the site
 
 The Overview opened on four audience numbers and the two review cards stacked
@@ -32,8 +64,8 @@ renders with, then one column of the story and the numbers.
   hash, goes stale when either changes, and is rewritten when the Overview
   opens on a missing or stale paragraph. One refresh regenerates the summary,
   the review and then the paragraph from them. The losses and the design
-  issues — and the ignore and file-bug controls that act on them — stay on
-  the Analytics and Design tabs.
+  issues — and the ignore and file-bug controls that act on them — are on
+  the Actionables tab.
 - **Visitors** — sessions, page views and the share on mobile — stack in a
   narrow column beside the paragraph; views per session and the friction
   counts stay on the Analytics tab. Colors the paragraph cites render as the Design tab's

@@ -11,9 +11,10 @@
  *  • `DesignReviewCard` — the AI's aesthetic read of those metrics. Rendered
  *    from the cached review handed down by the server; a model is only called
  *    on the explicit refresh action. Uses the same provider/model/key the
- *    owner configured for the analytics summary. Each issue carries the same
- *    controls as the summary's losses: "Ignore", and "File bug" when GitHub is
- *    connected.
+ *    owner configured for the analytics summary. The card is the assessment
+ *    and what's working; the issues it raises are actionables, listed with
+ *    the summary's losses (actionable-list.tsx), and the card ends with how
+ *    many are waiting there.
  *
  * Generating runs a review capture first (snapshot-capture.ts, purpose
  * "review"): the first screen of the three most-visited pages, desktop, light
@@ -26,30 +27,15 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  createIssueFromDesignIssueAction,
-  generateDesignReviewAction,
-  ignoreDesignIssueAction,
-  unignoreDesignIssueAction,
-} from "../ai/actions";
+import { generateDesignReviewAction } from "../ai/actions";
 import { setSnapshotBlockAction } from "./snapshot-actions";
 import { runSnapshotCapture } from "./snapshot-capture";
 import { useSnapshotsOptional } from "./snapshots";
-import type {
-  GenerateDesignReviewResult,
-  PolishdDesignIssue,
-  PolishdDesignReview,
-  PolishdIgnoredDesignIssue,
-} from "../ai/types";
-import CardRail, { railCard } from "./card-rail";
+import type { GenerateDesignReviewResult, PolishdDesignReview } from "../ai/types";
 import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
-import { DismissedCard, IgnoreButton, useDismissal } from "./dismissable";
-import { FileBugButton } from "./file-bug-button";
-import { findingKey } from "./fix-prompt";
-import type { LossChange } from "./summary";
+import { ActionablesPointer } from "./summary";
 import {
-  ArrowRightIcon,
   Badge,
   Callout,
   CheckIcon,
@@ -90,14 +76,10 @@ export interface DesignReviewCardProps {
   model: string;
   /** Pages with a design scan — 0 disables generation with a hint. */
   scannedPages: number;
-  /** True when a GitHub repo + token are configured — enables "File bug". */
-  githubConnected: boolean;
   /** Told when a regenerate lands — the Overview builds its fix prompt from it. */
   onReviewChange?: (review: PolishdDesignReview) => void;
-  /** Told when an issue is ignored, restored or filed, keyed by `findingKey`. */
-  onIssueChange?: (key: string, change: LossChange) => void;
-  /** Dismissals recorded elsewhere (a pasted verdict block), keyed by `findingKey`. */
-  dismissed?: ReadonlyMap<string, PolishdIgnoredDesignIssue>;
+  /** Whether the issues pointer links to the Actionables tab. */
+  actionablesLink?: boolean;
 }
 
 /** The model's aesthetic read of the measured design system. */
@@ -108,10 +90,8 @@ export default function DesignReviewCard({
   provider,
   model,
   scannedPages,
-  githubConnected,
   onReviewChange,
-  onIssueChange,
-  dismissed,
+  actionablesLink = true,
 }: DesignReviewCardProps) {
   const [review, setReview] = useState<PolishdDesignReview | null>(initialReview);
   const [stale, setStale] = useState(initialStale);
@@ -262,12 +242,12 @@ export default function DesignReviewCard({
             <p className="max-w-[72ch] text-[15px] leading-[1.7] text-fg">
               <Annotated text={review.text} />
             </p>
-            <StrengthsIssues
-              strengths={review.strengths}
-              issues={review.issues}
-              githubConnected={githubConnected}
-              onIssueChange={onIssueChange}
-              dismissed={dismissed}
+            <Strengths strengths={review.strengths} />
+            <ActionablesPointer
+              count={review.issues?.length ?? 0}
+              tone="bg-warn"
+              from="the design review"
+              link={actionablesLink}
             />
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>
@@ -326,155 +306,27 @@ export default function DesignReviewCard({
   );
 }
 
-function StrengthsIssues({
-  strengths,
-  issues,
-  githubConnected,
-  onIssueChange,
-  dismissed,
-}: {
-  strengths: PolishdDesignReview["strengths"];
-  issues: PolishdDesignReview["issues"];
-  githubConnected: boolean;
-  onIssueChange?: (key: string, change: LossChange) => void;
-  dismissed?: ReadonlyMap<string, PolishdIgnoredDesignIssue>;
-}) {
-  const hasStrengths = !!strengths?.length;
-  const hasIssues = !!issues?.length;
-  if (!hasStrengths && !hasIssues) return null;
+/** What the system gets right, as the model listed it. */
+function Strengths({ strengths }: { strengths: PolishdDesignReview["strengths"] }) {
+  if (!strengths?.length) return null;
   return (
-    <>
-      {hasStrengths && (
-        <div className="mt-5">
-          <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
-            Working
-          </div>
-          <ul className="space-y-2">
-            {strengths!.map((s, i) => (
-              <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
-                <span className="mt-px shrink-0 text-ok">
-                  <CheckIcon size={13} />
-                </span>
-                <span>
-                  <Annotated text={s} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {hasIssues && (
-        <CardRail label="Breaking the system" tone="bg-warn" count={issues!.length}>
-          {issues!.map((iss, i) => (
-            <IssueCard
-              key={`${i}:${findingKey(iss)}`}
-              iss={iss}
-              githubConnected={githubConnected}
-              onChange={onIssueChange && ((change) => onIssueChange(findingKey(iss), change))}
-              adopted={dismissed?.get(findingKey(iss))}
-            />
-          ))}
-        </CardRail>
-      )}
-    </>
-  );
-}
-
-/**
- * One issue: the problem, its evidence, the fix — or why the fix was withheld
- * (it contradicted the review's own strengths, or redesigned the system) —
- * and the same two verdicts a loss has, file it or ignore it. An ignored issue
- * leaves every later review, and its reason is replayed to the model.
- */
-function IssueCard({
-  iss,
-  githubConnected,
-  onChange,
-  adopted,
-}: {
-  iss: PolishdDesignIssue;
-  githubConnected: boolean;
-  onChange?: (change: LossChange) => void;
-  adopted?: PolishdIgnoredDesignIssue;
-}) {
-  const dismissal = useDismissal({
-    dismiss: (reason) => ignoreDesignIssueAction({ issue: iss.issue, evidence: iss.evidence }, reason),
-    restore: () => unignoreDesignIssueAction({ issue: iss.issue, evidence: iss.evidence }),
-    onChange: (ignored) => onChange?.({ ignored }),
-    adopted,
-  });
-
-  if (dismissal.ignored) {
-    return (
-      <DismissedCard
-        issue={iss.issue}
-        state={dismissal}
-        componentPrefix="design"
-        readBy="review"
-        noun="issue"
-      />
-    );
-  }
-
-  return (
-    <li className={`${railCard} text-fg-2`}>
-      <div className="flex gap-2">
-        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
-        <span className="text-fg">{iss.issue}</span>
+    <div className="mt-5">
+      <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
+        Working
       </div>
-      <div className="mt-2.5 flex flex-col items-stretch gap-1.5">
-        <span className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] leading-relaxed text-fg-2">
-          <Annotated text={iss.evidence} />
-        </span>
-        {iss.suggestion && (
-          <span className="flex gap-1.5 rounded-lg border border-ok/20 bg-ok/[0.06] px-2.5 py-1.5 text-[12px] leading-relaxed text-fg-2">
-            <span className="mt-[3px] shrink-0 text-ok">
-              <ArrowRightIcon size={11} />
+      <ul className="space-y-2">
+        {strengths.map((s, i) => (
+          <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
+            <span className="mt-px shrink-0 text-ok">
+              <CheckIcon size={13} />
             </span>
             <span>
-              <Annotated text={iss.suggestion} />
+              <Annotated text={s} />
             </span>
-          </span>
-        )}
-        {iss.suggestion && !!iss.newValues?.length && (
-          <Badge
-            className="self-start"
-            title="The suggestion names a value the site doesn't render anywhere yet"
-          >
-            New to the site: {iss.newValues.join(", ")}
-          </Badge>
-        )}
-        {iss.suggestionWithheld && (
-          <span
-            className="rounded-lg border border-line bg-raised px-2.5 py-1.5 text-[11.5px] leading-relaxed text-fg-3"
-            title="Polishd dropped the model's suggested fix — the problem may still be real"
-          >
-            Suggestion withheld: {iss.suggestionWithheld}
-          </span>
-        )}
-      </div>
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-        {(githubConnected || !!iss.issueUrl) && (
-          <FileBugButton
-            dataComponent="design-file-bug"
-            onFiled={(filed) => onChange?.({ filed })}
-            filed={iss.issueUrl ? { url: iss.issueUrl, number: iss.issueNumber ?? 0 } : null}
-            file={() =>
-              createIssueFromDesignIssueAction({
-                issue: iss.issue,
-                evidence: iss.evidence,
-                suggestion: iss.suggestion,
-              })
-            }
-          />
-        )}
-        <IgnoreButton
-          state={dismissal}
-          dataComponent="design-ignore"
-          title="Not a problem — drop it from this review and stop the model reporting it again"
-        />
-      </div>
-    </li>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
