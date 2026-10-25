@@ -173,10 +173,16 @@ export interface PolishdIgnoredLoss {
   issue: string;
   /** The citation this dismissal is keyed by. */
   evidence: string;
-  /** Why it isn't a problem, in the owner's words. Optional. */
+  /** Why it isn't a problem — or, for a fix, what changed — in the owner's words. Optional. */
   reason?: string;
   /** When it was first dismissed, ms since epoch. */
   ignoredAt: number;
+  /**
+   * True when the owner marked it fixed rather than not a problem. The same
+   * three effects as a dismissal; the model is told the site changed here,
+   * so data from before the fix doesn't bring it back.
+   */
+  fixed?: boolean;
 }
 
 /**
