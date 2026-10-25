@@ -62,6 +62,7 @@ import type {
   PolishdFixStage,
   PolishdFixTrigger,
   PolishdIssueThread,
+  PolishdLinkedPull,
   RefreshFixesResult,
 } from "./types";
 
@@ -411,6 +412,13 @@ export async function readFixes(numbers: number[]): Promise<RefreshFixesResult> 
  * than opened twice, and a branch with no commits ahead of the default branch
  * opens nothing. Works for a run polishd sent and for one someone started by
  * hand.
+ *
+ * GitHub records a pull request's `Fixes #N` link a few seconds after the
+ * pull request exists, so the thread read straight after these writes can
+ * still call it unlinked — or not list it yet. What's returned says what
+ * polishd just wrote instead, and a click that finds nothing left to do
+ * (the link landed since the page last looked) answers with the issue as it
+ * stands, so the page catches up rather than showing an error.
  */
 export async function createFixPull(issueNumber: number): Promise<RefreshFixesResult> {
   if (!(await isGithubConnected())) return { ok: false, message: NOT_CONNECTED };
@@ -422,17 +430,21 @@ export async function createFixPull(issueNumber: number): Promise<RefreshFixesRe
   const run = (await loadFixes()).runs[String(issueNumber)];
   const actions = fixActions(run, thread);
   if (!actions.link.length && !actions.openFrom) {
-    return { ok: false, message: "There's no fix on a branch to open, and no agent pull request to link." };
+    return { ok: true, runs: run ? { [issueNumber]: run } : {}, threads: { [issueNumber]: thread } };
   }
   const repo = (await githubRepoName()) ?? undefined;
   let next = run;
   const failures: string[] = [];
+  /** Pull requests this click left carrying `Fixes #N`, whatever GitHub says yet. */
+  const linked = new Set<number>();
+  let opened: PolishdLinkedPull | undefined;
 
   const link = async (pull: number) => {
     const cur = await readGithubPull(pull);
     if (cur.state !== "open") return;
     const body = withClosingReference(cur.body, issueNumber, repo);
     if (body !== null) await updateGithubPullBody(pull, body);
+    linked.add(pull);
     if (next && !next.linkedPulls?.includes(pull)) next = { ...next, linkedPulls: [...(next.linkedPulls ?? []), pull] };
   };
 
@@ -463,13 +475,28 @@ export async function createFixPull(issueNumber: number): Promise<RefreshFixesRe
           const issue = await readGithubIssue(issueNumber);
           const verdict = thread.verdict && (!run || thread.verdict.at >= run.requestedAt) ? thread.verdict : undefined;
           const agent: FixAgent = run?.agent ?? (/copilot/i.test(branch) ? "copilot" : "claude-code-action");
-          const opened = await createGithubPullRequest({
-            title: polishdPullTitle(issueNumber, issue?.title ?? "", verdict),
+          const title = polishdPullTitle(issueNumber, issue?.title ?? "", verdict);
+          const created = await createGithubPullRequest({
+            title,
             body: polishdPullBody({ issueNumber, agent, branch, verdict }),
             head: branch,
             base,
           });
-          if (next) next = { ...next, openedPull: opened.number };
+          linked.add(created.number);
+          const now = Date.now();
+          opened = {
+            number: created.number,
+            title,
+            url: created.url,
+            state: "open",
+            draft: false,
+            authorIsBot: false,
+            branch,
+            closes: true,
+            createdAt: now,
+            updatedAt: now,
+          };
+          if (next) next = { ...next, openedPull: created.number };
         }
       }
     } catch (err) {
@@ -478,7 +505,11 @@ export async function createFixPull(issueNumber: number): Promise<RefreshFixesRe
   }
 
   if (next && next !== run) await saveRuns([next]);
-  const fresh = (await readGithubIssueThreads([issueNumber])).threads.get(issueNumber) ?? thread;
+  const read2 = (await readGithubIssueThreads([issueNumber])).threads.get(issueNumber) ?? thread;
+  // Say what was just written, not what GitHub has caught up with.
+  const pulls = read2.pulls.map((p) => (linked.has(p.number) ? { ...p, closes: true } : p));
+  if (opened && !pulls.some((p) => p.number === opened!.number)) pulls.unshift(opened);
+  const fresh: PolishdIssueThread = { ...read2, pulls };
   const done = fixActions(next, fresh);
   // Something that was asked for and is still undone is worth saying, even
   // when the other half worked.

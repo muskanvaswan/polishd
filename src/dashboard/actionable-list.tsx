@@ -66,7 +66,7 @@ import {
   unignoreDesignIssueAction,
   unignoreLossAction,
 } from "../ai/actions";
-import { createPrAction, fixStatus, isFixActive, offersSuggestFix } from "../ai/fix-status";
+import { createPrAction, fixStatus, isFixActive, isLinked, offersSuggestFix } from "../ai/fix-status";
 import type {
   PolishdAgentVerdictKind,
   PolishdDesignIssue,
@@ -1296,7 +1296,7 @@ function fixSentence(item: Item, ctx: FixContext): ReactNode {
             Pull request {pull && <ExtLink href={pull.url}>#{pull.number}</ExtLink>} is open
             {pull?.draft ? " as a draft" : ""}
             {pull?.author ? `, opened by ${pull.author}` : ""}.{" "}
-            {pull?.closes
+            {pull && isLinked(pull, run)
               ? "It's linked: merging it closes this issue."
               : item.prAction === "link"
                 ? "It isn't linked with a closing keyword yet — Link PR adds one, so merging it closes this issue."
@@ -1375,10 +1375,10 @@ function fixSentence(item: Item, ctx: FixContext): ReactNode {
 const PULL_TONE: Record<PolishdLinkedPull["state"], Tone> = { open: "ok", merged: "violet", closed: "neutral" };
 
 /** One pull request that references the issue, whoever opened it. */
-function PullRow({ pull, carriesFix }: { pull: PolishdLinkedPull; carriesFix: boolean }) {
+function PullRow({ pull, carriesFix, linked }: { pull: PolishdLinkedPull; carriesFix: boolean; linked: boolean }) {
   const bits = [
     pull.author ? `${pull.author}${pull.authorIsBot ? " (bot)" : ""}` : null,
-    pull.closes ? "closes this issue" : carriesFix ? "the fix, not linked" : "mentions this issue",
+    linked ? "closes this issue" : carriesFix ? "the fix, not linked" : "mentions this issue",
     pull.state === "merged" && pull.mergedAt ? `merged ${timeAgo(pull.mergedAt)}` : `updated ${timeAgo(pull.updatedAt)}`,
   ].filter(Boolean);
   return (
@@ -1449,7 +1449,7 @@ function FixSection({
         {pulls.length > 0 && (
           <ul className="flex flex-col gap-2">
             {pulls.map((p) => (
-              <PullRow key={p.number} pull={p} carriesFix={carrying.has(p.number)} />
+              <PullRow key={p.number} pull={p} carriesFix={carrying.has(p.number)} linked={isLinked(p, fix?.run)} />
             ))}
           </ul>
         )}

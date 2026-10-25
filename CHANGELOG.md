@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Create PR no longer asks to link a pull request it just linked
+
+GitHub records a pull request's `Fixes #N` link a few seconds after the pull
+request exists. Right after Create PR, the issue read back still called the new
+pull request unlinked, so the drawer said "It isn't linked" and offered Link
+PR, and pressing it answered "There's no fix on a branch to open, and no agent
+pull request to link" while the page stayed as it was.
+
+- A pull request polishd opened, or added `Fixes #N` to, counts as linked from
+  the moment polishd wrote the line (`isLinked` in `ai/fix-status.ts`), so
+  neither the status nor Link PR waits on GitHub's bookkeeping.
+- What Create PR returns says what it just wrote — the new pull request listed
+  and linked even before GitHub's timeline shows it.
+- A click that finds nothing left to do (the link landed since the page last
+  looked) now refreshes the issue instead of showing an error.
+
 ### Create fix: filed issues go to the coding agent, and come back as pull requests
 
 The Fix dispatch card said what the repo's coding agent could do; now polishd

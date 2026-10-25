@@ -78,6 +78,16 @@ export function fixPulls(thread: PolishdIssueThread | undefined, run?: PolishdFi
   );
 }
 
+/**
+ * Whether a pull request closes the issue. GitHub's word for it (`closes`)
+ * arrives a few seconds after the pull request does — it records the
+ * `Fixes #N` link asynchronously — so one polishd opened, or added the line
+ * to, counts as linked from the moment polishd wrote it.
+ */
+export function isLinked(pull: PolishdLinkedPull, run?: PolishdFixRun): boolean {
+  return pull.closes || pull.number === run?.openedPull || !!run?.linkedPulls?.includes(pull.number);
+}
+
 /** Merged beats open beats closed; the newest wins a tie. */
 function primary(pulls: PolishdLinkedPull[]): PolishdLinkedPull | undefined {
   const rank = (p: PolishdLinkedPull) => (p.state === "merged" ? 0 : p.state === "open" ? 1 : 2);
@@ -156,7 +166,7 @@ export function fixActions(run: PolishdFixRun | undefined, thread: PolishdIssueT
     .filter(
       (p) =>
         p.state === "open" &&
-        !p.closes &&
+        !isLinked(p, run) &&
         ((p.authorIsBot && isAgentLogin(p.author)) || (!!p.branch && branches.has(p.branch)) || p.number === verdict?.pr),
     )
     .map((p) => p.number);
