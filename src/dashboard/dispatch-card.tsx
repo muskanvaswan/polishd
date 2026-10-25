@@ -332,7 +332,6 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
             </label>
             <label className="block">
               <span className={labelCls}>Daily cap</span>
-              <span className={`ml-1 ${fieldHintCls}`}>— fixes sent in any 24 hours, by hand or not.</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -343,6 +342,9 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
                 onChange={(e) => onChoices({ ...choices, cap: e.target.value })}
                 className={`${inputCls} mt-1.5 tabular-nums`}
               />
+              <span className={`mt-1.5 block ${fieldHintCls}`}>
+                Fixes sent in any 24 hours, by hand or not.
+              </span>
             </label>
           </div>
           <Toggle
@@ -497,8 +499,9 @@ function SetupChecklist({
       <ol className="mt-3 space-y-4">
         <Step n={1} title="If you use Claude Code">
           <p>
-            Run <Code>claude</Code> in the repo, then <Code>/install-github-app</Code>. It installs the
-            GitHub App, adds the secret, and opens a pull request with the workflow — merge it, then
+            Run <Code>claude</Code> in a terminal, in the repo, then <Code>/install-github-app</Code>{" "}
+            there — it&apos;s a Claude Code terminal command and won&apos;t run from this dashboard or
+            the desktop app. It installs the GitHub App, adds the secret, and opens a pull request with the workflow — merge it, then
             re-check.
           </p>
           <button

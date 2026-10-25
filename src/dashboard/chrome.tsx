@@ -55,21 +55,21 @@ import { POLISHD_THEME_COOKIE, type PolishdTheme } from "./theme";
 
 export type PolishdDashboardTab =
   | "overview"
+  | "actionables"
   | "analytics"
   | "design"
-  | "actionables"
   | "installs"
   | "settings";
 
 const TABS: { id: PolishdDashboardTab; name: string; icon: ReactNode }[] = [
   // The landing tab: both reviews, the headline numbers, the fix prompt.
   { id: "overview", name: "Overview", icon: <GridIcon size={15} /> },
-  { id: "analytics", name: "Analytics", icon: <ChartIcon size={15} /> },
-  { id: "design", name: "Design", icon: <DropletIcon size={15} /> },
   // Every problem both reviews found, and the GitHub issue filed for each.
   // Formerly "Issues", which listed only the filed ones and only once a repo
   // was connected; `?tab=issues` still lands here.
   { id: "actionables", name: "Actionables", icon: <IssueIcon size={15} /> },
+  { id: "analytics", name: "Analytics", icon: <ChartIcon size={15} /> },
+  { id: "design", name: "Design", icon: <DropletIcon size={15} /> },
   // Shown only on installations that collect cross-install telemetry — for
   // everyone else (the senders) it would be a permanently empty screen.
   { id: "installs", name: "Installs", icon: <GlobeIcon size={15} /> },

@@ -624,7 +624,8 @@ picks the test back up after the page is gone, and a test issue is never left
 open silently.
 
 **Setting one up** when nothing is found, least effort first: if you use
-Claude Code, `claude` in the repo then `/install-github-app` does the App, the
+Claude Code, `claude` in a terminal in the repo, then `/install-github-app` there (it only
+runs in the Claude Code terminal), does the App, the
 secret and a workflow pull request in one go. Otherwise three links: install
 the [Claude GitHub App](https://github.com/apps/claude/installations/new); add
 the repository secret — a radio picks between a **subscription token**

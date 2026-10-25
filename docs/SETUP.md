@@ -608,8 +608,9 @@ reply, and closes it either way with a comment.
 
 If nothing is found, the checklist on the card is, least effort first:
 
-1. **With Claude Code:** run `claude` in the repo, then `/install-github-app`.
-   It installs the GitHub App, adds the secret and opens a pull request with
+1. **With Claude Code:** run `claude` in a terminal, in the repo, then
+   `/install-github-app` there — it is a Claude Code terminal command, not
+   something the dashboard or desktop app can run. It installs the GitHub App, adds the secret and opens a pull request with
    the workflow. Merge it — GitHub runs issue-event workflows only from the
    default branch — then press Re-check.
 2. **Otherwise, three links.**

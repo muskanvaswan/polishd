@@ -20,7 +20,7 @@ import { checkDispatchReadiness, pollDispatchTest, startDispatchTest } from "./d
 import { generateOverview } from "./overview";
 import { suggestIssueFix } from "./fix";
 import { createFixPull, dispatchFix, readFixes } from "./fix-dispatch";
-import { verifyGithubConnection } from "./github";
+import { closeGithubIssue, verifyGithubConnection } from "./github";
 import {
   ignoreDesignIssue,
   ignoreLoss,
@@ -205,6 +205,24 @@ export async function ignoreLossAction(
   return ignored
     ? { ok: true, ignored }
     : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
+}
+
+/**
+ * Close the GitHub issue filed for a finding the owner just marked fixed, with
+ * a short comment saying why. Failure is returned, not thrown: the fixed
+ * verdict is already saved by then, and the row says the close didn't go.
+ */
+export async function closeFixedIssueAction(
+  number: number,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  await requirePolishdAuth();
+  if (!Number.isInteger(number) || number <= 0) return { ok: false, message: "That isn't an issue number." };
+  try {
+    await closeGithubIssue(number, "Marked fixed in the Polishd dashboard.");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : "Couldn't reach GitHub." };
+  }
 }
 
 /** Undo a dismissal: the loss can be found and reported again. */
