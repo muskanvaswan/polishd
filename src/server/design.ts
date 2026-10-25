@@ -72,6 +72,12 @@ export interface DesignColorUsage extends DesignDeclarations {
   /** Total tallies across roles. */
   count: number;
   roles: Record<DesignColorRole, number>;
+  /**
+   * Background tallies on controls — buttons, links styled as them, inputs:
+   * how much of this color is the site's action color. 0 where no scan
+   * recorded it (scans from before it was measured).
+   */
+  controls?: number;
   pages: string[];
   /** Share of all color tallies, 0–100. */
   pct: number;

@@ -299,13 +299,17 @@ The dashboard opens on the **Overview**, laid out as a board of the site:
   newest [snapshot](#site-snapshots) as a small bento of the site's top pages:
   the homepage hero largest, the homepage on a phone beside it, and the two
   most visited other pages under them, with no device or theme toggles in
-  front. A click opens the full-height shot, and the rest of the capture is
-  one link away on the Design tab. On the right, the system the pages
+  front. A site with fewer pages lends their other renderings to the
+  remaining tiles. A click opens the full-height shot, and the rest of the
+  capture is one link away on the Design tab. On the right, the system the pages
   actually ship, curated the way the brand kit is (one-offs left out), as two
-  hierarchies. The palette: Primary largest, Secondary and Accent beside it,
-  and the neutrals as one scale from light to dark — not every color the site
-  paints. The type: "Title", "Subtitle", "Body" and "Caption", each word set
-  in its own face at the size the site really uses that style.
+  hierarchies. The palette: the color the site paints its buttons and calls
+  to action in as Primary — a white site's white, a blue site's blue, never a
+  status red — the page itself as Secondary, the next distinct color as
+  Accent, then the next six most used as one scale from light to dark; not
+  every color the site paints. The type: "Title",
+  "Subtitle", "Body" and "Caption", each word set in its own face at the size
+  the site really uses that style.
 - **Overview** — one paragraph, written by the model from the
   [AI summary](#ai-summary) and the [design review](#design-review): the
   overall picture, the one or two things most worth fixing, and what to

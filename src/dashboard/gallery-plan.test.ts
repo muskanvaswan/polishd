@@ -4,8 +4,8 @@
  * Run with `npm test`. What's pinned: the homepage leads at its largest, the
  * next two pages by traffic follow, the homepage's phone shot fills the
  * column between them, a site without dark shots degrades to light, skipped
- * cells never tile, fewer pages drop the phone column rather than leave a
- * hole, and the count left out is every pictured shot not shown.
+ * cells never tile, fewer pages lend their other renderings before a tile is
+ * left out, and the count left out is every pictured shot not shown.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -75,12 +75,29 @@ test("a site without dark shots shows light everywhere", () => {
   assert.equal(more, 2);
 });
 
-test("fewer than three pages drop the phone column rather than leave a hole", () => {
+test("fewer pages borrow the pages' other renderings rather than leave tiles out", () => {
   const two = planGallery(snapshot(full(["/", "/pricing"])), []);
-  assert.deepEqual(two.tiles.map(cell), ["hero: / desktop light", "second: /pricing desktop light"]);
-  assert.equal(two.more, 6);
+  assert.deepEqual(two.tiles.map(cell), [
+    "hero: / desktop light",
+    "phone: / phone dark",
+    "second: /pricing desktop light",
+    "third: /pricing desktop dark",
+  ]);
+  assert.equal(two.more, 4);
   const one = planGallery(snapshot(full(["/"])), []);
-  assert.deepEqual(one.tiles.map(cell), ["hero: / desktop light"]);
+  assert.deepEqual(one.tiles.map(cell), [
+    "hero: / desktop light",
+    "phone: / phone dark",
+    "second: / desktop dark",
+    "third: / phone light",
+  ]);
+  assert.equal(one.more, 0);
+  // Fewer shots than tiles: what there is, in its place.
+  const pair = planGallery(snapshot([shot("/", "desktop", "light"), shot("/", "phone", "light")]), []);
+  assert.deepEqual(pair.tiles.map(cell), ["hero: / desktop light", "phone: / phone light"]);
+  assert.deepEqual(planGallery(snapshot([shot("/", "desktop", "light")]), []).tiles.map(cell), [
+    "hero: / desktop light",
+  ]);
 });
 
 test("skipped cells never tile, and a homepage shot only on a phone still leads", () => {

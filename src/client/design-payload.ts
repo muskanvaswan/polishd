@@ -31,6 +31,7 @@ function keepTop(p: PolishdDesignScanPayload, share: number): PolishdDesignScanP
     text: cut(p.text),
     bg: cut(p.bg),
     border: cut(p.border),
+    ctl: p.ctl && cut(p.ctl),
     pairs: cut(p.pairs),
     radii: cut(p.radii),
     pad: cut(p.pad),
@@ -51,6 +52,7 @@ export function serializeDesignScan(payload: PolishdDesignScanPayload, max = MAX
     text: withoutIds(payload.text, 4),
     bg: withoutIds(payload.bg, 4),
     border: withoutIds(payload.border, 4),
+    ctl: payload.ctl && withoutIds(payload.ctl, 4),
     radii: withoutIds(payload.radii, 4),
     pad: withoutIds(payload.pad, 4),
   };
