@@ -63,8 +63,9 @@ import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReview, loadDesignReviewState } from "../ai/design";
 import { loadOverviewState } from "../ai/overview";
-import { loadDispatchState } from "../ai/dispatch";
-import { isDispatchReady } from "../ai/dispatch-readiness";
+import { checkDispatchReadiness, loadDispatchState } from "../ai/dispatch";
+import { fixTriggerOf, isDispatchReady } from "../ai/dispatch-readiness";
+import { listFixRuns, loadIssueThreads } from "../ai/fix-dispatch";
 import { listFixSuggestions } from "../ai/fix";
 import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
@@ -961,17 +962,36 @@ async function ActionablesTabData() {
   // Neither review's staleness matters here, so the heavy analytics dataset
   // isn't loaded; the design data is, since the review's dismissal check and
   // its usages read it. `listFiledIssues` is [] without a GitHub connection.
-  // The dispatch state only decides whether the tab points at the Fix
-  // dispatch card.
-  const [summary, design, settings, filed, suggestions, dispatch] = await Promise.all([
+  // The dispatch state decides whether and how a fix can start: Create fix,
+  // File and fix, or a pointer to the Fix dispatch card.
+  const [summary, design, settings, filed, suggestions, stored, runs] = await Promise.all([
     loadSummary(),
     getDesignData(),
     getAISettingsPublic(),
     listFiledIssues(),
     listFixSuggestions(),
     loadDispatchState(),
+    listFixRuns(),
   ]);
-  const review = await loadDesignReview(design);
+  // A plan judged before fixes could be dispatched doesn't say when a fix
+  // can start; judge it again, once, so the buttons match the workflow.
+  const dispatch =
+    stored.readiness && !stored.readiness.plan.fixTrigger && settings.hasGithubToken
+      ? (await checkDispatchReadiness()).state
+      : stored;
+  const ready = isDispatchReady(dispatch.readiness?.status);
+  const plan = dispatch.readiness?.plan;
+  const fix = {
+    trigger: ready ? fixTriggerOf(plan) : ("none" as const),
+    ...(ready && plan && plan.agent !== "none" ? { agentName: plan.agent === "copilot" ? "Copilot" : "Claude" } : {}),
+    paused: settings.dispatchPaused,
+  };
+  // What GitHub says about every filed issue — pull requests and activity,
+  // whoever's they are — in one GraphQL query per forty.
+  const [review, issueThreads] = await Promise.all([
+    loadDesignReview(design),
+    loadIssueThreads(filed.map((f) => f.number)),
+  ]);
   return (
     <ActionablesView
       summary={summary}
@@ -979,7 +999,11 @@ async function ActionablesTabData() {
       filed={filed}
       settings={settings}
       suggestions={suggestions}
-      dispatchReady={isDispatchReady(dispatch.readiness?.status)}
+      dispatchReady={ready}
+      fix={fix}
+      runs={runs}
+      threads={issueThreads.threads}
+      threadError={issueThreads.error}
     />
   );
 }

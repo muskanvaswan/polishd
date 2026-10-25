@@ -18,16 +18,21 @@
  *
  * The tab is always there. Without a GitHub connection it still lists the
  * findings and lets them be ignored; filing needs the connection, and the
- * note at the top says so.
+ * note at the top says so. With a coding agent ready, the note says how a
+ * fix starts here — Create fix on a filed issue, File and fix as it's filed,
+ * or on every filing — since that depends on the repo's workflow.
  */
 import type {
   PolishdAISettingsPublic,
   PolishdDesignReview,
   PolishdFiledIssue,
+  PolishdFixRun,
   PolishdFixSuggestion,
+  PolishdIssueThread,
   PolishdSummary,
 } from "../ai/types";
-import ActionableList from "./actionable-list";
+import { fixPulls } from "../ai/fix-status";
+import ActionableList, { type FixContext } from "./actionable-list";
 import { groupActionables } from "./actionable-model";
 import { TabLink } from "./chrome";
 import {
@@ -106,6 +111,54 @@ function Empty({
   );
 }
 
+/** How fixes start here, in a sentence the top of the tab can carry. */
+function FixNote({ fix, repo }: { fix: FixContext; repo?: string }) {
+  const agent = fix.agentName ?? "The agent";
+  const settingsLink = (
+    <TabLink tab="settings" className="text-fg underline decoration-fg-4 underline-offset-2">
+      Settings → Fix dispatch
+    </TabLink>
+  );
+  if (fix.paused) {
+    return (
+      <Callout tone="neutral" className="mb-8">
+        Fix dispatch is paused, so nothing is sent to {agent === "The agent" ? "the agent" : agent}. Unpause it under{" "}
+        {settingsLink}.
+      </Callout>
+    );
+  }
+  if (fix.trigger === "separate") {
+    return (
+      <Callout tone="neutral" className="mb-8">
+        Filing never starts {fix.agentName ?? "the agent"} on its own. <strong className="font-medium text-fg">Create fix</strong>{" "}
+        on a filed issue asks it to scope the issue, confirm it&apos;s real and fixable, and open a pull request
+        linked to it — the row follows it from there, whoever ends up opening the pull request.
+      </Callout>
+    );
+  }
+  if (fix.trigger === "on-filing") {
+    return (
+      <Callout tone="warn" className="mb-8">
+        Your workflow{repo ? ` in ${repo}` : ""} hears new issues but not comments, so a fix can only start as an
+        issue is filed: <strong className="font-medium text-fg">File and fix</strong> puts the brief in its body.
+        Add <code className="font-mono text-[12px]">issue_comment</code> to the workflow&apos;s{" "}
+        <code className="font-mono text-[12px]">on:</code> block and fixes become a step of their own, on any filed
+        issue. Details under {settingsLink}.
+      </Callout>
+    );
+  }
+  if (fix.trigger === "every-filing") {
+    return (
+      <Callout tone="warn" className="mb-8">
+        Your workflow runs in automation mode on every new issue, so each issue polishd files starts{" "}
+        {fix.agentName ?? "the agent"} — filing is fixing here, and there&apos;s no separate Create fix. Details
+        under {settingsLink}.
+      </Callout>
+    );
+  }
+  return null;
+}
+
 export default function ActionablesView({
   summary,
   review,
@@ -113,6 +166,10 @@ export default function ActionablesView({
   settings,
   suggestions,
   dispatchReady,
+  fix,
+  runs,
+  threads,
+  threadError,
 }: {
   summary: PolishdSummary | null;
   review: PolishdDesignReview | null;
@@ -126,6 +183,14 @@ export default function ActionablesView({
    * could take these. Until then the tab says where to set one up.
    */
   dispatchReady: boolean;
+  /** How fixes reach the agent, once one is ready. */
+  fix: FixContext;
+  /** Fixes polishd asked for, by issue number. */
+  runs: Record<number, PolishdFixRun>;
+  /** What GitHub says about each filed issue, by number. */
+  threads: Record<number, PolishdIssueThread>;
+  /** Why the threads couldn't be read, when none could. */
+  threadError?: string;
 }) {
   const losses = summary?.losses ?? [];
   const designIssues = review?.issues ?? [];
@@ -135,6 +200,11 @@ export default function ActionablesView({
   const { open, tracked } = groupActionables(losses, designIssues, filed);
   const openOnGithub = tracked.filter((a) => a.filed?.detail?.state === "open").length;
   const closedOnGithub = tracked.filter((a) => a.filed?.detail?.state === "closed").length;
+  // Filed issues with a pull request carrying a fix that's open now, whoever opened it.
+  const withOpenPull = tracked.filter((a) => {
+    const n = a.link?.number ?? 0;
+    return n > 0 && fixPulls(threads[n], runs[n]).some((p) => p.state === "open");
+  }).length;
   const total = open.length + tracked.length;
 
   return (
@@ -145,7 +215,8 @@ export default function ActionablesView({
           <>
             Everything the analytics summary and the design review found worth fixing, in one list.
             File one as a GitHub issue and it stays linked here with the state your tracker gives
-            it; ignore one and no later review brings it back.
+            it — and with the pull requests that fix it, whoever opens them. Ignore one and no later
+            review brings it back.
           </>
         }
         actions={
@@ -180,9 +251,11 @@ export default function ActionablesView({
           <TabLink tab="settings" className="text-fg underline decoration-fg-4 underline-offset-2">
             Settings → Fix dispatch
           </TabLink>
-          .
+          {" "}and each filed issue gets a Create fix.
         </Callout>
       )}
+
+      {connected && dispatchReady && total > 0 && <FixNote fix={fix} repo={repo} />}
 
       {total > 0 && (
         <section className="mb-10">
@@ -191,7 +264,11 @@ export default function ActionablesView({
             {connected ? (
               <>
                 <Stat label="Filed on GitHub" value={tracked.length} />
-                <Stat label="Open there" value={openOnGithub} tone="ok" />
+                {withOpenPull > 0 ? (
+                  <Stat label="Pull request open" value={withOpenPull} tone="ok" />
+                ) : (
+                  <Stat label="Open there" value={openOnGithub} tone="ok" />
+                )}
                 <Stat label="Closed" value={closedOnGithub} tone="violet" />
               </>
             ) : (
@@ -222,6 +299,10 @@ export default function ActionablesView({
             githubConnected={connected}
             suggestions={suggestions}
             canSuggest={settings.hasApiKey}
+            fix={fix}
+            runs={runs}
+            threads={threads}
+            threadError={threadError}
             empty={
               <Empty hasApiKey={settings.hasApiKey} hasSummary={summary !== null} hasReview={review !== null} />
             }

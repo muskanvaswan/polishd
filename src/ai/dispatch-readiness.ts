@@ -11,8 +11,9 @@
  * fixtures and never guesses from the network.
  *
  * What it reads is what GitHub's docs say the Action keys on: the `on:`
- * events (issues `opened` means the trigger phrase can go in the body;
- * `issue_comment` only means polishd has to comment after filing), the job's
+ * events (`issue_comment` means a fix can start on an issue already filed,
+ * with a comment — the separate step polishd prefers; issues `opened` alone
+ * means the trigger phrase has to go in the body at filing), the job's
  * `if:` condition and the `trigger_phrase` input (the phrase), whether a
  * `prompt` input is present (automation mode: every issue starts a run), and
  * which secret input the step passes (how runs are billed). Nothing here
@@ -34,6 +35,7 @@ import type {
   PolishdDispatchSecret,
   PolishdDispatchStatus,
   PolishdDispatchTest,
+  PolishdFixTrigger,
 } from "./types";
 import { asList, asMap, asString, parseWorkflowYaml, type YamlishValue } from "./workflow-yaml";
 
@@ -188,9 +190,13 @@ export function readWorkflow(file: DispatchWorkflowFile): WorkflowFacts {
 
 // ── The plan ─────────────────────────────────────────────────────────────────
 
-/** Rank the Claude workflows: one that hears new issues beats comments-only. */
+/**
+ * Rank the Claude workflows: hearing comments counts most, since that's what
+ * lets a fix start after filing; hearing new issues next; assignment last.
+ * The stock workflow hears all three and beats any narrower one.
+ */
 function rank(w: WorkflowFacts): number {
-  return w.issuesOpened ? 3 : w.issueCommentCreated ? 2 : w.issuesAssigned ? 1 : 0;
+  return (w.issueCommentCreated ? 4 : 0) + (w.issuesOpened ? 2 : 0) + (w.issuesAssigned ? 1 : 0);
 }
 
 function isoDay(ms: number): string {
@@ -212,13 +218,26 @@ export function analyzeDispatchReadiness(facts: DispatchRepoFacts): PolishdDispa
       ? "copilot"
       : "none";
 
-  // How a filed issue would reach the agent.
+  // How a filed issue would reach the agent. A comment beats the body even
+  // when the workflow hears both: it's what lets filing and fixing be two
+  // decisions — polishd files without the phrase, and a fix starts only when
+  // someone asks for it.
   let mode: PolishdDispatchMode = "none";
   if (chosen) {
-    mode = chosen.issuesOpened ? "body" : chosen.issueCommentCreated ? "comment" : "none";
+    mode = chosen.issueCommentCreated ? "comment" : chosen.issuesOpened ? "body" : "none";
   } else if (agent === "copilot") {
     mode = "assign";
   }
+  // Automation mode runs on every event it hears, phrase or not, so when it
+  // hears new issues, filing starts a run however polishd files.
+  const fixTrigger: PolishdFixTrigger =
+    mode === "none"
+      ? "none"
+      : chosen?.automationMode && chosen.issuesOpened
+        ? "every-filing"
+        : mode === "body"
+          ? "on-filing"
+          : "separate";
 
   const triggerPhrase = chosen
     ? (chosen.triggerPhraseInput ?? chosen.ifPhrases[0] ?? DEFAULT_TRIGGER_PHRASE)
@@ -233,6 +252,7 @@ export function analyzeDispatchReadiness(facts: DispatchRepoFacts): PolishdDispa
     secretKind: chosen?.secretKind ?? "unknown",
     defaultBranch: facts.defaultBranch,
     copilotAssignable: facts.copilotAssignable,
+    fixTrigger,
   };
 
   // ── Rows ──────────────────────────────────────────────────────────────────
@@ -250,19 +270,27 @@ export function analyzeDispatchReadiness(facts: DispatchRepoFacts): PolishdDispa
       detail: `The Claude Code GitHub Action, on the default branch ${facts.defaultBranch}. ${copilotNote}`,
       tone: "ok",
     });
-    if (mode === "body") {
+    if (fixTrigger === "every-filing") {
       rows.push({
         label: "How it fires",
-        value: "Listens for new issues",
-        detail: `The workflow runs when an issue is opened, so polishd will put ${triggerPhrase} in the issue body and the run starts on filing.`,
-        tone: "ok",
+        value: "Every new issue",
+        detail:
+          "The workflow passes a prompt, so it runs on every issue it hears about — filing an issue is starting a fix. There's no separate Create fix step; File bug says so.",
+        tone: "warn",
       });
     } else if (mode === "comment") {
       rows.push({
         label: "How it fires",
-        value: "Comments only",
-        detail: `The workflow doesn't hear new issues, only comments, so polishd will add a comment with ${triggerPhrase} right after filing.`,
-        tone: "neutral",
+        value: chosen.issuesOpened ? "Comments — fixes are a separate step" : "Comments",
+        detail: `polishd files issues without ${triggerPhrase}, so filing never starts a run. Create fix on a filed actionable posts a comment with ${triggerPhrase} and the brief, and the agent starts from there.`,
+        tone: "ok",
+      });
+    } else if (mode === "body") {
+      rows.push({
+        label: "How it fires",
+        value: "New issues only",
+        detail: `The workflow hears new issues but not comments, so a fix can only start as the issue is filed: File and fix puts ${triggerPhrase} and the brief in its body. Add issue_comment (created) to its on: block to start fixes later, as a step of their own.`,
+        tone: "warn",
       });
     } else {
       rows.push({
@@ -329,9 +357,10 @@ export function analyzeDispatchReadiness(facts: DispatchRepoFacts): PolishdDispa
     });
     rows.push({
       label: "How it fires",
-      value: "On assignment",
-      detail: "polishd will assign each issue to Copilot right after filing; Copilot answers with a pull request.",
-      tone: "neutral",
+      value: "On assignment — fixes are a separate step",
+      detail:
+        "Filing doesn't assign anything. Create fix on a filed actionable comments the brief and assigns the issue to Copilot, which answers with a pull request.",
+      tone: "ok",
     });
     rows.push({
       label: "Billing path",
@@ -401,7 +430,7 @@ export function analyzeDispatchReadiness(facts: DispatchRepoFacts): PolishdDispa
   // ── Warnings ──────────────────────────────────────────────────────────────
   if (chosen?.automationMode) {
     warnings.push(
-      `${chosen.path} passes a prompt input, so the Action runs in automation mode: every issue it hears about starts a run, trigger phrase or not — including every issue polishd files.`,
+      `${chosen.path} passes a prompt input, so the Action runs in automation mode: every issue it hears about starts a run, trigger phrase or not — including every issue polishd files — and the workflow's prompt, not polishd's brief, is what the agent is told to do.`,
     );
   }
   if (chosen && chosen.triggerPhraseInput && chosen.ifPhrases.length && !chosen.ifPhrases.includes(chosen.triggerPhraseInput)) {
@@ -469,6 +498,17 @@ export const DISPATCH_STATUS_LABEL: Record<PolishdDispatchStatus, string> = {
 /** True when a dispatch could reach an agent as things stand. */
 export function isDispatchReady(status: PolishdDispatchStatus | undefined): boolean {
   return status === "ready-claude" || status === "ready-copilot";
+}
+
+/**
+ * When a fix can start under a plan. Plans stored before `fixTrigger` existed
+ * chose `body` whenever the workflow heard new issues, so for those a body
+ * mode is read as "on filing" — the next re-check settles it.
+ */
+export function fixTriggerOf(plan: Pick<PolishdDispatchPlan, "mode" | "fixTrigger"> | undefined): PolishdFixTrigger {
+  if (!plan) return "none";
+  if (plan.fixTrigger) return plan.fixTrigger;
+  return plan.mode === "none" ? "none" : plan.mode === "body" ? "on-filing" : "separate";
 }
 
 // ── Setup: links and the recommended workflow ────────────────────────────────

@@ -3,11 +3,12 @@
 /**
  * Polishd — the Settings tab's Fix dispatch card.
  *
- * The fix loop polishd is building toward hands verified issues to a coding
- * agent the owner already runs on the repo and reads the verdict back. None
- * of that is wired yet; this card is the prerequisite — it says what the repo
- * has, helps set an agent up when there's none, proves the wiring with one
- * live test, and records the owner's choices for when dispatch exists.
+ * The fix loop hands filed issues to a coding agent the owner already runs on
+ * the repo — Create fix on the Actionables tab (ai/fix-dispatch.ts) — and
+ * follows it to a pull request linked to the issue. This card is what that
+ * stands on: it says what the repo has and how a fix will start there, helps
+ * set an agent up when there's none, proves the wiring with one live test,
+ * and holds the owner's choices about what may be sent without asking.
  *
  * Five parts, top to bottom: the status line, what polishd found (read-only
  * rows from the pure judgement in ai/dispatch-readiness.ts), the live test,
@@ -308,15 +309,15 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
       <section>
         <h3 className={cardTitleCls}>Your choices</h3>
         <p className="mt-1 text-[12.5px] leading-relaxed text-fg-3">
-          Stored for the fix loop, which isn&apos;t wired yet — nothing is sent on its own today.
-          Saved with the rest of the settings.
+          Create fix on a filed actionable sends it to the agent. These decide what may go without
+          asking, and how much. Saved with the rest of the settings.
         </p>
         <div className="mt-4 space-y-4">
           <Toggle
             checked={choices.auto}
             onChange={(auto) => onChoices({ ...choices, auto })}
             title="Send fixes automatically"
-            hint="Hand each verified issue to the agent without asking first. Off until you turn it on."
+            hint="Hand each issue the source confirmed to the agent as soon as it's filed, without pressing Create fix. Unverified filings still wait for you. Off until you turn it on."
           />
           <div className="grid max-w-xl gap-4 sm:grid-cols-2">
             <label className="block">
@@ -331,7 +332,7 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
             </label>
             <label className="block">
               <span className={labelCls}>Daily cap</span>
-              <span className={`ml-1 ${fieldHintCls}`}>— dispatches a day, at most.</span>
+              <span className={`ml-1 ${fieldHintCls}`}>— fixes sent in any 24 hours, by hand or not.</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -348,7 +349,7 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
             checked={choices.paused}
             onChange={(paused) => onChoices({ ...choices, paused })}
             title="Pause dispatch"
-            hint="Keeps every choice above and sends nothing until you unpause."
+            hint="Keeps every choice above and sends nothing until you unpause — Create fix waits too."
           />
         </div>
       </section>

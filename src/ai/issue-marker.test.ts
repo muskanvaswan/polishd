@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FILED_FOOTER, evidenceLine, filedFor } from "./issue-marker.ts";
+import { FILED_FOOTER, evidenceFromBody, evidenceLine, filedFor } from "./issue-marker.ts";
 
 const loss = { kind: "loss" as const, evidence: "Show # more" };
 const body = (evidence: string, footer = `${FILED_FOOTER}analytics dashboard — observed in real user-behavior data._`) =>
@@ -23,4 +23,14 @@ test("a different citation, a design report, or a hand-written issue is not it",
   assert.equal(filedFor({ kind: "design", evidence: "Show # more" }, body("Show # more")), false);
   assert.equal(filedFor(loss, body("Show # more", "Reported by a person.")), false);
   assert.equal(filedFor(loss, `I saw ${evidenceLine(loss)} somewhere\n${FILED_FOOTER}`), false, "the line must stand alone");
+});
+
+test("the citation is read back off the body as it was written", () => {
+  const body = ["Visitors click Export and nothing happens", "", evidenceLine({ kind: "loss", evidence: "ExportButton" }), "", "---", `${FILED_FOOTER}analytics dashboard._`].join("\n");
+  assert.deepEqual(evidenceFromBody(body), { evidence: "ExportButton", kind: "loss" });
+  assert.deepEqual(evidenceFromBody(evidenceLine({ kind: "design", evidence: "#3b5bdb vs #3c5cdc" })), {
+    evidence: "#3b5bdb vs #3c5cdc",
+    kind: "design",
+  });
+  assert.equal(evidenceFromBody("no evidence here"), null);
 });

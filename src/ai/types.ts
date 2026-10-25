@@ -49,11 +49,13 @@ export interface PolishdAISettings {
   /** File an issue automatically for each new problem a summary finds. */
   githubAutoIssues?: boolean;
   /**
-   * Fix dispatch — the owner's choices for handing verified fixes to the
-   * coding agent connected to the repo. Stored now; the dispatch itself
-   * isn't wired yet, so nothing acts on them today.
+   * Fix dispatch — the owner's choices for handing filed issues to the
+   * coding agent connected to the repo (ai/fix-dispatch.ts acts on them).
    */
-  /** Send fixes to the agent without asking each time. Off by default. */
+  /**
+   * Hand each issue the source verified to the agent as soon as it's filed,
+   * without pressing Create fix. Off by default.
+   */
   dispatchAuto?: boolean;
   /** Label put on every issue polishd dispatches. Default "polishd-fix". */
   dispatchLabel?: string;
@@ -457,9 +459,14 @@ export type VerifyGithubResult =
   | { ok: true; status: PolishdGithubStatus }
   | { ok: false; error: GithubError; message: string };
 
-/** Result of creating an issue from a loss item. */
+/**
+ * Result of creating an issue from a loss item. When the filing also started
+ * a fix — File and fix, automatic dispatch, or a workflow that runs on every
+ * new issue — `fix` is that run; `fixError` says why a fix that was asked for
+ * didn't start, while the issue itself was filed.
+ */
 export type CreateIssueResult =
-  | { ok: true; url: string; number: number }
+  | { ok: true; url: string; number: number; fix?: PolishdFixRun; fixError?: string }
   | { ok: false; error: GithubError; message: string };
 
 export type GithubError =
@@ -590,13 +597,24 @@ export type ListModelsError =
 export type PolishdDispatchAgent = "claude-code-action" | "copilot" | "none";
 
 /**
- * How a filed issue would reach the agent. `body`: the workflow listens for
- * new issues, so the trigger phrase goes in the issue body. `comment`: it
- * listens for comments only, so polishd comments after filing. `assign`: the
+ * How a filed issue would reach the agent. `comment`: the workflow listens
+ * for comments, so polishd files the issue without the trigger phrase and
+ * starts a fix later with a comment — a separate step, preferred whenever the
+ * workflow allows it. `body`: it listens for new issues but not comments, so
+ * the only way in is the trigger phrase in the body, at filing. `assign`: the
  * Copilot agent, which starts when the issue is assigned to it. `none`: the
  * workflow listens for neither, so nothing polishd files would start it.
  */
 export type PolishdDispatchMode = "body" | "comment" | "assign" | "none";
+
+/**
+ * When a fix can start, as the plan allows. `separate`: on an issue already
+ * filed, with Create fix (a comment, or an assignment). `on-filing`: only as
+ * the issue is filed — File and fix puts the phrase in the body. `every-filing`:
+ * the workflow runs in automation mode on every new issue, so filing is
+ * starting a fix whether polishd asks or not. `none`: no agent can be reached.
+ */
+export type PolishdFixTrigger = "separate" | "on-filing" | "every-filing" | "none";
 
 /**
  * How the Action authenticates, read from which input the step passes —
@@ -626,6 +644,12 @@ export interface PolishdDispatchPlan {
   defaultBranch: string;
   /** Whether Copilot can be assigned too; null when the token couldn't ask. */
   copilotAssignable: boolean | null;
+  /**
+   * When a fix can start (see `PolishdFixTrigger`). Absent on plans stored
+   * before fixes were dispatched; `fixTriggerOf` in dispatch-readiness.ts
+   * reads those as their mode implies.
+   */
+  fixTrigger?: PolishdFixTrigger;
 }
 
 /** One read-only row of "What polishd found". */
@@ -693,3 +717,168 @@ export type DispatchTestResult =
       message: string;
       state: PolishdDispatchState;
     };
+
+// ── Fixes: the agent's run, and what GitHub says about an issue ─────────────
+
+/**
+ * What the agent concluded, from the verdict block the brief asks it to end
+ * with. `fixed`: it changed the code. `not_real`: the code shows the finding
+ * is wrong. `deliberate`: real, and intended. `infeasible`: real, but a proper
+ * fix is bigger than one scoped pull request or needs a decision. `needs_info`:
+ * it couldn't decide from the repository alone.
+ */
+export type PolishdAgentVerdictKind = "fixed" | "not_real" | "deliberate" | "infeasible" | "needs_info";
+
+export interface PolishdAgentVerdict {
+  verdict: PolishdAgentVerdictKind;
+  /** The agent's one-line reason, sanitized and clipped. */
+  reason: string;
+  /** A pull request title it proposed, for one polishd opens from its branch. */
+  title?: string;
+  /** The branch it pushed, when it says. */
+  branch?: string;
+  /** The pull request it opened, when it says. */
+  pr?: number;
+  files: string[];
+  /** When the comment carrying it was last written. */
+  at: number;
+}
+
+/**
+ * A pull request that references a filed issue, whoever opened it — the
+ * agent, a teammate, polishd — as GitHub reports it now.
+ */
+export interface PolishdLinkedPull {
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  author?: string;
+  authorIsBot: boolean;
+  /** Head branch. */
+  branch?: string;
+  /** Linked with a closing keyword ("Fixes #12"): merging it closes the issue. */
+  closes: boolean;
+  createdAt: number;
+  updatedAt: number;
+  mergedAt?: number;
+}
+
+/** One thing that happened on a filed issue, as its GitHub timeline lists it. */
+export type PolishdIssueEvent =
+  | {
+      kind: "comment";
+      at: number;
+      author?: string;
+      isBot: boolean;
+      /** A coding agent's comment (a bot whose login names Claude or Copilot). */
+      isAgent: boolean;
+      /** One of polishd's own comments — a fix request. */
+      fromPolishd: boolean;
+      /** The comment as plain text, clipped for display. */
+      text: string;
+      url: string;
+    }
+  | { kind: "referenced"; at: number; actor?: string; pull: number; closes: boolean }
+  | { kind: "closed"; at: number; actor?: string; reason?: string; byPull?: number }
+  | { kind: "reopened"; at: number; actor?: string }
+  | { kind: "assigned"; at: number; actor?: string; assignee?: string }
+  | { kind: "labeled"; at: number; actor?: string; label: string };
+
+/**
+ * What GitHub says has happened on one filed issue since: the pull requests
+ * that reference it and its recent timeline, plus what polishd reads out of
+ * the agent's comments. Read fresh, never stored.
+ */
+export interface PolishdIssueThread {
+  number: number;
+  pulls: PolishdLinkedPull[];
+  /** The most recent events, oldest first. */
+  events: PolishdIssueEvent[];
+  /** The newest verdict block among the agent's comments. */
+  verdict?: PolishdAgentVerdict;
+  /** The branch the agent's comments point at, when they do — from its first moments, work or not. */
+  agentBranch?: string;
+  /**
+   * The fix the agent left ready: its "Create PR" link, which the Action only
+   * writes once the branch has commits. `at` is when that comment was last
+   * written, so a link from an earlier request isn't taken for this one's.
+   */
+  fixLink?: { branch: string; url: string; at: number };
+}
+
+/**
+ * One fix polishd asked a coding agent for: when, how it was sent, and what
+ * polishd itself did about the pull request since. Stored per issue number;
+ * everything the agent did is read from GitHub (`PolishdIssueThread`).
+ */
+export interface PolishdFixRun {
+  issueNumber: number;
+  agent: Exclude<PolishdDispatchAgent, "none">;
+  /** How it was sent: a comment, an assignment, or the phrase in the body at filing. */
+  mode: Exclude<PolishdDispatchMode, "none">;
+  requestedAt: number;
+  /** Sent without a click: automatic dispatch, or a workflow that runs on every new issue. */
+  auto?: boolean;
+  /** The fix request comment, when there is one. */
+  commentUrl?: string;
+  /** The pull request Create PR opened from the agent's branch. */
+  openedPull?: number;
+  /** Agent pull requests Create PR added "Fixes #N" to, so they close the issue. */
+  linkedPulls?: number[];
+  /** What went wrong after the request was sent (an assignment that didn't take). */
+  error?: string;
+}
+
+/**
+ * Where a filed issue's fix stands, put together from the run (if polishd
+ * sent one) and the thread (whoever did the work). Pure; see fix-status.ts.
+ */
+export type PolishdFixStage =
+  | "requested" // sent; the agent hasn't answered
+  | "working" // the agent answered, or opened a draft, and hasn't finished
+  | "branch" // the agent left a fix on a branch and there's no pull request for it yet: Create PR
+  | "pr-open"
+  | "merged"
+  | "pr-closed" // the pull request was closed without merging
+  | "declined" // the agent's verdict: not real, deliberate, infeasible, or needs info
+  | "stalled" // sent a while ago, and nothing came back
+  | "failed"; // the request itself didn't take
+
+export interface PolishdFixStatus {
+  stage: PolishdFixStage;
+  /** The pull request that carries the fix, when there is one. */
+  pull?: PolishdLinkedPull;
+  verdict?: PolishdAgentVerdict;
+  /** A branch with no pull request yet. */
+  branch?: string;
+  run?: PolishdFixRun;
+}
+
+/** Result of asking for a fix. */
+export type DispatchFixResult =
+  | { ok: true; run: PolishdFixRun }
+  | { ok: false; error: DispatchFixError; message: string };
+
+export type DispatchFixError =
+  | "not-connected"
+  | "not-ready" // no agent the readiness check says could take it
+  | "on-filing" // the workflow only hears new issues; a fix can't start later
+  | "paused"
+  | "cap" // the daily cap is spent
+  | "not-found" // not an issue polishd filed
+  | "closed" // the issue is closed
+  | "in-flight" // a fix is already running, or a pull request is open
+  | "github-error";
+
+/** Result of reading fixes and threads, or of Create PR. */
+export type RefreshFixesResult =
+  | {
+      ok: true;
+      runs: Record<number, PolishdFixRun>;
+      threads: Record<number, PolishdIssueThread>;
+      /** Set when the threads couldn't be read; the runs are as stored. */
+      threadError?: string;
+    }
+  | { ok: false; message: string };

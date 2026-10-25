@@ -20,9 +20,9 @@
  * re-investigated nor re-filed. That log is also what the dashboard's Issues
  * tab reads: `listFiledIssues` joins it to the live issues on GitHub.
  */
+import { detectionFor } from "../dashboard/fix-prompt";
 import { getDesignData } from "../server/design";
 import { listSnapshots } from "../server/snapshots";
-import { getMeta, setMeta } from "../server/store";
 import { designUsagesFor, usageFacts, whereItRendersMarkdown } from "../shared/design-evidence";
 import {
   createGithubIssue,
@@ -33,7 +33,9 @@ import {
   readGithubIssues,
   searchGithubCode,
 } from "./github";
+import { dispatchFix, prepareFixAtFiling } from "./fix-dispatch";
 import { FILED_FOOTER, evidenceLine, filedFor } from "./issue-marker";
+import { issueKey, loadIssueLog, recordLog, type FiledEntry } from "./issue-log";
 import { loadProjectProfile } from "./profile";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
@@ -45,8 +47,13 @@ import type {
   CreateIssueResult,
 } from "./types";
 
-/** The slice of a summary loss the pipeline needs. */
-type Loss = Pick<PolishdLossItem, "issue" | "evidence" | "location">;
+/**
+ * The slice of a summary loss the pipeline needs. `signalKind` is the
+ * analytics signal behind it ("dead_click"…), looked up server-side, which
+ * says how it was detected — and so what the fix brief tells the agent to
+ * rule out first.
+ */
+type Loss = Pick<PolishdLossItem, "issue" | "evidence" | "location"> & { signalKind?: string };
 
 /** The slice of a design-review issue the pipeline needs. */
 type DesignIssue = Pick<PolishdDesignIssue, "issue" | "evidence" | "suggestion">;
@@ -62,6 +69,8 @@ type Report = {
   evidence: string;
   /** Source file the citation was matched to (losses only). */
   location?: string;
+  /** The analytics signal behind it (losses only). */
+  signalKind?: string;
   /** The review's own suggested fix (design issues only). */
   suggestion?: string;
   /**
@@ -71,54 +80,6 @@ type Report = {
    */
   usages?: PolishdDesignUsage[];
 };
-
-// ── Issue log (dedupe) ───────────────────────────────────────────────────────
-
-const ISSUE_LOG_KEY = "github_issue_log";
-
-/**
- * Per-evidence outcome: a filed issue, or a rejection we won't re-litigate.
- *
- * The filed half carries the context GitHub can't tell us later — the
- * analytics claim it came from, the verdict that let it through, when we filed
- * it — because that's what makes the Issues tab more than a copy of the
- * tracker. Every one of those fields is optional: entries written by earlier
- * versions have only the url and the number, and still read fine.
- */
-type FiledEntry = {
-  url: string;
-  number: number;
-  /** The problem as the summary stated it. */
-  issue?: string;
-  /** Whether the source verified the report before it was filed. */
-  verdict?: "confirmed" | "inconclusive";
-  /** When it was filed, ms since epoch. */
-  filedAt?: number;
-};
-
-type LogEntry = FiledEntry | { rejected: true; reason: string };
-
-type IssueLog = Record<string, LogEntry>;
-
-function issueKey(evidence: string): string {
-  return evidence.trim().toLowerCase();
-}
-
-async function loadIssueLog(): Promise<IssueLog> {
-  const raw = await getMeta(ISSUE_LOG_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as IssueLog;
-  } catch {
-    return {};
-  }
-}
-
-async function recordLog(key: string, entry: LogEntry): Promise<void> {
-  const log = await loadIssueLog();
-  log[key] = entry;
-  await setMeta(ISSUE_LOG_KEY, JSON.stringify(log));
-}
 
 // ── Investigation ────────────────────────────────────────────────────────────
 
@@ -156,23 +117,6 @@ const INVESTIGATE_FORMAT =
   "fixes: 1-3 concrete, code-level suggestions for fixing it.\n" +
   "reasoning: one or two sentences on how you reached the verdict — shown to " +
   "the site owner when the report is rejected or unverifiable.";
-
-/**
- * The local record behind one filed issue number — the citation and claim
- * GitHub was never told. The fix pipeline (`fix.ts`) uses it to search the
- * source for the right element, and its absence is how a number that isn't
- * ours gets refused.
- */
-export async function findFiledIssue(
-  number: number,
-): Promise<{ evidence: string; claim?: string } | null> {
-  for (const [evidence, entry] of Object.entries(await loadIssueLog())) {
-    if (!("rejected" in entry) && entry.number === number) {
-      return { evidence, claim: entry.issue };
-    }
-  }
-  return null;
-}
 
 const INVESTIGATE_PROMPTS: Record<Report["kind"], string> = {
   loss:
@@ -357,11 +301,40 @@ async function investigate(report: Report): Promise<Investigation> {
 
 // ── Filing ───────────────────────────────────────────────────────────────────
 
-/** Markdown body for a filed issue, sized to the verdict behind it. */
+/**
+ * What anyone picking the issue up — a developer, or the coding agent asked
+ * to fix it — should do before changing code: find what renders the
+ * evidence, rule out the detector's blind spot, and keep the change to this
+ * problem. The full brief (fix-brief.ts) arrives with the fix request; this
+ * is the part that belongs to the issue itself.
+ */
+function beforeFixing(report: Report, inv: Investigation): string[] {
+  const blindSpot = detectionFor({
+    source: report.kind === "design" ? "design" : "analytics",
+    issue: report.issue,
+    signalKind: report.signalKind,
+  });
+  return [
+    "",
+    "## Before fixing",
+    `- Find the code that renders the evidence above${inv.verdict === "confirmed" && inv.files.length ? " — the files it was verified against are the place to start" : ""}.`,
+    ...blindSpot.map((line) => `- Confirm it's real. ${line}`),
+    ...(blindSpot.length ? [] : ["- Confirm it's real: reproduce it, or show it from the code."]),
+    "- If it isn't real, or it's deliberate, close this issue with the reason rather than changing code to match the report.",
+    "- Keep the fix to this problem; a pull request that fixes it should say `Fixes` and this issue's number, so merging it closes this.",
+  ];
+}
+
+/**
+ * Markdown body for a filed issue, sized to the verdict behind it. `brief`
+ * is the fix request, when filing is what starts the agent (a workflow that
+ * only hears new issues): it goes last, after the footer, under a rule.
+ */
 function issueBody(
   report: Report,
   inv: Investigation,
   fileUrl: (path: string) => string,
+  brief?: string,
 ): string {
   const lines = [report.issue, "", evidenceLine(report)];
   if (report.suggestion) {
@@ -389,6 +362,7 @@ function issueBody(
     );
     if (report.location) lines.push("", `**Possible source:** [\`${report.location}\`](${fileUrl(report.location)})`);
   }
+  lines.push(...beforeFixing(report, inv));
   const source = report.kind === "design" ? "design review" : "analytics dashboard";
   const observed =
     report.kind === "design"
@@ -401,7 +375,18 @@ function issueBody(
       ? `${FILED_FOOTER}${source} — ${observed} and confirmed against the source code._`
       : `${FILED_FOOTER}${source} — ${observed}._`,
   );
+  if (brief) lines.push("", "---", "", brief);
   return lines.join("\n");
+}
+
+/** How a filing may start a fix. */
+export interface FileOptions {
+  /**
+   * File and fix: start the agent as the issue is filed. Only a workflow that
+   * hears new issues and not comments needs this — anywhere else a fix is a
+   * separate Create fix, and this is ignored.
+   */
+  startFix?: boolean;
 }
 
 /**
@@ -409,8 +394,15 @@ function issueBody(
  * module doc for the pipeline). Returns the issue on success, the stored issue
  * when this evidence was already filed, or `not-a-bug` with the verdict's
  * reasoning when the code disproves the report.
+ *
+ * Filing never starts a fix on its own unless the workflow makes it: the
+ * body carries no trigger phrase. A fix rides on the filing only for File
+ * and fix (or automatic dispatch) under a workflow that hears new issues
+ * only, and always under one in automation mode, which runs on every new
+ * issue regardless. With automatic dispatch on and a workflow that hears
+ * comments, a verified filing is followed straight away by Create fix.
  */
-async function fileReport(report: Report): Promise<CreateIssueResult> {
+async function fileReport(report: Report, opts: FileOptions = {}): Promise<CreateIssueResult> {
   if (!(await isGithubConnected())) {
     return {
       ok: false,
@@ -447,24 +439,41 @@ async function fileReport(report: Report): Promise<CreateIssueResult> {
     return { ok: false, error: "not-a-bug", message: inv.reasoning };
   }
 
+  // Automatic dispatch only hands over what the source confirmed; File and
+  // fix is the owner's call either way.
+  const { settings } = await resolveSettings();
+  const autoFix = settings.dispatchAuto === true && inv.verdict === "confirmed";
+  const atFiling = await prepareFixAtFiling({
+    want: opts.startFix === true || autoFix,
+    source: report.kind,
+    evidence: report.evidence,
+    claim: report.issue,
+    signalKind: report.signalKind,
+    verified: inv.verdict,
+  });
+
+  let issue: { url: string; number: number };
   try {
     const status = await getGithubStatus();
     const fileUrl = (path: string) =>
       status
         ? `https://github.com/${status.repo}/blob/${status.defaultBranch}/${path}`
         : path;
-    const issue = await createGithubIssue({
+    const created = await createGithubIssue({
       title: (inv.verdict === "confirmed" && inv.title) || report.issue,
-      body: issueBody(report, inv, fileUrl),
-      labels: ["bug"],
+      body: issueBody(report, inv, fileUrl, atFiling.start ? atFiling.brief : undefined),
+      labels: atFiling.start ? ["bug", atFiling.label] : ["bug"],
     });
+    issue = { url: created.url, number: created.number };
     await recordLog(key, {
       ...issue,
       issue: report.issue,
       verdict: inv.verdict,
       filedAt: Date.now(),
+      source: report.kind,
+      evidence: report.evidence,
+      ...(report.signalKind ? { signalKind: report.signalKind } : {}),
     });
-    return { ok: true, url: issue.url, number: issue.number };
   } catch (err) {
     return {
       ok: false,
@@ -472,11 +481,25 @@ async function fileReport(report: Report): Promise<CreateIssueResult> {
       message: err instanceof Error ? err.message : "Could not create the issue.",
     };
   }
+
+  // The issue exists; from here a fix that doesn't start is said, not thrown.
+  if (atFiling.start) {
+    return { ok: true, ...issue, fix: await atFiling.record(issue.number) };
+  }
+  if (atFiling.error) return { ok: true, ...issue, fixError: atFiling.error };
+  if (autoFix) {
+    const fix = await dispatchFix(issue.number, { auto: true });
+    // Only a fix that was possible and didn't happen is worth a word; a
+    // workflow that can't take separate fixes was answered above.
+    if (fix.ok) return { ok: true, ...issue, fix: fix.run };
+    if (fix.error !== "on-filing" && fix.error !== "not-ready") return { ok: true, ...issue, fixError: fix.message };
+  }
+  return { ok: true, ...issue };
 }
 
 /** File a bug from one summary loss. */
-export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult> {
-  return fileReport({ ...loss, kind: "loss" });
+export async function createIssueFromLoss(loss: Loss, opts: FileOptions = {}): Promise<CreateIssueResult> {
+  return fileReport({ ...loss, kind: "loss" }, opts);
 }
 
 /**
@@ -504,8 +527,9 @@ async function designUsages(issue: DesignIssue): Promise<PolishdDesignUsage[]> {
  */
 export async function createIssueFromDesignIssue(
   issue: DesignIssue,
+  opts: FileOptions = {},
 ): Promise<CreateIssueResult> {
-  return fileReport({ ...issue, kind: "design", usages: await designUsages(issue) });
+  return fileReport({ ...issue, kind: "design", usages: await designUsages(issue) }, opts);
 }
 
 /**
@@ -545,7 +569,7 @@ export async function attachGithubIssues(losses: PolishdLossItem[]): Promise<Pol
     // Re-read per loss: auto-filing above may have just written new entries.
     let entry = (await loadIssueLog())[issueKey(loss.evidence)];
     if (!entry && settings.githubAutoIssues) {
-      const res = await createIssueFromLoss(loss);
+      const res = await createIssueFromLoss({ ...loss, signalKind: loss.signal?.kind });
       if (res.ok) entry = { url: res.url, number: res.number };
     }
     out.push(

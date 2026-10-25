@@ -28,3 +28,13 @@ export const FILED_FOOTER = "_Filed from the Polishd ";
 export function filedFor(report: MarkedReport, body: string): boolean {
   return body.split("\n").includes(evidenceLine(report)) && body.includes(FILED_FOOTER);
 }
+
+/**
+ * The citation a filed issue's body names, as it was written — the issue log
+ * keys filings by a lower-cased copy, which is no use to anyone searching
+ * code for `ExportButton`. Null when the body has no evidence line.
+ */
+export function evidenceFromBody(body: string): { evidence: string; kind: MarkedReport["kind"] } | null {
+  const m = body.match(/^\*\*Evidence \((from analytics|from the design audit)\):\*\* `(.*)`$/m);
+  return m ? { evidence: m[2], kind: m[1] === "from the design audit" ? "design" : "loss" } : null;
+}
