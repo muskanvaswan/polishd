@@ -280,8 +280,11 @@ export default function OverviewPanel({
         </div>
       </div>
 
-      {/* The story, with the numbers it's told about beside it. */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* The story, with the numbers it's told about in a narrow column beside
+          it. Neither side is stretched to the other: a paragraph padded out to
+          four tiles' height, or tiles padded out to a paragraph's, reads as a
+          mistake. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_11rem] lg:items-start">
         <OverviewSummary
           initialStory={story}
           initialStale={storyStale}
@@ -292,14 +295,13 @@ export default function OverviewPanel({
           onSummaryChange={onSummaryChange}
           onReviewChange={onReviewChange}
         />
-        <div className="grid grid-cols-2 auto-rows-fr gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <OverviewTiles
             overview={overview}
             trends={trends}
             metrics={["sessions", "pageViews"]}
             gridClassName="contents"
           />
-          <DepthTile overview={overview} />
           <MobileTile devices={devices} />
         </div>
       </div>
@@ -713,17 +715,6 @@ function PlainTile({
       </div>
       <div className="mt-3 flex min-h-7 items-end pb-0.5 text-[12px] leading-snug text-fg-3">{note}</div>
     </div>
-  );
-}
-
-function DepthTile({ overview }: { overview: OverviewStats }) {
-  const depth = overview.sessions > 0 ? overview.pageViews / overview.sessions : null;
-  return (
-    <PlainTile
-      value={depth === null ? "—" : depth.toFixed(1)}
-      label="Views / session"
-      tip="Page views divided by sessions, all time — how far the average visit goes before it ends."
-    />
   );
 }
 

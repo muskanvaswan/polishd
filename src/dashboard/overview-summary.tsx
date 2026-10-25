@@ -10,8 +10,8 @@
  * paragraph is all this card shows — not the two texts one after the other,
  * and not the problems, which stay on their tabs with the controls that act
  * on them. The card carries its own caption and refresh; the headline numbers
- * sit beside it. Hex colors the paragraph cites render as the Design tab's
- * copyable chips, and contrast ratios as its contrast score.
+ * sit in a narrow column beside it. Hex colors the paragraph cites render as
+ * the Design tab's copyable chips, and contrast ratios as its contrast score.
  *
  * The paragraph is written from the two reviews, so it follows them: one
  * refresh regenerates the summary, the review and then the paragraph, and a
@@ -148,7 +148,7 @@ export default function OverviewSummary({
     <section
       data-component="overview-summary"
       aria-label="Overview"
-      className={`${card} h-full overflow-hidden`}
+      className={`${card} overflow-hidden`}
     >
         <div className="px-4 pb-5 pt-4 sm:px-5">
           <div className="mb-3 flex items-center justify-between gap-3">
