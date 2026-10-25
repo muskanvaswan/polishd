@@ -440,6 +440,21 @@ SQLite file cannot persist there. Production capture needs Postgres.
 3. Set your host's Node version to 22.x or later.
 4. Deploy. Tables are created automatically on first use.
 
+Every event is stamped with the **build** it was captured on, so the Analytics
+tab can scope its figures to a deploy and the Design tab knows which scans
+describe the site as it ships now. On Vercel this is automatic (the public
+commit variable is read). Elsewhere, set `NEXT_PUBLIC_POLISHD_BUILD` in the
+build command so the bundle knows its own build:
+
+```bash
+NEXT_PUBLIC_POLISHD_BUILD=$COMMIT_REF next build    # Netlify; use your host's commit variable
+```
+
+Without it the server stamps its own commit variable where the host sets one
+(`VERCEL_GIT_COMMIT_SHA`, `COMMIT_REF`, `CF_PAGES_COMMIT_SHA`, …), and in
+development the checked-out commit. See the README's
+[Builds](../README.md#builds).
+
 For **site snapshots** in production on Vercel, connect a
 [Blob store](https://vercel.com/docs/vercel-blob). Whichever variable the
 connection injects switches image storage over automatically: `BLOB_STORE_ID`
@@ -498,6 +513,7 @@ export default definePolishdConfig({
   flushIntervalMs: 10_000,
   dashboardRoute: "/polishd",                 // never captured; see below
   ignoreErrors: [],                           // extra error messages to drop
+  build: process.env.NEXT_PUBLIC_POLISHD_BUILD, // the default; any label works
 });
 ```
 

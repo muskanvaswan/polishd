@@ -23,6 +23,7 @@ import type {
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import type { PolishdSnapshot, SnapshotAvailability } from "../server/snapshots";
 import { buildBrandKit } from "../shared/brand-kit";
+import { shortBuild } from "../shared/build";
 import { designPreviewTargets, designValueKey, type DesignValueRef } from "../shared/design-values";
 import BrandKitButton from "./brand-kit-button";
 import DesignReviewCard, { RefreshMetricsButton } from "./design-review-card";
@@ -579,15 +580,106 @@ function SpacingSection({ data, previews }: { data: PolishdDesignData; previews:
   );
 }
 
+// ── The current build ────────────────────────────────────────────────────────
+// Scans are chosen per build (server/design-builds.ts): once every page the
+// current build has served is scanned on it, only its scans are merged. Until
+// then the tab is honest about the mix, and says which pages would finish it.
+
+/** How many pending pages the callout names before "+N more". */
+const PENDING_NAMED = 6;
+
+function BuildStatus({ data }: { data: PolishdDesignData }) {
+  const b = data.build;
+  if (!b || b.complete || data.pages.length === 0) return null;
+  const label = shortBuild(b.build);
+  const since = new Date(b.firstSeen).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const named = b.pending.slice(0, PENDING_NAMED);
+  const more = b.pending.length - named.length;
+  return (
+    <Callout
+      tone="neutral"
+      className="mb-8"
+      title={
+        b.scanned === 0
+          ? `Build ${label} is live, but no page has been scanned on it yet.`
+          : `Build ${label} is live; ${b.scanned} of ${b.scanned + b.pending.length} ${
+              b.scanned + b.pending.length === 1 ? "page" : "pages"
+            } it serves ${b.scanned === 1 ? "has" : "have"} been scanned on it.`
+      }
+    >
+      <p>
+        {b.carried > 0
+          ? `The metrics below still include the previous build's scan of ${b.carried} ${
+              b.carried === 1 ? "page" : "pages"
+            }. `
+          : ""}
+        Once every page this build has served (since {since}) has a scan from it, only its scans
+        are used and the older ones drop out.
+        {b.pending.length > 0 ? " Still waiting on:" : " Nothing has been viewed on it yet."}
+      </p>
+      {b.pending.length > 0 && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-fg-2">
+          {named.map((p) => (
+            <span key={p}>{p}</span>
+          ))}
+          {more > 0 && <span className="font-sans text-fg-3">+{more} more</span>}
+        </p>
+      )}
+      <p className="mt-1.5 text-fg-3">
+        A page is scanned once per visit after it settles — open each and refresh the metrics.
+      </p>
+    </Callout>
+  );
+}
+
+/** The header pill: pages scanned, and on which build when one is known. */
+function ScanPill({ data }: { data: PolishdDesignData }) {
+  const n = data.pages.length;
+  if (n === 0) return <StatusPill tone="neutral">No scans yet</StatusPill>;
+  const pages = `${n} ${n === 1 ? "page" : "pages"} scanned`;
+  const b = data.build;
+  if (!b) return <StatusPill tone="ok">{pages}</StatusPill>;
+  if (b.complete) {
+    return (
+      <StatusPill tone="ok">
+        {pages} · <span className="font-mono">{shortBuild(b.build)}</span>
+      </StatusPill>
+    );
+  }
+  return (
+    <StatusPill tone="warn">
+      {pages} · {b.scanned} on <span className="font-mono">{shortBuild(b.build)}</span>
+    </StatusPill>
+  );
+}
+
 // ── Scanned pages ────────────────────────────────────────────────────────────
 
-function PageRow({ p, first }: { p: PolishdDesignData["pages"][number]; first: boolean }) {
+function PageRow({
+  p,
+  first,
+  current,
+}: {
+  p: PolishdDesignData["pages"][number];
+  first: boolean;
+  /** The build currently shipping, when known — a scan from another is marked. */
+  current: string | null;
+}) {
+  const previous = current !== null && p.build !== current;
   return (
     <div
       className={`flex items-center justify-between gap-3 px-4 py-3 sm:px-5 ${first ? "" : divider}`}
     >
-      <span className="truncate font-mono text-[12.5px] text-fg-2">{p.path}</span>
-      <span className="shrink-0 text-[12px] tabular-nums text-fg-3">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono text-[12.5px] text-fg-2">{p.path}</span>
+        {previous && <Badge tone="warn">previous build</Badge>}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums text-fg-3">
+        {p.build && (
+          <span className="font-mono" title={p.build}>
+            {shortBuild(p.build)} ·
+          </span>
+        )}
         {p.elements.toLocaleString()} elements ·{" "}
         {new Date(p.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
       </span>
@@ -597,17 +689,21 @@ function PageRow({ p, first }: { p: PolishdDesignData["pages"][number]; first: b
 
 function ScannedPages({ data }: { data: PolishdDesignData }) {
   if (data.pages.length === 0) return null;
+  const current = data.build?.build ?? null;
   const visible = data.pages.slice(0, VISIBLE_ROWS);
   const overflow = data.pages.slice(VISIBLE_ROWS);
   return (
-    <DesignSection title="Scanned pages" tip="— latest design scan per route; the dashboard itself is never scanned.">
+    <DesignSection
+      title="Scanned pages"
+      tip="— the scan each route is measured from, newest first, with the build it was taken on. Once the current build has scanned every page it serves, only its scans are used. The dashboard itself is never scanned."
+    >
       <div className={`${card} overflow-hidden`}>
         {visible.map((p, i) => (
-          <PageRow key={p.path} p={p} first={i === 0} />
+          <PageRow key={p.path} p={p} first={i === 0} current={current} />
         ))}
         <ShowMore count={overflow.length} label="pages">
           {overflow.map((p) => (
-            <PageRow key={p.path} p={p} first={false} />
+            <PageRow key={p.path} p={p} first={false} current={current} />
           ))}
         </ShowMore>
       </div>
@@ -658,13 +754,7 @@ export function DesignPanel({
             <>
               {hasScans && <BrandKitButton kit={buildBrandKit(data)} />}
               <RefreshMetricsButton />
-              {hasScans ? (
-                <StatusPill tone="ok">
-                  {data.pages.length} {data.pages.length === 1 ? "page" : "pages"} scanned
-                </StatusPill>
-              ) : (
-                <StatusPill tone="neutral">No scans yet</StatusPill>
-              )}
+              <ScanPill data={data} />
             </>
           }
         />
@@ -675,6 +765,9 @@ export function DesignPanel({
             database — see the <Code>@polishd/next</Code> DATABASE.md guide.
           </Callout>
         )}
+
+        {/* Which build the metrics describe, while a new one is still being scanned. */}
+        <BuildStatus data={data} />
 
         {data.ready && !hasScans && (
           <div className={`mb-10 ${card}`}>

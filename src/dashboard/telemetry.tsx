@@ -98,7 +98,10 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
   const flush = (useBeacon = false) => {
     if (queue.length === 0) return;
     const batch = queue.splice(0, queue.length);
-    const body = JSON.stringify({ sessionId: sid, events: batch });
+    // The dashboard's "build" is the polishd version it runs: on the
+    // collecting side that is what places its events and design scans in a
+    // release, the way a site's commit does for the site's own.
+    const body = JSON.stringify({ sessionId: sid, events: batch, build: POLISHD_VERSION });
     if (useBeacon && navigator.sendBeacon) {
       const ok = navigator.sendBeacon(endpoint, new Blob([body], { type: "text/plain" }));
       if (!ok) queue.unshift(...batch);
@@ -222,9 +225,10 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
 
   // ---- design scan (the dashboard's own rendered design) --------------------
 
-  // One scan per tab per session, labeled with the telemetry path. On the
-  // collecting side this is what feeds the Design tab: the dashboard's design
-  // as real installs actually render it.
+  // One scan per tab per session and version, labeled with the telemetry
+  // path. On the collecting side this is what feeds the Design tab: the
+  // dashboard's design as real installs actually render it — rescanned after
+  // an upgrade, so the newest version's look isn't read off the old one's.
   const emitDesignScan = () => {
     const path = currentPath;
     scheduleDesignScan(
@@ -233,7 +237,11 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
         push({ type: "design_scan", path, meta: { payload: payloadJson, el: elements } });
         flush();
       },
-      { scanDashboard: true, stillCurrent: () => onDashboard() && telemetryPath() === path },
+      {
+        scanDashboard: true,
+        build: POLISHD_VERSION,
+        stillCurrent: () => onDashboard() && telemetryPath() === path,
+      },
     );
   };
 

@@ -26,7 +26,10 @@ for (const key of [
 process.env.POLISHD_DB_PATH = join(mkdtempSync(join(tmpdir(), "polishd-queries-")), "test.db");
 
 const { insertEvents } = await import("./store.ts");
-const { getElementStats, getRecentErrors, getSessionJourneys } = await import("./queries.ts");
+const { getBuilds, getCurrentBuild, getElementStats, getOverview, getRecentErrors, getSessionJourneys } =
+  await import("./queries.ts");
+const { ingest } = await import("./ingest.ts");
+const { getDesignData } = await import("./design.ts");
 
 const event = (e: Partial<PolishdEvent> & Pick<PolishdEvent, "type">): PolishdEvent => ({
   ts: 1_000,
@@ -121,4 +124,128 @@ test("an element's own text still wins over its near miss", async () => {
   assert.equal(stats.find((e) => e.selector === "div.card")?.sampleText, "Weekly report");
   assert.equal(stats.find((e) => e.selector === "div.card")?.sampleIsNear, undefined);
   assert.equal(stats.find((e) => e.selector === "div.plain")?.sampleText, null);
+});
+
+// ── Builds ───────────────────────────────────────────────────────────────────
+
+const OLD_BUILD = "1111111111111111111111111111111111111111";
+const NEW_BUILD = "2222222222222222222222222222222222222222";
+
+/** A design_scan event with the minimum payload the aggregate accepts. */
+const designScan = (path: string, ts: number): PolishdEvent =>
+  event({
+    type: "design_scan",
+    ts,
+    path,
+    meta: {
+      el: 12,
+      payload: JSON.stringify({
+        v: 1,
+        el: 12,
+        fonts: [["Inter", 16, 400, 10, "Body", "p"]],
+        text: [["#111111", 10]],
+        bg: [["#ffffff", 4]],
+        border: [],
+        pairs: [["#111111", "#ffffff", 10, 16, 0]],
+        radii: [["8px", 3]],
+        pad: [[8, 6]],
+      }),
+    },
+  });
+
+test("every event is stamped with its batch's build, and a build is new when first seen", async () => {
+  await insertEvents("build-a", [event({ type: "page_view", path: "/b" })], { build: OLD_BUILD });
+  await new Promise((r) => setTimeout(r, 5));
+  await insertEvents(
+    "build-b",
+    [event({ type: "page_view", path: "/b" }), event({ type: "rage_click", path: "/b", selector: "button.x" })],
+    { build: NEW_BUILD },
+  );
+  await new Promise((r) => setTimeout(r, 5));
+  // The old build reporting again (a tab left open across the deploy) must
+  // not make it current again.
+  await insertEvents("build-a", [event({ type: "page_view", path: "/b" })], { build: OLD_BUILD });
+
+  const builds = await getBuilds();
+  assert.deepEqual(
+    builds.map((b) => b.build),
+    [NEW_BUILD, OLD_BUILD],
+    "ordered by first appearance, newest first",
+  );
+  assert.equal((await getCurrentBuild())?.build, NEW_BUILD);
+  const newest = builds[0];
+  assert.equal(newest.sessions, 1);
+  assert.equal(newest.pageViews, 1);
+  assert.equal(newest.rageClicks, 1);
+  assert.equal(builds[1].events, 2);
+  assert.ok(builds[1].lastSeen >= newest.firstSeen, "the old build's last event came after the new build appeared");
+});
+
+test("the overview scopes to a build or a window", async () => {
+  const all = await getOverview();
+  const onNew = await getOverview({ build: NEW_BUILD });
+  assert.equal(onNew.rageClicks, 1);
+  assert.equal(onNew.sessions, 1);
+  assert.ok(all.totalEvents > onNew.totalEvents);
+  assert.equal((await getOverview({ since: 0 })).totalEvents, all.totalEvents);
+  assert.equal((await getOverview({ since: Date.now() + 60_000 })).totalEvents, 0);
+});
+
+test("ingest takes the client's build when it's clean, and the server's otherwise", async () => {
+  process.env.POLISHD_BUILD = "server-build";
+  try {
+    const ok = await ingest(
+      { events: [{ type: "click", ts: 1, path: "/ingest", selector: "a.b" }], build: "client-build" },
+      "session-ingest-1",
+    );
+    assert.equal(ok.stored, 1);
+    const fallback = await ingest(
+      { events: [{ type: "click", ts: 2, path: "/ingest", selector: "a.b" }], build: "not a build" },
+      "session-ingest-2",
+    );
+    assert.equal(fallback.stored, 1);
+  } finally {
+    delete process.env.POLISHD_BUILD;
+  }
+  const builds = new Map((await getBuilds()).map((b) => [b.build, b]));
+  assert.equal(builds.get("client-build")?.events, 1);
+  assert.equal(builds.get("server-build")?.events, 1);
+});
+
+test("the Design tab merges the newest build's scans once they cover every page it serves", async () => {
+  // Each page's newest scan is what counts, picked in SQL — not the newest
+  // few hundred scans overall.
+  await insertEvents("design-old", [designScan("/d/home", 100), designScan("/d/about", 100), designScan("/d/gone", 100)], {
+    build: "d-old-build",
+  });
+  await new Promise((r) => setTimeout(r, 5));
+  // The new build appears: /d/gone was removed, /d/home and /d/about viewed.
+  await insertEvents(
+    "design-new",
+    [event({ type: "page_view", path: "/d/home", ts: 200 }), event({ type: "page_view", path: "/d/about", ts: 200 })],
+    { build: "d-new-build" },
+  );
+
+  let data = await getDesignData();
+  assert.equal(data.build?.build, "d-new-build");
+  assert.equal(data.build?.complete, false);
+  assert.deepEqual(data.build?.pending, ["/d/about", "/d/home"]);
+  assert.ok(data.pages.some((p) => p.path === "/d/gone"), "the old build's scans still fill in");
+
+  // One page rescanned on the new build: still mixed.
+  await insertEvents("design-new", [designScan("/d/home", 300)], { build: "d-new-build" });
+  data = await getDesignData();
+  assert.equal(data.build?.scanned, 1);
+  assert.deepEqual(data.build?.pending, ["/d/about"]);
+  assert.equal(data.pages.find((p) => p.path === "/d/home")?.build, "d-new-build");
+  assert.equal(data.pages.find((p) => p.path === "/d/about")?.build, "d-old-build");
+
+  // Every served page scanned on it: only its scans, and the removed page is gone.
+  await insertEvents("design-new", [designScan("/d/about", 300)], { build: "d-new-build" });
+  data = await getDesignData();
+  assert.equal(data.build?.complete, true);
+  assert.deepEqual(
+    data.pages.filter((p) => p.path.startsWith("/d/")).map((p) => p.path).sort(),
+    ["/d/about", "/d/home"],
+  );
 });

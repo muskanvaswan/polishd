@@ -8,8 +8,10 @@
  * events, and flushes on an interval, on soft navigation, and on pagehide.
  */
 import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
+import { sanitizeBuild } from "../shared/build";
 import { isIgnorableError } from "../shared/error-noise";
-import type { PolishdEvent } from "../shared/types";
+import type { PolishdEvent, PolishdIngestBody } from "../shared/types";
+import { detectClientBuild } from "./build";
 import { startClickCapture } from "./click-capture";
 import { scheduleDesignScan } from "./design-scan";
 import { componentOf, deviceCategory, handleOf } from "./dom";
@@ -38,6 +40,11 @@ export function initPolishd(options: InitOptions = {}): void {
   // Start before anything else can throw: this is what lets an error name the
   // script it came from, and it has to be listening first.
   startScriptProvenance();
+
+  // The build this bundle was made from, sent once per batch and stamped on
+  // every event in it. The host's own label first, then what the build
+  // inlined (client/build.ts); null leaves it to the server to stamp.
+  const build = sanitizeBuild(cfg.build) ?? detectClientBuild();
 
   const queue: PolishdEvent[] = [];
   let currentPath = location.pathname;
@@ -91,7 +98,9 @@ export function initPolishd(options: InitOptions = {}): void {
   const flush = (useBeacon = false) => {
     if (queue.length === 0) return;
     const batch = queue.splice(0, queue.length);
-    const body = JSON.stringify({ events: batch, page: currentPath });
+    const payload: PolishdIngestBody = { events: batch, page: currentPath };
+    if (build) payload.build = build;
+    const body = JSON.stringify(payload);
     // sendBeacon survives unload; fetch is used for periodic flushes.
     if (useBeacon && navigator.sendBeacon) {
       const ok = navigator.sendBeacon(cfg.apiRoute, new Blob([body], { type: "application/json" }));
@@ -140,16 +149,22 @@ export function initPolishd(options: InitOptions = {}): void {
 
   // ---- design scan (feeds the dashboard's Design tab) -----------------------
 
-  // One scan per path per session, after the page settles. The payload is a
-  // compact tally of the page's rendered typography, colors, radii and
-  // paddings — the deterministic input to the design review.
+  // One scan per path per session and build, after the page settles. The
+  // payload is a compact tally of the page's rendered typography, colors,
+  // radii and paddings — the deterministic input to the design review. In
+  // development every load scans: the design changes under the developer
+  // between reloads, and the Design tab is where they go to see it.
   const emitDesignScan = () => {
     const path = currentPath;
     if (isDashboardPath(path, cfg.dashboardRoute)) return; // never scan the dashboard
-    scheduleDesignScan(path, (payloadJson, elements) => {
-      push({ type: "design_scan", path, meta: { payload: payloadJson, el: elements } });
-      flush();
-    });
+    scheduleDesignScan(
+      path,
+      (payloadJson, elements) => {
+        push({ type: "design_scan", path, meta: { payload: payloadJson, el: elements } });
+        flush();
+      },
+      { build, once: !IS_DEV },
+    );
   };
 
   // Patch History API so Next.js soft navigations emit page views.

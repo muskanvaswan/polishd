@@ -27,9 +27,20 @@ import type { PolishdEvent, PolishdEventRow } from "../shared/types";
  */
 type Row = Record<string, unknown>;
 
+/**
+ * What a whole batch shares and every row of it is tagged with: the reporting
+ * installation (telemetry only) and the build the events were captured on.
+ */
+export interface InsertTags {
+  /** Hostname of a remote install, on the telemetry path only. */
+  installId?: string;
+  /** The build of the site, sanitized by ingest; absent when unknown. */
+  build?: string | null;
+}
+
 interface Backend {
   /** Persist a batch of events for one session. Returns rows written. */
-  insert(sessionId: string, events: PolishdEvent[], installId?: string): Promise<number>;
+  insert(sessionId: string, events: PolishdEvent[], tags: InsertTags): Promise<number>;
   /** Run a read query. `?` placeholders are positional, in order. */
   query(sql: string, params?: unknown[]): Promise<Row[]>;
   /** Run a write statement (INSERT/UPDATE) that returns no rows. */
@@ -38,15 +49,12 @@ interface Backend {
 
 /** The columns every backend inserts, in a fixed order, for one event. */
 const INSERT_COLS =
-  "session_id, type, ts, path, selector, component, text, value, meta, received_at, install_id";
+  "session_id, type, ts, path, selector, component, text, value, meta, received_at, install_id, build";
+/** How many columns `INSERT_COLS` names; the Postgres tuple builder counts on it. */
+const INSERT_COL_COUNT = 12;
 
 /** Turn one event into its positional values, matching `INSERT_COLS`. */
-function eventValues(
-  sessionId: string,
-  e: PolishdEvent,
-  now: number,
-  installId?: string,
-): unknown[] {
+function eventValues(sessionId: string, e: PolishdEvent, now: number, tags: InsertTags): unknown[] {
   return [
     sessionId,
     e.type,
@@ -58,7 +66,8 @@ function eventValues(
     e.value ?? null,
     e.meta ? JSON.stringify(e.meta) : null,
     now,
-    installId ?? null,
+    tags.installId ?? null,
+    tags.build ?? null,
   ];
 }
 
@@ -129,11 +138,13 @@ async function openSqlite(): Promise<Backend> {
       value       REAL,
       meta        TEXT,
       received_at INTEGER NOT NULL,
-      install_id  TEXT
+      install_id  TEXT,
+      build       TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_events_path ON events(path);
     CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
     CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+    CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at);
 
     CREATE TABLE IF NOT EXISTS polishd_meta (
       key        TEXT    PRIMARY KEY,
@@ -142,15 +153,19 @@ async function openSqlite(): Promise<Backend> {
     );
   `);
 
-  // Databases created before install_id existed lack the column; SQLite has no
-  // ADD COLUMN IF NOT EXISTS, so the raise on an up-to-date table is the
-  // expected path. The index only lands once the column is guaranteed present.
-  try {
-    db.exec(`ALTER TABLE events ADD COLUMN install_id TEXT`);
-  } catch {
-    // Column already there — fresh table or already-migrated database.
+  // Databases created before install_id (and later build) existed lack the
+  // columns; SQLite has no ADD COLUMN IF NOT EXISTS, so the raise on an
+  // up-to-date table is the expected path. Each index only lands once its
+  // column is guaranteed present.
+  for (const column of ["install_id", "build"]) {
+    try {
+      db.exec(`ALTER TABLE events ADD COLUMN ${column} TEXT`);
+    } catch {
+      // Column already there — fresh table or already-migrated database.
+    }
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_build ON events(build)`);
 
   migrateLegacyMeta(
     (sql) => db.exec(sql),
@@ -159,18 +174,17 @@ async function openSqlite(): Promise<Backend> {
   );
 
   return {
-    async insert(sessionId, events, installId) {
+    async insert(sessionId, events, tags) {
       if (events.length === 0) return 0;
       const now = Date.now();
-      const stmt = db.prepare(
-        `INSERT INTO events (${INSERT_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
+      const placeholders = Array.from({ length: INSERT_COL_COUNT }, () => "?").join(", ");
+      const stmt = db.prepare(`INSERT INTO events (${INSERT_COLS}) VALUES (${placeholders})`);
       let written = 0;
       // node:sqlite has no .transaction() helper; wrap manually for batch speed.
       db.exec("BEGIN");
       try {
         for (const e of events) {
-          stmt.run(...(eventValues(sessionId, e, now, installId) as never[]));
+          stmt.run(...(eventValues(sessionId, e, now, tags) as never[]));
           written++;
         }
         db.exec("COMMIT");
@@ -234,14 +248,18 @@ function openPostgres(url: string): Backend {
       value       DOUBLE PRECISION,
       meta        JSONB,
       received_at BIGINT      NOT NULL,
-      install_id  TEXT
+      install_id  TEXT,
+      build       TEXT
     );
-    -- Migrates tables created before install_id existed; no-op otherwise.
+    -- Migrates tables created before install_id / build existed; no-op otherwise.
     ALTER TABLE events ADD COLUMN IF NOT EXISTS install_id TEXT;
-    CREATE INDEX IF NOT EXISTS idx_events_path    ON events(path);
-    CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
-    CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-    CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id);
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS build TEXT;
+    CREATE INDEX IF NOT EXISTS idx_events_path     ON events(path);
+    CREATE INDEX IF NOT EXISTS idx_events_type     ON events(type);
+    CREATE INDEX IF NOT EXISTS idx_events_session  ON events(session_id);
+    CREATE INDEX IF NOT EXISTS idx_events_install  ON events(install_id);
+    CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at);
+    CREATE INDEX IF NOT EXISTS idx_events_build    ON events(build);
 
     CREATE TABLE IF NOT EXISTS polishd_meta (
       key        TEXT   PRIMARY KEY,
@@ -258,11 +276,11 @@ function openPostgres(url: string): Backend {
   });
 
   return {
-    async insert(sessionId, events, installId) {
+    async insert(sessionId, events, tags) {
       if (events.length === 0) return 0;
       await ready;
       const now = Date.now();
-      const cols = 11; // must match INSERT_COLS / eventValues
+      const cols = INSERT_COL_COUNT;
       const params: unknown[] = [];
       const tuples: string[] = [];
       events.forEach((e, row) => {
@@ -272,7 +290,7 @@ function openPostgres(url: string): Backend {
           c === 8 ? `$${base + c + 1}::jsonb` : `$${base + c + 1}`,
         );
         tuples.push(`(${ph.join(", ")})`);
-        params.push(...eventValues(sessionId, e, now, installId));
+        params.push(...eventValues(sessionId, e, now, tags));
       });
       const res = await pool.query(
         `INSERT INTO events (${INSERT_COLS}) VALUES ${tuples.join(", ")}`,
@@ -339,18 +357,22 @@ export async function storeReady(): Promise<boolean> {
 
 /**
  * Persist a batch of events for one session. Silently drops if no store.
- * `installId` is only ever set on the telemetry path — first-party ingest
- * leaves it undefined and the column null.
+ *
+ * `tags` is what the whole batch shares: the reporting install (only ever set
+ * on the telemetry path — first-party ingest leaves it undefined and the
+ * column null) and the build the events were captured on. A bare string is
+ * still accepted as the install id, which is how this was called before
+ * builds were tracked.
  */
 export async function insertEvents(
   sessionId: string,
   events: PolishdEvent[],
-  installId?: string,
+  tags: string | InsertTags = {},
 ): Promise<number> {
   const b = await getBackend();
   if (!b || events.length === 0) return 0;
   try {
-    return await b.insert(sessionId, events, installId);
+    return await b.insert(sessionId, events, typeof tags === "string" ? { installId: tags } : tags);
   } catch (err) {
     console.warn(
       "[polishd] insert failed, dropping batch:",
@@ -451,6 +473,7 @@ function deserialize(row: Row): PolishdEventRow {
     meta: parseMeta(row.meta),
     received_at: Number(row.received_at),
     install_id: (row.install_id as string) ?? undefined,
+    build: (row.build as string) ?? undefined,
   };
 }
 

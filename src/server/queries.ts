@@ -33,6 +33,22 @@ import { trendWindow } from "../shared/metric-buckets";
 import type { PolishdEventType } from "../shared/types";
 
 /**
+ * How far the dashboard's figures reach. Everything the Analytics tab shows
+ * is scoped by one of these at once, so its sections agree with each other.
+ */
+export interface EventFilter {
+  /** Only events received at or after this time (ms since epoch). */
+  since?: number | null;
+  /** Only events captured on this build (see `PolishdEventRow.build`). */
+  build?: string | null;
+}
+
+/** A string as a SQL literal. The values inlined here are never user-typed. */
+function literal(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
  * The events table with the dashboard's own route filtered out, aliased back to
  * `events` so every query below reads from it unchanged.
  *
@@ -45,7 +61,15 @@ import type { PolishdEventType } from "../shared/types";
  * mix positional `?` params in query-specific orders, and a shared leading
  * param would have to be threaded through every call site. It's a
  * developer-set config value rather than user input, and the comparison is
- * `substr`-based so there are no LIKE wildcards to escape.
+ * `substr`-based so there are no LIKE wildcards to escape. The optional
+ * `filter` is inlined the same way: `since` is a number the dashboard
+ * computed, and `build` is a label that passed `sanitizeBuild` — at ingest,
+ * where every stored one came from, and again when it's parsed out of the
+ * URL — so it holds nothing a literal can't carry; it is quoted regardless.
+ *
+ * `since` compares `received_at`, the server's clock: "the last 7 days" means
+ * what arrived in them, whatever a visitor's clock said. The trend charts
+ * still bucket by the visitor's `ts`, as they always have.
  *
  * Resolved per call, not at module load: these queries are public API called
  * with no arguments, so the route arrives out of band — registered by
@@ -53,7 +77,9 @@ import type { PolishdEventType } from "../shared/types";
  * `POLISHD_DASHBOARD_ROUTE` — and module evaluation order means neither is
  * guaranteed to have happened by the time this file is imported.
  */
-export function polishdEventsSource(): string {
+export function polishdEventsSource(filter: EventFilter = {}): string {
+  const conditions: string[] = [];
+
   // POLISHD_ANALYTICS_SOURCE=telemetry points the whole dashboard at the
   // cross-install telemetry it collects instead of the site's own traffic —
   // every feature reads through here, so the collector gets the full
@@ -61,24 +87,30 @@ export function polishdEventsSource(): string {
   // usage. Telemetry paths are namespaced /~polishd/… by the emitter, so the
   // dashboard-route exclusion below has nothing to exclude in this mode.
   if (resolveAnalyticsSource() === "telemetry") {
-    return `(SELECT * FROM events WHERE install_id IS NOT NULL) AS events`;
+    conditions.push("install_id IS NOT NULL");
+  } else {
+    // Telemetry rows (dashboard usage reported by *other* polishd installs,
+    // tagged with their hostname) live in the same table but are a different
+    // dataset: they must never count as this site's sessions, pages, or
+    // interactions, feed its AI digest, or rank among its features. They are
+    // read only by the installs queries below.
+    conditions.push("install_id IS NULL");
+    const route = resolveDashboardRoute().replace(/\/+$/, "");
+    // A blank route means "exclude no path" — without this guard the prefix test
+    // below would match every path, and the dashboard would render permanently empty.
+    if (route) {
+      conditions.push(`path <> ${literal(route)}`);
+      conditions.push(`substr(path, 1, ${route.length + 1}) <> ${literal(`${route}/`)}`);
+    }
   }
 
-  // Telemetry rows (dashboard usage reported by *other* polishd installs,
-  // tagged with their hostname) live in the same table but are a different
-  // dataset: they must never count as this site's sessions, pages, or
-  // interactions, feed its AI digest, or rank among its features. They are
-  // read only by the installs queries below.
-  const conditions = ["install_id IS NULL"];
-  const route = resolveDashboardRoute().replace(/\/+$/, "");
-  // A blank route means "exclude no path" — without this guard the prefix test
-  // below would match every path, and the dashboard would render permanently empty.
-  if (route) {
-    const literal = `'${route.replace(/'/g, "''")}'`;
-    const prefix = `'${`${route}/`.replace(/'/g, "''")}'`;
-    conditions.push(`path <> ${literal}`);
-    conditions.push(`substr(path, 1, ${route.length + 1}) <> ${prefix}`);
+  if (typeof filter.since === "number" && Number.isFinite(filter.since)) {
+    conditions.push(`received_at >= ${Math.floor(filter.since)}`);
   }
+  if (filter.build) {
+    conditions.push(`build = ${literal(filter.build)}`);
+  }
+
   return `(SELECT * FROM events
      WHERE ${conditions.join("\n       AND ")}) AS events`;
 }
@@ -210,7 +242,7 @@ function num(row: Record<string, unknown> | undefined, key: string): number {
   return 0;
 }
 
-export async function getOverview(): Promise<OverviewStats> {
+export async function getOverview(filter: EventFilter = {}): Promise<OverviewStats> {
   if (!(await storeReady())) {
     return {
       ready: false,
@@ -230,7 +262,7 @@ export async function getOverview(): Promise<OverviewStats> {
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)          AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)          AS "deadClicks",
        SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)          AS "jsErrors"
-     FROM ${polishdEventsSource()}`,
+     FROM ${polishdEventsSource(filter)}`,
   );
 
   return {
@@ -249,7 +281,7 @@ export async function getOverview(): Promise<OverviewStats> {
  * the strongest frustration signal, then dead clicks and errors; shallow
  * scroll (content not reached) contributes mildly.
  */
-export async function getPageStats(limit = 5): Promise<PageStat[]> {
+export async function getPageStats(limit = 5, filter: EventFilter = {}): Promise<PageStat[]> {
   const rows = await query(
     `SELECT
        path,
@@ -259,7 +291,7 @@ export async function getPageStats(limit = 5): Promise<PageStat[]> {
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)           AS "deadClicks",
        SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)           AS "jsErrors",
        AVG(CASE WHEN type = 'scroll_depth' THEN value END)            AS "avgScrollDepth"
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      GROUP BY path`,
   );
 
@@ -369,7 +401,7 @@ function fmtDay(ts: number): string {
  * query; the trend comes from a second pull of page_view events for just the
  * top paths, bucketed by UTC day in JS so it stays backend-portable.
  */
-export async function getTopPages(limit = 8): Promise<TopPage[]> {
+export async function getTopPages(limit = 8, filter: EventFilter = {}): Promise<TopPage[]> {
   if (!(await storeReady())) return [];
 
   const rows = await query(
@@ -381,7 +413,7 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)           AS "deadClicks",
        SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)           AS "jsErrors",
        AVG(CASE WHEN type = 'scroll_depth' THEN value END)            AS "avgScrollDepth"
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      GROUP BY path`,
   );
 
@@ -410,7 +442,7 @@ export async function getTopPages(limit = 8): Promise<TopPage[]> {
   const placeholders = paths.map(() => "?").join(", ");
   const views = await query(
     `SELECT path, ts, session_id
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      WHERE type = 'page_view' AND path IN (${placeholders})`,
     paths,
   );
@@ -531,6 +563,7 @@ async function metricSeries(
   bucketMs: number,
   maxBuckets: number,
   fmt: (ts: number) => { label: string; title: string },
+  filter: EventFilter,
 ): Promise<MetricPoint[]> {
   const rows = await query(
     `SELECT (ts / ${bucketMs})                                       AS bucket,
@@ -540,7 +573,7 @@ async function metricSeries(
             SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)     AS "rageClicks",
             SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)     AS "deadClicks",
             SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)     AS "jsErrors"
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      GROUP BY (ts / ${bucketMs})`,
   );
 
@@ -578,17 +611,21 @@ async function metricSeries(
 }
 
 /** Both granularities of the overview series, for the stat tiles' charts. */
-export async function getMetricTrends(): Promise<MetricTrends> {
+export async function getMetricTrends(filter: EventFilter = {}): Promise<MetricTrends> {
   if (!(await storeReady())) return { hour: [], day: [] };
   const [hour, day] = await Promise.all([
-    metricSeries(HOUR_MS, MAX_TREND_HOURS, (ts) => ({
-      label: fmtHour(ts),
-      title: `${fmtDay(ts)}, ${fmtHour(ts)} UTC`,
-    })),
-    metricSeries(DAY_MS, MAX_TREND_DAYS, (ts) => ({
-      label: fmtDay(ts),
-      title: fmtLongDay(ts),
-    })),
+    metricSeries(
+      HOUR_MS,
+      MAX_TREND_HOURS,
+      (ts) => ({ label: fmtHour(ts), title: `${fmtDay(ts)}, ${fmtHour(ts)} UTC` }),
+      filter,
+    ),
+    metricSeries(
+      DAY_MS,
+      MAX_TREND_DAYS,
+      (ts) => ({ label: fmtDay(ts), title: fmtLongDay(ts) }),
+      filter,
+    ),
   ]);
   return { hour, day };
 }
@@ -602,7 +639,7 @@ export async function getMetricTrends(): Promise<MetricTrends> {
  * source of `data-component`) are excluded here — they get their own dedicated
  * "Monitored components" section, so this table covers the rest of the UI.
  */
-export async function getElementStats(limit = 12): Promise<ElementStat[]> {
+export async function getElementStats(limit = 12, filter: EventFilter = {}): Promise<ElementStat[]> {
   const rows = await query(
     `SELECT
        COALESCE(selector, '(unknown)')                                 AS label,
@@ -614,7 +651,7 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)             AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)             AS "deadClicks",
        MAX(ts)                                                          AS "lastTs"
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      WHERE type IN ('click', 'rage_click', 'dead_click') AND component IS NULL
      GROUP BY COALESCE(selector, '(unknown)')`,
   );
@@ -651,13 +688,13 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
  * its width in `value`, so this groups without touching the JSON `meta` column.
  * Sorted most-used device first — answers "what size screen do visitors use?".
  */
-export async function getDeviceBreakdown(): Promise<DeviceBucket[]> {
+export async function getDeviceBreakdown(filter: EventFilter = {}): Promise<DeviceBucket[]> {
   const rows = await query(
     `SELECT
        text                        AS category,
        COUNT(DISTINCT session_id)  AS sessions,
        AVG(value)                  AS "avgWidth"
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      WHERE type = 'viewport' AND text IS NOT NULL
      GROUP BY text`,
   );
@@ -687,7 +724,10 @@ export async function getDeviceBreakdown(): Promise<DeviceBucket[]> {
  * dead clicks). Where `getElementStats` surfaces what's *broken*, this
  * surfaces what's *popular* — which buttons and features people actually use.
  */
-export async function getTopInteractions(limit = 12): Promise<TopInteraction[]> {
+export async function getTopInteractions(
+  limit = 12,
+  filter: EventFilter = {},
+): Promise<TopInteraction[]> {
   const rows = await query(
     `SELECT
        COALESCE(component, selector, '(unknown)')             AS label,
@@ -697,7 +737,7 @@ export async function getTopInteractions(limit = 12): Promise<TopInteraction[]> 
        COUNT(*)                                               AS clicks,
        COUNT(DISTINCT session_id)                             AS sessions,
        COUNT(DISTINCT path)                                   AS pages
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      WHERE type = 'click'
      GROUP BY COALESCE(component, selector, '(unknown)')`,
   );
@@ -786,7 +826,10 @@ const MAX_JOURNEY_STEPS = 50;
  * captured) and breaking ties by recency. When there's no signal at all this
  * degrades to "most recent complete sessions", so the section is still useful.
  */
-export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
+export async function getSessionJourneys(
+  limit = 6,
+  filter: EventFilter = {},
+): Promise<SessionJourney[]> {
   if (!(await storeReady())) return [];
 
   // 1. Score and rank candidate sessions for sampling.
@@ -802,7 +845,7 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
        MAX(CASE WHEN type = 'session_end' THEN 1 ELSE 0 END)         AS complete,
        SUM(CASE WHEN type IN ('page_view','click','rage_click','dead_click')
                 THEN 1 ELSE 0 END)                                   AS actions
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      GROUP BY session_id`,
   );
 
@@ -837,11 +880,13 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
   if (ranked.length === 0) return [];
 
   // 2. Pull every event for just the sampled sessions, in chronological order.
+  //    Under the same filter, so a journey shows the steps that scored it and
+  //    not a tail from outside the window.
   const ids = ranked.map((s) => s.id);
   const placeholders = ids.map(() => "?").join(", ");
   const rows = await query(
     `SELECT session_id, type, ts, path, selector, component, text, value, meta
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      WHERE session_id IN (${placeholders})
      ORDER BY session_id, ts, id`,
     ids,
@@ -961,7 +1006,7 @@ export interface MonitoredComponent {
  * `getRecentErrors`), but averaging numbers out of it would need a cast each
  * backend spells differently — and this table is small enough to fold here.
  */
-export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
+export async function getMonitoredComponents(filter: EventFilter = {}): Promise<MonitoredComponent[]> {
   if (!(await storeReady())) return [];
 
   const rows = await query(
@@ -977,9 +1022,9 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
        AVG(CASE WHEN type = 'component_view'  THEN value END)                AS "avgViewMs",
        COUNT(DISTINCT session_id)                                             AS sessions,
        COUNT(DISTINCT path)                                                   AS pages
-     FROM ${polishdEventsSource()}
+     FROM ${polishdEventsSource(filter)}
      WHERE component IN (
-       SELECT DISTINCT component FROM ${polishdEventsSource()}
+       SELECT DISTINCT component FROM ${polishdEventsSource(filter)}
        WHERE type IN ('hover', 'component_view', 'mount') AND component IS NOT NULL
      )
      GROUP BY component
@@ -995,7 +1040,7 @@ export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
   const names = rows.map((r) => r.name as string);
   const placeholders = names.map(() => "?").join(", ");
   const viewRows = await query(
-    `SELECT component, meta FROM ${polishdEventsSource()}
+    `SELECT component, meta FROM ${polishdEventsSource(filter)}
      WHERE type = 'component_view' AND component IN (${placeholders})`,
     names,
   );
@@ -1108,6 +1153,74 @@ export async function getCaptureHealth(): Promise<CaptureHealth> {
   };
 }
 
+// ── Builds ───────────────────────────────────────────────────────────────────
+
+/** One build the site has shipped, as its events describe it. */
+export interface BuildStat {
+  /** The label as stored — a commit sha or the host's deployment label. */
+  build: string;
+  /** Server time of its first and most recent event, ms since epoch. */
+  firstSeen: number;
+  lastSeen: number;
+  sessions: number;
+  events: number;
+  pageViews: number;
+  rageClicks: number;
+  deadClicks: number;
+  jsErrors: number;
+}
+
+/**
+ * Every build with events, newest first — where "newest" is the build whose
+ * first event is most recent, not whose last is. A tab left open across a
+ * deploy keeps reporting the old build for a while, and must not make it the
+ * current one again; a build only becomes current by appearing, once.
+ *
+ * Rows without a build (stored before builds were tracked, or from a host
+ * that names none) belong to no build and aren't listed. Under a filter the
+ * list is of the builds seen in that window — handing the Analytics tab's
+ * range a Builds table that agrees with the rest of it.
+ */
+export async function getBuilds(limit = 50, filter: EventFilter = {}): Promise<BuildStat[]> {
+  if (!(await storeReady())) return [];
+  const rows = await query(
+    `SELECT build,
+            MIN(received_at)                                      AS "firstSeen",
+            MAX(received_at)                                      AS "lastSeen",
+            COUNT(DISTINCT session_id)                            AS sessions,
+            COUNT(*)                                              AS events,
+            SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)  AS "pageViews",
+            SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)  AS "rageClicks",
+            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)  AS "deadClicks",
+            SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)  AS "jsErrors"
+     FROM ${polishdEventsSource(filter)}
+     WHERE build IS NOT NULL
+     GROUP BY build
+     ORDER BY "firstSeen" DESC
+     LIMIT ?`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    build: r.build as string,
+    firstSeen: num(r, "firstSeen"),
+    lastSeen: num(r, "lastSeen"),
+    sessions: num(r, "sessions"),
+    events: num(r, "events"),
+    pageViews: num(r, "pageViews"),
+    rageClicks: num(r, "rageClicks"),
+    deadClicks: num(r, "deadClicks"),
+    jsErrors: num(r, "jsErrors"),
+  }));
+}
+
+/**
+ * The build currently shipping, as far as the store can tell: the one that
+ * appeared most recently. Null until a build has been stamped on anything.
+ */
+export async function getCurrentBuild(): Promise<BuildStat | null> {
+  return (await getBuilds(1))[0] ?? null;
+}
+
 // ── Aggregate loader ─────────────────────────────────────────────────────────
 
 /** Everything the dashboard (and the AI summary) reads, in one shape. */
@@ -1128,8 +1241,12 @@ export interface PolishdDashboardData {
 /**
  * Fetch every dashboard query in parallel. Server-only. Lives here (not in the
  * dashboard) so the AI summary layer can reuse it without importing React.
+ *
+ * `filter` scopes every section at once (the Analytics tab's range); the AI
+ * summary always reads the whole history, so it passes none. Capture health
+ * is never filtered — it describes the proxy, not a window of traffic.
  */
-export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> {
+export async function loadPolishdDashboardData(filter: EventFilter = {}): Promise<PolishdDashboardData> {
   // One-time sweep retyping historical text clicks recorded as dead/rage under
   // the old rules — after it, every aggregate below reads corrected history.
   // The trend series count the same dead_click/rage_click rows the tiles do, so
@@ -1148,16 +1265,16 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
     errors,
     monitored,
   ] = await Promise.all([
-    getOverview(),
+    getOverview(filter),
     getCaptureHealth(),
-    getTopPages(8),
-    getMetricTrends(),
-    getElementStats(12),
-    getDeviceBreakdown(),
-    getTopInteractions(12),
-    getSessionJourneys(6),
-    getRecentErrors(20),
-    getMonitoredComponents(),
+    getTopPages(8, filter),
+    getMetricTrends(filter),
+    getElementStats(12, filter),
+    getDeviceBreakdown(filter),
+    getTopInteractions(12, filter),
+    getSessionJourneys(6, filter),
+    getRecentErrors(20, filter),
+    getMonitoredComponents(filter),
   ]);
   return {
     overview,
@@ -1186,7 +1303,7 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
  * the window and the others fell out of it. The final fold by message, across
  * pages and throw sites, happens here.
  */
-export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
+export async function getRecentErrors(limit = 10, filter: EventFilter = {}): Promise<RecentError[]> {
   // A message can span many SQL groups — one per page and throw site — so
   // fetch well past `limit`. The cap only bounds history: an error whose
   // older variants fall past it reads a little low, never wrong in kind.
@@ -1209,7 +1326,7 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
             ${field("source")}  AS source,
             ${field("origin")}  AS origin,
             COUNT(*) AS n, MAX(ts) AS last_ts, MAX(id) AS last_id
-     FROM ${polishdEventsSource()} WHERE type = 'js_error'
+     FROM ${polishdEventsSource(filter)} WHERE type = 'js_error'
      GROUP BY ${stable.join(", ")}
      ORDER BY last_id DESC LIMIT ?`,
     [limit * 20],

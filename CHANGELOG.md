@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Every event knows its build, and the Analytics tab has a range
+
+- **Builds on every event.** A new `build` column (migrated automatically on
+  both backends, indexed) holds the build each event was captured on. The
+  client bundle sends its own with every batch — `NEXT_PUBLIC_POLISHD_BUILD`
+  or Vercel's `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, inlined at build time, or
+  `build` in the config passed to `initPolishd()` — and a batch that names
+  none is stamped by the server: `POLISHD_BUILD`, the host's commit variable
+  (Vercel, Netlify, Cloudflare, Railway, Render, Heroku), or in development
+  `git rev-parse HEAD`, cached for a few seconds. Labels are sanitized to a
+  safe charset at ingest. Dashboard telemetry reports the polishd version as
+  the build.
+- **A range on the Analytics tab.** Pills in the header — 24h, 7 days, 30
+  days, 90 days, All time (the default), and *This build* once one is known —
+  scope every section at once: tiles and charts, top pages, device sizes,
+  monitored components, journeys, features, elements, errors. Carried in the
+  URL as `?range=`; windows compare the server's receive time. The capture
+  status banners and the AI summary keep reading the whole history, so a
+  quiet week isn't a broken proxy and changing the range never marks the
+  summary stale. Every read-side query takes an optional `EventFilter`
+  (`since`, `build`); `loadPolishdDashboardData(filter)` passes it through.
+- **A Builds table** at the foot of the Analytics tab: every build events
+  have landed on, newest first by first appearance (a tab left open across a
+  deploy can't revive the old build), with sessions, views, rage, dead and
+  errors. A row scopes the tab to that build (`?range=build:<label>`).
+  `getBuilds()` and `getCurrentBuild()` are exported from `@polishd/next/server`.
+- **The Design tab follows the current build.** Once every page the newest
+  build has served has also been scanned on it, only its scans are merged and
+  the previous build's drop out — removed pages with them. Until then each
+  page's newest scan is still used, and a note under the header says how many
+  pages have been re-scanned on the build and names the ones still waiting.
+  The header pill and the Scanned pages list show the build, marking scans
+  carried from the previous one. Pages re-scan once per session *per build*
+  (the once-per-session key now includes it), and on every load in
+  development. The newest scan per page is now picked in SQL rather than from
+  the last 300 scans, so one busy page can no longer push the others out of
+  the tab.
+
 ### The screenshot service recovers from a wedged browser
 
 Production captures failed for an afternoon with every cell skipped as
