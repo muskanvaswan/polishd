@@ -13,7 +13,7 @@
  * CSS parser and skips exactly the constructs that must stay at the top level.
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -201,6 +201,30 @@ writeFileSync(OUT, banner + scoped);
 //    the files up from there.
 cpSync(join(root, "src", "dashboard", "fonts"), join(dirname(OUT), "fonts"), { recursive: true });
 console.log("• copied dashboard fonts to dist/fonts");
+
+// 4. Make the dashboard load its own stylesheet.
+//
+//    The page-level `import "@polishd/next/dashboard.css"` is one line, and
+//    one line is easy to lose — skip it in a manual install, keep a 0.1.x page
+//    that predates it — and the result is the worst kind of failure: the page
+//    renders, the host's own Tailwind (if it scans the package) half-styles it
+//    with the *host's* palette, and nothing errors. Harsh default borders, no
+//    greys, the brand gone. So the compiled entry imports the stylesheet
+//    itself, and the dashboard can't render without its own palette.
+//
+//    Done here rather than in src/dashboard/index.tsx because the relative
+//    path only exists in dist/: the compiled stylesheet sits at
+//    dist/dashboard.css, one level above dist/dashboard/index.js, while src/
+//    holds only the uncompiled Tailwind source. `sideEffects` in package.json
+//    lists CSS so a bundler can't tree-shake the import away. A page that also
+//    imports it explicitly is fine: bundlers include a stylesheet once.
+const ENTRY = join(root, "dist", "dashboard", "index.js");
+const STYLE_IMPORT = `import "../dashboard.css";\n`;
+if (existsSync(ENTRY)) {
+  const entry = readFileSync(ENTRY, "utf8");
+  if (!entry.startsWith(STYLE_IMPORT)) writeFileSync(ENTRY, STYLE_IMPORT + entry);
+  console.log("• dist/dashboard/index.js imports its stylesheet");
+}
 
 const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(1)}KB`;
 console.log(`✔ dist/dashboard.css  ${kb(compiled)} → ${kb(scoped)} scoped`);

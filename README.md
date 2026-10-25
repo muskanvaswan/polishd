@@ -175,10 +175,13 @@ nothing else.
 
 ## Styling
 
-The dashboard ships its own stylesheet. One import, no configuration:
+The dashboard ships its own stylesheet and loads it itself, so it always
+renders in the Polishd palette, whatever your Tailwind preset defines. `init`
+still writes the import into the page, which is harmless and keeps the
+dependency visible:
 
 ```tsx
-// app/polishd/page.tsx — `init` writes this for you
+// app/polishd/page.tsx
 import "@polishd/next/dashboard.css";
 ```
 
@@ -1016,7 +1019,7 @@ Run `npx @polishd/next doctor` first — it catches most of these by name, and
 | Dashboard empty, beacons all return 200 | The proxy isn't running, so no session cookie is minted and ingest drops every batch | Check the file is named for your Next major — `proxy.ts` on 16+, `middleware.ts` on 15 — and exports a function of the same name. The dashboard shows a banner when it detects this |
 | Every `/api/*` route 404s | The proxy matcher touches `/api` | Restore the `(?!api…)` exclusion. Under Next 16 + Turbopack this breaks the whole `/api` segment |
 | Build fails: *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline in the module |
-| Dashboard renders unstyled | `@polishd/next/dashboard.css` isn't imported | See [Styling](#styling) |
+| Dashboard has white borders and no greys, or is unstyled | A package older than 0.2.3-dev.23 without the `dashboard.css` import, styled by the host's Tailwind and palette | Upgrade; see [Styling](#styling) |
 | Dashboard content cut off below the fold | A host `body` that doesn't scroll | Fixed by default; if an ancestor sets `transform`/`filter`/`contain`, pass `shell: false` and see [docs/SETUP.md](./docs/SETUP.md) |
 | `ExperimentalWarning: SQLite is an experimental feature` | Node's built-in `node:sqlite` | **Expected and harmless.** Node prints this for its own SQLite module on 22.x. Not a sign the package is unstable, and it disappears in production where Postgres is used |
 | `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` | Node < 22.5 | Upgrade Node, or configure Postgres |

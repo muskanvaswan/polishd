@@ -193,11 +193,15 @@ export async function runDoctor(argv, cwd) {
   }
 
   // ── Styling ────────────────────────────────────────────────────────────────
-  // Two things can style the dashboard: the stylesheet it now ships, or the
-  // host's own Tailwind scanning our dist, which is how 0.1.x worked. Either
-  // alone is fine. What matters is that at least one is present — reporting a
-  // 0.1.x app as broken when it renders perfectly would be worse than useless,
-  // since the obvious "fix" is to change something that already works.
+  // The dashboard imports its own stylesheet (the build adds the import to the
+  // compiled entry), so nothing here can leave it unstyled any more, and a
+  // page-level import is optional. What is still worth flagging is the 0.1.x
+  // setup — the host's Tailwind scanning our dist. It used to be how the
+  // dashboard got styled; it was never actually fine, because the host compiles
+  // our class names against *its* palette, which has no `line`, `surface` or
+  // `fg-3`: default borders, no greys. The shipped stylesheet now outranks it,
+  // so it's only wasted work, but it's the first suspect if colours look off
+  // on an older package.
   const hasImport = pageSrc ? /@polishd\/next\/dashboard\.css/.test(pageSrc) : false;
   const legacySources = [
     "tailwind.config.ts",
@@ -209,33 +213,22 @@ export async function runDoctor(argv, cwd) {
     join("styles", "globals.css"),
   ].filter((rel) => readText(join(cwd, rel))?.includes(DIST_GLOB));
 
-  if (hasImport && legacySources.length > 0) {
-    add(PASS, "Dashboard stylesheet is imported", "the dashboard will render styled");
+  if (pageSrc) {
+    add(
+      PASS,
+      "Dashboard loads its own stylesheet",
+      hasImport
+        ? "imported by the dashboard itself; the import in your page is now redundant but harmless"
+        : "imported by the dashboard itself — no page-level import needed",
+    );
+  }
+  if (legacySources.length > 0) {
     add(
       WARN,
-      `Tailwind is also still scanning our dist (${legacySources.join(", ")})`,
-      `Now redundant — the shipped stylesheet covers it. Safe to remove that ${DIST_GLOB} line ` +
-        "and stop compiling utilities you don't use. Remove it only now that the import is in " +
-        "place, not before.",
-    );
-  } else if (hasImport) {
-    add(PASS, "Dashboard stylesheet is imported", "the dashboard will render styled");
-  } else if (legacySources.length > 0) {
-    add(
-      WARN,
-      `Dashboard is styled the 0.1.x way, via ${legacySources.join(", ")}`,
-      "This still works — your Tailwind compiles the dashboard's utilities from our dist, so " +
-        "nothing is broken. To modernise, add `import \"@polishd/next/dashboard.css\";` to " +
-        `${pagePath} FIRST, then remove the ${DIST_GLOB} line. Doing it in that order means ` +
-        "the dashboard is never unstyled in between.",
-    );
-  } else if (pageSrc) {
-    add(
-      FAIL,
-      "Nothing is styling the dashboard",
-      `It will render as unstyled HTML. Add \`import "@polishd/next/dashboard.css";\` to ` +
-        `${pagePath}. The stylesheet is self-contained and scoped to .polishd-root, so it needs ` +
-        "no Tailwind in this app and cannot affect anything outside the dashboard.",
+      `Tailwind is still scanning our dist (${legacySources.join(", ")})`,
+      `Remove the ${DIST_GLOB} line. It compiles the dashboard's class names against your ` +
+        "palette rather than ours; the shipped stylesheet outranks the result, so it's wasted " +
+        "work, and on an older package it's what turns the borders white and the greys off.",
     );
   }
 
