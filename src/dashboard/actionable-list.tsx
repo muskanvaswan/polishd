@@ -17,8 +17,10 @@
  * comes back as *not a bug* with the reasoning, shown in place of a link.
  * **Ignore** asks once, in a dialog with an optional reason, and on its
  * second Ignore drops the finding from every later review and replays the
- * reason to the model (dismissable.tsx). Both are driven from list-level
- * state, so the row and the drawer always agree about one finding.
+ * reason to the model (dismissable.tsx). **Mark fixed** is the same verdict
+ * with a different reason — done, the site changed — stored and replayed the
+ * same way, flagged as a fix. All three are driven from list-level state, so
+ * the row and the drawer always agree about one finding.
  *
  * A design actionable shows where its cited values render: the facts behind
  * each color, size or padding, and the picture of the element carrying it
@@ -68,6 +70,7 @@ import {
   ArrowUpRightIcon,
   Badge,
   ChartIcon,
+  CheckIcon,
   ChevronRightIcon,
   DropletIcon,
   IssueIcon,
@@ -414,24 +417,28 @@ function VerdictFacts({ item }: { item: Item }) {
   );
 }
 
+/** The two ways a finding leaves the list: not a problem, or done. */
+type Verdict = "ignore" | "fixed";
+
 /**
- * The two verdicts on a finding, as the row and the drawer both offer them:
- * the dashboard's own buttons, the same as everywhere else. File bug is
- * offered until an issue exists or filing found the report isn't a bug.
+ * The verdicts on a finding, as the row and the drawer both offer them: the
+ * dashboard's own buttons, the same as everywhere else. File bug is offered
+ * until an issue exists or filing found the report isn't a bug; Mark fixed
+ * and Ignore each open their confirming dialog.
  */
 function VerdictButtons({
   item,
   canFile,
   onFile,
-  onIgnore,
+  onVerdict,
   component,
   className = "",
 }: {
   item: Item;
   canFile: boolean;
   onFile: () => void;
-  /** Opens the confirming dialog; the dismissal happens from there. */
-  onIgnore: () => void;
+  /** Opens the confirming dialog for a verdict; the dismissal happens from there. */
+  onVerdict: (kind: Verdict) => void;
   /** Where the buttons sit, for the dashboard's own telemetry: "row" or "drawer". */
   component: string;
   className?: string;
@@ -441,7 +448,7 @@ function VerdictButtons({
   const fileable = canFile && !link && !rejected;
   return (
     <div
-      className={`flex items-center gap-2 ${className}`}
+      className={`flex flex-wrap items-center gap-2 ${className}`}
       // The row opens the drawer on click; its buttons must not.
       onClick={(e) => e.stopPropagation()}
     >
@@ -458,36 +465,72 @@ function VerdictButtons({
           {item.filing ? "Verifying…" : "File bug"}
         </button>
       )}
+      <button
+        type="button"
+        data-component={`actionable-fixed-${component}`}
+        onClick={() => onVerdict("fixed")}
+        disabled={item.filing || dismissal.pending}
+        title="Done — drop it from the reviews and tell the model the site changed here"
+        className={primaryBtn}
+      >
+        Mark fixed
+      </button>
       <IgnoreButton
         state={dismissal}
         dataComponent={`actionable-ignore-${component}`}
         title="Not a problem — drop it from the reviews and stop the model reporting it again"
         className={primaryBtn}
-        onPress={onIgnore}
+        onPress={() => onVerdict("ignore")}
       />
     </div>
   );
 }
 
+/** What each verdict's dialog says. */
+const VERDICT_COPY: Record<
+  Verdict,
+  { title: string; body: string; placeholder: string; confirm: string; busy: string }
+> = {
+  ignore: {
+    title: "Ignore this finding?",
+    body:
+      "It leaves this review and every later one. A reason is optional, but the model reads it on every later run, so “the second CTA is deliberate” stops the same finding coming back in different words.",
+    placeholder: "Why isn't this a problem? (optional)",
+    confirm: "Ignore",
+    busy: "Ignoring…",
+  },
+  fixed: {
+    title: "Mark this finding fixed?",
+    body:
+      "It leaves this review and every later one, remembered as fixed: the model is told the site changed here, so data from before the fix doesn't bring it back. A note on what changed is optional.",
+    placeholder: "What changed? (optional)",
+    confirm: "Mark fixed",
+    busy: "Marking…",
+  },
+};
+
 /**
- * The one question before a finding is ignored: are you sure, and why? The
- * reason is optional and worth giving — the model reads it on every later run
- * — but the second Ignore is what dismisses, so a click on a row's button
- * never dismisses on its own. Above the drawer, since Ignore is offered there
- * too.
+ * The one question before a finding leaves the list: are you sure, and why?
+ * The reason is optional and worth giving — the model reads it on every later
+ * run — but the dialog's own button is what dismisses, so a click on a row's
+ * button never dismisses on its own. Above the drawer, since the verdicts
+ * are offered there too.
  */
-function IgnoreDialog({
+function VerdictDialog({
   item,
+  kind,
   onConfirm,
   onClose,
 }: {
   item: Item;
+  kind: Verdict;
   /** Resolves true once the dismissal is stored; the dialog then closes itself. */
   onConfirm: (reason?: string) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [reason, setReason] = useState("");
   const busy = item.dismissal.pending;
+  const copy = VERDICT_COPY[kind];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -515,24 +558,20 @@ function IgnoreDialog({
       <form
         role="dialog"
         aria-modal="true"
-        aria-labelledby="polishd-ignore-title"
-        data-component="actionable-ignore-dialog"
+        aria-labelledby="polishd-verdict-title"
+        data-component={`actionable-${kind}-dialog`}
         onSubmit={(e) => {
           e.preventDefault();
           void confirm();
         }}
         className="relative w-full max-w-md rounded-2xl border border-line-strong bg-surface p-5 shadow-pop sm:p-6"
       >
-        <h2 id="polishd-ignore-title" className="text-[16px] font-semibold text-fg">
-          Ignore this finding?
+        <h2 id="polishd-verdict-title" className="text-[16px] font-semibold text-fg">
+          {copy.title}
         </h2>
-        <p className="mt-2 text-[12.5px] leading-relaxed text-fg-3">
-          It leaves this review and every later one. A reason is optional, but the model reads it on
-          every later run, so &ldquo;the second CTA is deliberate&rdquo; stops the same finding coming
-          back in different words.
-        </p>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-fg-3">{copy.body}</p>
         <label className="mt-4 block">
-          <span className="sr-only">Why isn&apos;t this a problem?</span>
+          <span className="sr-only">{copy.placeholder}</span>
           {/* Body-sized and quiet on focus: a note, not a form. ⌘/Ctrl+Enter
               confirms, since Enter makes a new line here. */}
           <textarea
@@ -547,7 +586,7 @@ function IgnoreDialog({
               }
             }}
             maxLength={240}
-            placeholder="Why isn't this a problem? (optional)"
+            placeholder={copy.placeholder}
             disabled={busy}
             className="w-full resize-none rounded-lg border border-line-strong bg-canvas px-3 py-2 text-[13px] leading-relaxed text-fg placeholder:text-fg-3 transition-colors hover:border-fg-4 focus:border-fg-4 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
@@ -561,12 +600,12 @@ function IgnoreDialog({
           </button>
           <button
             type="submit"
-            data-component="actionable-ignore-confirm"
+            data-component={`actionable-${kind}-confirm`}
             disabled={busy}
             className={primaryBtn}
           >
             {busy && <SpinnerIcon size={13} />}
-            {busy ? "Ignoring…" : "Ignore"}
+            {busy ? copy.busy : copy.confirm}
           </button>
         </div>
       </form>
@@ -579,13 +618,13 @@ function Row({
   canFile,
   onOpen,
   onFile,
-  onIgnore,
+  onVerdict,
 }: {
   item: Item;
   canFile: boolean;
   onOpen: () => void;
   onFile: () => void;
-  onIgnore: () => void;
+  onVerdict: (kind: Verdict) => void;
 }) {
   const { a, link, dismissal } = item;
   const rowCls = `${divider} first:border-t-0`;
@@ -692,7 +731,7 @@ function Row({
               item={item}
               canFile={canFile}
               onFile={onFile}
-              onIgnore={onIgnore}
+              onVerdict={onVerdict}
               component="row"
               className={`pl-[1.125rem] pt-3 ${item.filing || dismissal.pending ? "" : BUTTONS_FADE}`}
             />
@@ -985,7 +1024,7 @@ function ActionableDrawer({
   canSuggest,
   onClose,
   onFile,
-  onIgnore,
+  onVerdict,
   onSuggested,
 }: {
   item: Item | null;
@@ -995,7 +1034,7 @@ function ActionableDrawer({
   canSuggest: boolean;
   onClose: () => void;
   onFile: () => void;
-  onIgnore: () => void;
+  onVerdict: (kind: Verdict) => void;
   onSuggested: (s: PolishdFixSuggestion) => void;
 }) {
   // Esc to close + lock background scroll while the drawer is open.
@@ -1102,6 +1141,14 @@ function ActionableDrawer({
                 )}
                 {item.dismissal.ignored && (
                   <div className="mt-3 flex flex-wrap items-center gap-2.5">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[12.5px] ${
+                        item.dismissal.ignored.fixed ? "text-ok" : "text-fg-3"
+                      }`}
+                    >
+                      {item.dismissal.ignored.fixed ? <CheckIcon size={13} /> : <XIcon size={13} />}
+                      {item.dismissal.ignored.fixed ? "Fixed" : "Ignored"}
+                    </span>
                     {item.dismissal.ignored.reason && (
                       <span className="text-[12.5px] italic text-fg-3">
                         &ldquo;{item.dismissal.ignored.reason}&rdquo;
@@ -1207,7 +1254,7 @@ function ActionableDrawer({
                   item={item}
                   canFile={canFile}
                   onFile={onFile}
-                  onIgnore={onIgnore}
+                  onVerdict={onVerdict}
                   component="drawer"
                 />
                 <VerdictFacts item={item} />
@@ -1267,8 +1314,8 @@ export default function ActionableList({
   dismissedDesign,
 }: ActionableListProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** The actionable whose Ignore dialog is open. */
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  /** The actionable whose verdict dialog is open, and which verdict. */
+  const [confirming, setConfirming] = useState<{ id: string; kind: Verdict } | null>(null);
   // Per actionable, by id. `ignored` holds null for one explicitly restored,
   // so an adopted dismissal (from a verdict paste) can be undone too.
   const [ignored, setIgnored] = useState<ReadonlyMap<string, PolishdIgnoredLoss | null>>(() => new Map());
@@ -1291,18 +1338,27 @@ export default function ActionableList({
   // A throw from an action (an expired dashboard session, a timeout) would
   // land in the nearest error boundary, and the dashboard has none: every
   // call is caught and said on the row instead.
-  /** Store the dismissal; true once it landed, so a dialog can close on it. */
-  const ignore = async (a: Actionable, reason?: string): Promise<boolean> => {
+  /**
+   * Store the verdict — a dismissal, flagged fixed when that's what it is;
+   * true once it landed, so a dialog can close on it. Re-saving a reason
+   * passes no flag, and the server keeps the verdict the entry had.
+   */
+  const ignore = async (a: Actionable, reason?: string, fixed?: boolean): Promise<boolean> => {
     if (!a.finding) return false;
     setBusy((prev) => toggled(prev, a.id, true));
     setErrors((prev) => without(prev, a.id));
     try {
       const res =
         a.finding.source === "analytics"
-          ? await ignoreLossAction({ issue: a.finding.loss.issue, evidence: a.finding.loss.evidence }, reason)
+          ? await ignoreLossAction(
+              { issue: a.finding.loss.issue, evidence: a.finding.loss.evidence },
+              reason,
+              fixed,
+            )
           : await ignoreDesignIssueAction(
               { issue: a.finding.issue.issue, evidence: a.finding.issue.evidence },
               reason,
+              fixed,
             );
       if (res.ok) {
         setIgnored((prev) => new Map(prev).set(a.id, res.ignored));
@@ -1384,7 +1440,7 @@ export default function ActionableList({
         ignored: entry,
         pending: busy.has(a.id),
         error: errors.get(a.id) ?? null,
-        ignore: (reason) => void ignore(a, reason),
+        ignore: (reason, fixed) => void ignore(a, reason, fixed),
         undo: () => void restore(a),
       },
       rejected: rejected.get(a.id) ?? null,
@@ -1397,7 +1453,7 @@ export default function ActionableList({
   const shown = limit !== undefined ? items.slice(0, limit) : items;
   const hidden = items.length - shown.length;
   const selected = items.find((it) => it.a.id === selectedId) ?? null;
-  const confirming = items.find((it) => it.a.id === confirmingId) ?? null;
+  const confirmingItem = confirming ? (items.find((it) => it.a.id === confirming.id) ?? null) : null;
 
   if (items.length === 0) return <>{empty}</>;
 
@@ -1411,7 +1467,7 @@ export default function ActionableList({
             canFile={githubConnected}
             onOpen={() => setSelectedId(item.a.id)}
             onFile={() => void file(item.a)}
-            onIgnore={() => setConfirmingId(item.a.id)}
+            onVerdict={(kind) => setConfirming({ id: item.a.id, kind })}
           />
         ))}
       </ul>
@@ -1436,14 +1492,15 @@ export default function ActionableList({
         canSuggest={canSuggest}
         onClose={() => setSelectedId(null)}
         onFile={() => selected && void file(selected.a)}
-        onIgnore={() => selected && setConfirmingId(selected.a.id)}
+        onVerdict={(kind) => selected && setConfirming({ id: selected.a.id, kind })}
         onSuggested={(s) => setSuggestions((prev) => ({ ...prev, [s.issueNumber]: s }))}
       />
-      {confirming && (
-        <IgnoreDialog
-          item={confirming}
-          onConfirm={(reason) => ignore(confirming.a, reason)}
-          onClose={() => setConfirmingId(null)}
+      {confirming && confirmingItem && (
+        <VerdictDialog
+          item={confirmingItem}
+          kind={confirming.kind}
+          onConfirm={(reason) => ignore(confirmingItem.a, reason, confirming.kind === "fixed")}
+          onClose={() => setConfirming(null)}
         />
       )}
     </>

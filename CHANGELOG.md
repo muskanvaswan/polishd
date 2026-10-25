@@ -65,6 +65,11 @@ one list now.
   the tracker, open before closed — with **File bug** and **Ignore** on each
   row. It's always shown; without GitHub it lists the findings and says that
   filing needs a repository. `?tab=issues` still lands on it.
+- **Mark fixed** is a third verdict beside File bug and Ignore. It works like
+  Ignore — the finding leaves every later review, with an optional note — but
+  the model is told it was fixed, and on which day, so data from before the
+  fix doesn't bring it back. A fixed row shows a check where an ignored one
+  shows its source mark.
 - **The review cards are the story and what's working.** The *Losses* and
   *Breaking the system* rails are gone from the summary and design review
   cards; each card ends with how many of its findings are waiting on the
