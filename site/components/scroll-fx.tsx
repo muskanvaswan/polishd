@@ -25,7 +25,7 @@ export default function ScrollFX() {
         el.textContent = target.toLocaleString("en-US");
         return;
       }
-      const duration = 1500;
+      const duration = 1200;
       let start: number | null = null;
       const frame = (ts: number) => {
         if (start === null) start = ts;
@@ -44,10 +44,10 @@ export default function ScrollFX() {
 
       el.querySelectorAll<HTMLElement>(".fill").forEach((f, i) => {
         const paint = () => {
-          f.style.width = `${f.dataset.w ?? 0}%`;
+          f.style.transform = `translateX(${Number(f.dataset.w ?? 0) - 100}%)`;
         };
         if (instant) paint();
-        else window.setTimeout(paint, 180 + i * 130);
+        else window.setTimeout(paint, 180 + i * 70);
       });
     };
 
