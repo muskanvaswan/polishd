@@ -48,7 +48,19 @@ import {
 } from "./snapshot-actions";
 import { runSnapshotCapture, type LiveShot } from "./snapshot-capture";
 import { disabledMessage } from "./snapshot-messages";
-import { border, card, ghostBtn, labelCls, primaryBtn, relTime, RefreshIcon } from "./ui";
+import {
+  Badge,
+  Callout,
+  RefreshIcon,
+  XIcon,
+  card,
+  cardHeader,
+  cardTitleCls,
+  ghostBtn,
+  primaryBtn,
+  relTime,
+  textLink,
+} from "./ui";
 
 const shotKey = (s: { route: string; device: string; theme: string }) =>
   `${s.route}|${s.device}|${s.theme}`;
@@ -69,15 +81,18 @@ function TogglePills<T extends string>({
   component: string;
 }) {
   return (
-    <span className="flex overflow-hidden rounded-md border border-[#2e2e2e]">
+    <span className="flex items-center gap-0.5 rounded-lg border border-line bg-sunken p-0.5">
       {options.map((opt) => (
         <button
           key={opt}
           type="button"
           data-component={component}
           onClick={() => onChange(opt)}
-          className={`px-2.5 py-1 text-[11px] capitalize transition-colors ${
-            opt === value ? "bg-[#1e1e1e] text-white" : "text-[#777] hover:text-[#aaa]"
+          aria-pressed={opt === value}
+          className={`inline-flex h-7 items-center rounded-md px-2.5 text-[12px] font-medium capitalize transition-colors ${
+            opt === value
+              ? "bg-raised text-fg shadow-[inset_0_0_0_1px_var(--pd-line-strong)]"
+              : "text-fg-3 hover:text-fg"
           }`}
         >
           {opt}
@@ -150,7 +165,7 @@ export function ShotTile({
       onClick={() => src && onZoom({ src, route: shot.route, device: shot.device })}
       disabled={!src}
       title={src ? `${shot.route} — click to enlarge` : shot.route}
-      className={`relative block ${frameClassName} overflow-hidden rounded-md border ${border} bg-[#111] transition-colors hover:border-[#555] disabled:cursor-default`}
+      className={`relative block ${frameClassName} overflow-hidden rounded-lg border border-line bg-canvas transition-[border-color,transform] hover:-translate-y-0.5 hover:border-fg-4 disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:border-line`}
     >
       {src ? (
         // Full-page shots are tall; the tile shows the top of the page and
@@ -162,14 +177,16 @@ export function ShotTile({
           className="h-full w-full object-cover object-top"
         />
       ) : (
-        <span className="flex h-full items-center justify-center px-2 text-center text-[11px] text-[#555]">
+        <span
+          className={`flex h-full items-center justify-center px-2 text-center text-[12px] text-fg-3 ${failed ? "" : "motion-safe:animate-pulse"}`}
+        >
           {failed ? "image missing" : "loading…"}
         </span>
       )}
       {caption === "overlay" && (
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-linear-to-t from-black/80 to-transparent px-2 pb-1.5 pt-8 text-left font-mono text-[10px] leading-none text-white/85">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-linear-to-t from-black/80 to-transparent px-2.5 pb-2 pt-8 text-left font-mono text-[11px] leading-none text-white/90">
           <span className="truncate">{shot.route}</span>
-          <span className="truncate text-white/50">
+          <span className="truncate text-white/55">
             {shot.device} · {shot.theme}
           </span>
         </span>
@@ -180,7 +197,7 @@ export function ShotTile({
   return (
     <figure className="min-w-0">
       {frame}
-      <figcaption className="mt-1.5 truncate font-mono text-[11px] text-[#999]">
+      <figcaption className="mt-2 truncate font-mono text-[12px] text-fg-2">
         {shot.route}
       </figcaption>
     </figure>
@@ -419,45 +436,45 @@ function ConsentDialog({
   }, [busy, onDecide]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="polishd-snapshot-consent-title"
         data-component="design-snapshot-consent"
-        className={`w-full max-w-lg ${card} p-5 shadow-2xl sm:p-6`}
+        className="w-full max-w-lg rounded-2xl border border-line-strong bg-surface p-5 shadow-pop sm:p-6"
       >
-        <h2 id="polishd-snapshot-consent-title" className="text-[15px] font-semibold text-white">
+        <h2 id="polishd-snapshot-consent-title" className="text-[16px] font-semibold text-fg">
           Allow site snapshots to use Polishd&rsquo;s screenshot service?
         </h2>
-        <p className="mt-3 text-[13px] leading-relaxed text-[#aaa]">
+        <p className="mt-3 text-[13px] leading-relaxed text-fg-2">
           In production, your server runs no browser, so screenshots of your pages are taken by
-          Polishd&rsquo;s screenshot service at <span className="font-mono text-[#ddd]">{host}</span>.
+          Polishd&rsquo;s screenshot service at <span className="font-mono text-fg">{host}</span>.
           When you capture, this dashboard sends it the path of each page; the service opens that
           page on your site the way any visitor would and sends the picture back here, and the
           dashboard saves it to your own storage.
         </p>
-        <ul className="mt-3 space-y-1.5 text-[12.5px] leading-relaxed text-[#999]">
+        <ul className="mt-4 space-y-2 rounded-xl border border-line bg-sunken p-3.5 text-[12.5px] leading-relaxed text-fg-3">
           <li>
-            <span className="text-[#ddd]">What it sees:</span> the paths being shot, and what those
+            <span className="font-medium text-fg">What it sees:</span> the paths being shot, and what those
             pages show the public.
           </li>
           <li>
-            <span className="text-[#ddd]">What it never gets:</span> your cookies or logins, your
+            <span className="font-medium text-fg">What it never gets:</span> your cookies or logins, your
             analytics data, or your storage credentials.
           </li>
           <li>
-            <span className="text-[#ddd]">Why it&rsquo;s harmless:</span> it only loads public pages,
+            <span className="font-medium text-fg">Why it&rsquo;s harmless:</span> it only loads public pages,
             read-only, a few at a time and rate-limited; it keeps no images or logs of them; and its
             visits are never counted in your analytics.
           </li>
         </ul>
-        <p className="mt-3 text-[12px] text-[#666]">
+        <p className="mt-3 text-[12px] text-fg-3">
           Allowing it starts this capture. You can turn it off later from the Site snapshots
           section.
         </p>
         {error && (
-          <p role="alert" className="mt-3 text-[12px] text-red-400">
+          <p role="alert" className="mt-3 text-[12px] text-bad">
             {error}
           </p>
         )}
@@ -583,21 +600,15 @@ function SnapshotsCard() {
     <section
       data-component="design-snapshots"
       data-state={off ? "off" : mode.kind}
-      className={`mb-8 ${card} overflow-hidden ${off ? "opacity-90" : ""}`}
+      className={`mb-10 ${card} overflow-hidden`}
     >
-      <div
-        className={`flex flex-wrap items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}
-      >
-        <div className="flex items-center gap-2">
-          <span className={labelCls}>Site snapshots</span>
-          {off && (
-            <span className="rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888]">
-              Off
-            </span>
-          )}
+      <div className={`${cardHeader} flex-wrap`}>
+        <div className="flex items-center gap-2.5">
+          <span className={cardTitleCls}>Site snapshots</span>
+          {off && <Badge>Off</Badge>}
           {selected && !off && (
-            <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
-              {selected.origin}
+            <span className="hidden sm:flex">
+              <Badge mono>{selected.origin}</Badge>
             </span>
           )}
         </div>
@@ -623,7 +634,8 @@ function SnapshotsCard() {
                   data-component="design-snapshot-history"
                   value={selected.id}
                   onChange={(e) => setSelectedId(e.target.value)}
-                  className="rounded-md border border-[#2e2e2e] bg-[#111] px-2 py-1 text-[11px] text-[#aaa] focus:border-[#555] focus:outline-none"
+                  aria-label="Snapshot"
+                  className="h-8 rounded-lg border border-line-strong bg-raised px-2 text-[12px] text-fg-2 transition-colors hover:border-fg-4 focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/20"
                 >
                   {snapshots.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -650,22 +662,19 @@ function SnapshotsCard() {
         </div>
       </div>
 
-      <div className="px-4 py-4 sm:px-5 sm:py-5">
+      <div className="px-4 py-5 sm:px-5">
         {off && (
-          <div
-            data-component="design-snapshot-off-reason"
-            className="mb-3 rounded-md border border-[#2e2e2e] bg-[#151515] px-3 py-2 text-[12px] leading-relaxed text-[#aaa]"
-          >
-            {off.message}
+          <div data-component="design-snapshot-off-reason" className="mb-4">
+            <Callout tone="neutral">{off.message}</Callout>
           </div>
         )}
         {error && (
-          <div className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">
+          <Callout tone="bad" className="mb-4">
             {error}
-          </div>
+          </Callout>
         )}
         {capturing && (
-          <p className="mb-3 text-[12px] text-[#888]">
+          <p className="mb-4 text-[12.5px] text-fg-2">
             Shooting every scanned page at two sizes in two themes
             {mode.kind === "service"
               ? " with Polishd's screenshot service"
@@ -682,9 +691,7 @@ function SnapshotsCard() {
           >
             {live.map((shot) => (
               <figure key={shotKey(shot)} className="min-w-0">
-                <div
-                  className={`aspect-[4/5] w-full overflow-hidden rounded-md border ${border} bg-[#111]`}
-                >
+                <div className="aspect-[4/5] w-full overflow-hidden rounded-lg border border-line bg-canvas">
                   {shot.src ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -693,12 +700,12 @@ function SnapshotsCard() {
                       className="h-full w-full object-cover object-top"
                     />
                   ) : (
-                    <span className="flex h-full items-center justify-center px-1 text-center text-[10px] text-[#555]">
+                    <span className="flex h-full items-center justify-center px-1 text-center text-[11px] text-fg-3">
                       {shot.skipped ?? "no image"}
                     </span>
                   )}
                 </div>
-                <figcaption className="mt-1 truncate font-mono text-[10px] text-[#777]">
+                <figcaption className="mt-1.5 truncate font-mono text-[11px] text-fg-3">
                   {shot.route} · {shot.device} {shot.theme}
                 </figcaption>
               </figure>
@@ -707,7 +714,7 @@ function SnapshotsCard() {
         )}
 
         {!selected && !capturing && !off && (
-          <p className="text-[13px] leading-relaxed text-[#888]">
+          <p className="text-[13px] leading-relaxed text-fg-2">
             No snapshots yet. Capture one to see every page of the site as it renders
             right now — the &ldquo;before&rdquo; to hold future design changes against.
           </p>
@@ -716,7 +723,7 @@ function SnapshotsCard() {
         {selected && (
           <>
             {shots.length === 0 ? (
-              <p className="text-[13px] text-[#888]">
+              <p className="text-[13px] text-fg-2">
                 No {device}/{theme} shots in this snapshot.
               </p>
             ) : (
@@ -739,21 +746,17 @@ function SnapshotsCard() {
               </div>
             )}
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>Captured {relTime(selected.capturedAt)}</span>
-              {selected.noDarkMode && (
-                <span className="rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[#777]">
-                  Site renders identically in dark mode
-                </span>
-              )}
+              {selected.noDarkMode && <Badge>Site renders identically in dark mode</Badge>}
               {skipped.length > 0 && (
-                <span className="text-amber-400/80">
+                <span className="text-warn">
                   {skipped.length} page{skipped.length === 1 ? "" : "s"} skipped
                   {skipped[0].skipped ? ` (${skipped[0].skipped})` : ""}
                 </span>
               )}
               {selected.authWalled.length > 0 && (
-                <span className="text-amber-400/80">
+                <span className="text-warn">
                   behind login: {selected.authWalled.slice(0, 3).join(", ")}
                   {selected.authWalled.length > 3 ? ", …" : ""}
                 </span>
@@ -771,13 +774,13 @@ function SnapshotsCard() {
         )}
 
         {needsConsent && !capturing && (
-          <p className="mt-3 text-[11px] text-[#555]">
+          <p className="mt-3 text-[12px] text-fg-3">
             In production, captures use Polishd&rsquo;s screenshot service — you&rsquo;ll be asked
             before the first one.
           </p>
         )}
         {mode.kind === "service" && !capturing && (
-          <p className="mt-3 text-[11px] text-[#555]">
+          <p className="mt-3 text-[12px] text-fg-3">
             Captures use Polishd&rsquo;s screenshot service — page paths and pixels pass through it;
             it keeps neither.{" "}
             <button
@@ -785,7 +788,7 @@ function SnapshotsCard() {
               data-component="design-snapshot-consent-withdraw"
               onClick={turnOff}
               disabled={!ready}
-              className="underline decoration-[#444] underline-offset-2 hover:text-[#888] disabled:cursor-default disabled:no-underline"
+              className={`${textLink} disabled:cursor-default disabled:no-underline`}
             >
               Turn off
             </button>
@@ -816,13 +819,16 @@ export function ShotLightbox({ zoom, onClose }: { zoom: ShotZoom; onClose: () =>
       role="dialog"
       aria-label={`${zoom.route} screenshot`}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex cursor-zoom-out items-start justify-center overflow-y-auto bg-black/85 p-6"
+      className="fixed inset-0 z-50 flex cursor-zoom-out items-start justify-center overflow-y-auto bg-black/85 p-6 backdrop-blur-sm"
     >
+      <span className="fixed right-5 top-5 flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong bg-raised text-fg-2">
+        <XIcon size={15} />
+      </span>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={zoom.src}
         alt={`${zoom.route} full screenshot`}
-        className={`w-full ${width} rounded-md border border-[#333]`}
+        className={`w-full ${width} rounded-xl border border-line-strong shadow-pop`}
       />
     </div>
   );

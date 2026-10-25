@@ -1,5 +1,5 @@
 /**
- * Polishd — one section of the Overview: a small-caps title, the controls that
+ * Polishd — one section of the Overview: its heading, the controls that
  * belong to it, and the tabs it opens onto.
  *
  * Every block on the Overview is a cut of some other tab — the gallery of the
@@ -10,7 +10,7 @@
 import type { ReactNode } from "react";
 
 import { TabLink, type PolishdDashboardTab } from "./chrome";
-import { labelCls } from "./ui";
+import { ArrowRightIcon, SectionHeader } from "./ui";
 
 export interface SectionLink {
   tab: PolishdDashboardTab;
@@ -19,33 +19,41 @@ export interface SectionLink {
 
 export default function Section({
   title,
+  description,
   action,
   links = [],
   children,
 }: {
   title: string;
+  description?: ReactNode;
   /** Controls on the heading's right, before the links. */
   action?: ReactNode;
   links?: SectionLink[];
   children: ReactNode;
 }) {
   return (
-    <section className="mb-8">
-      <div className="mb-3 flex min-h-7 items-center justify-between gap-3">
-        <span className={labelCls}>{title}</span>
-        <div className="flex items-center gap-3">
-          {action}
-          {links.map((link) => (
-            <TabLink
-              key={link.tab}
-              tab={link.tab}
-              className="whitespace-nowrap text-[11px] text-[#666] transition-colors hover:text-white"
-            >
-              {link.label} →
-            </TabLink>
-          ))}
-        </div>
-      </div>
+    <section className="mb-10">
+      <SectionHeader
+        title={title}
+        description={description}
+        actions={
+          <>
+            {action}
+            {links.map((link) => (
+              <TabLink
+                key={link.tab}
+                tab={link.tab}
+                className="group inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-medium text-fg-3 transition-colors hover:text-fg"
+              >
+                {link.label}
+                <span className="transition-transform group-hover:translate-x-0.5">
+                  <ArrowRightIcon />
+                </span>
+              </TabLink>
+            ))}
+          </>
+        }
+      />
       {children}
     </section>
   );

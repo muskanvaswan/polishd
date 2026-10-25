@@ -11,7 +11,16 @@ import { useState } from "react";
 
 import type { PageTrendPoint, TopPage } from "../server/queries";
 import BottomDrawer, { DrawerHeader } from "./drawer";
-import { InfoTip, border, card, divider, labelCls, yScale } from "./ui";
+import {
+  ChevronRightIcon,
+  EmptyState,
+  InfoTip,
+  card,
+  divider,
+  eyebrowCls,
+  labelCls,
+  yScale,
+} from "./ui";
 
 function Th({
   children,
@@ -24,11 +33,11 @@ function Th({
 }) {
   return (
     <th
-      className={`whitespace-nowrap py-2.5 ${
+      className={`whitespace-nowrap border-b border-line bg-sunken py-2.5 ${
         align === "left" ? "pl-5 pr-6 text-left" : "px-4 text-right"
       } ${labelCls}`}
     >
-      <span className="inline-flex items-center gap-0.5">
+      <span className="inline-flex items-center gap-1">
         {children}
         <InfoTip text={tip} anchor={align === "left" ? "left" : "right"} below />
       </span>
@@ -39,9 +48,9 @@ function Th({
 // ── Page-level metadata grid ──────────────────────────────────────────────────
 function MetaCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="bg-[#0a0a0a] px-4 py-3">
+    <div className="bg-surface px-4 py-3">
       <div className={labelCls}>{label}</div>
-      <div className={`mt-1 text-[16px] font-semibold tabular-nums ${tone ?? "text-white"}`}>
+      <div className={`mt-1 text-[18px] font-semibold tracking-[-0.01em] tabular-nums ${tone ?? "text-fg"}`}>
         {value}
       </div>
     </div>
@@ -53,7 +62,7 @@ function PageMeta({ page }: { page: TopPage }) {
   const viewsPerSession = page.sessions > 0 ? page.pageViews / page.sessions : 0;
   return (
     <div
-      className={`grid grid-cols-2 gap-px overflow-hidden rounded-lg border ${border} bg-[#2e2e2e] sm:grid-cols-4`}
+      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4"
     >
       <MetaCell label="Sessions" value={String(page.sessions)} />
       <MetaCell label="Page views" value={String(page.pageViews)} />
@@ -66,17 +75,17 @@ function PageMeta({ page }: { page: TopPage }) {
       <MetaCell
         label="Rage clicks"
         value={String(page.rageClicks)}
-        tone={page.rageClicks > 0 ? "text-red-400" : "text-[#555]"}
+        tone={page.rageClicks > 0 ? "text-bad" : "text-fg-3"}
       />
       <MetaCell
         label="Dead clicks"
         value={String(page.deadClicks)}
-        tone={page.deadClicks > 0 ? "text-[#f5a623]" : "text-[#555]"}
+        tone={page.deadClicks > 0 ? "text-warn" : "text-fg-3"}
       />
       <MetaCell
         label="JS errors"
         value={String(page.jsErrors)}
-        tone={page.jsErrors > 0 ? "text-red-400" : "text-[#555]"}
+        tone={page.jsErrors > 0 ? "text-bad" : "text-fg-3"}
       />
     </div>
   );
@@ -86,7 +95,7 @@ function PageMeta({ page }: { page: TopPage }) {
 
 function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
   if (trend.length === 0) {
-    return <p className="py-8 text-center text-[13px] text-[#555]">No session data yet.</p>;
+    return <p className="py-8 text-center text-[13px] text-fg-3">No session data yet.</p>;
   }
   const peak = Math.max(...trend.map((p) => p.sessions), 1);
   const { top, ticks } = yScale(peak);
@@ -118,13 +127,6 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Sessions over time">
-        <defs>
-          <linearGradient id="polishd-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-
         {/* y gridlines + numbered ticks */}
         {ticks.map((t) => (
           <g key={t}>
@@ -133,16 +135,16 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
               y1={yFor(t)}
               x2={W - padR}
               y2={yFor(t)}
-              stroke="#1c1c1c"
               strokeWidth={1}
+              strokeDasharray={t === 0 ? undefined : "2 4"}
+              style={{ stroke: t === 0 ? "var(--pd-line-strong)" : "var(--pd-line)" }}
             />
             <text
               x={padL - 8}
               y={yFor(t) + 3.5}
               textAnchor="end"
-              fontSize={10}
-              fill="#666"
-              className="tabular-nums"
+              fontSize={10.5}
+              className="fill-fg-3 tabular-nums"
             >
               {t}
             </text>
@@ -150,19 +152,32 @@ function SessionsChart({ trend }: { trend: PageTrendPoint[] }) {
         ))}
 
         {/* area + line */}
-        <path d={areaPath} fill="url(#polishd-area)" />
-        <path d={linePath} fill="none" stroke="#3b82f6" strokeWidth={2} strokeLinejoin="round" />
+        <path d={areaPath} style={{ fill: "var(--pd-accent)" }} fillOpacity={0.1} />
+        <path
+          d={linePath}
+          fill="none"
+          strokeWidth={2}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          style={{ stroke: "var(--pd-accent)" }}
+        />
 
         {/* points (native tooltip on hover) + x-axis date labels */}
         {pts.map((p, i) => (
           <g key={p.ts}>
-            <circle cx={p.x} cy={p.y} r={3} fill="#0a0a0a" stroke="#3b82f6" strokeWidth={2}>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={3.5}
+              strokeWidth={2}
+              style={{ fill: "var(--pd-surface)", stroke: "var(--pd-accent)" }}
+            >
               <title>
                 {p.label}: {p.sessions} {p.sessions === 1 ? "session" : "sessions"}
               </title>
             </circle>
             {showLabel(i) && (
-              <text x={p.x} y={H - 9} textAnchor="middle" fontSize={10} fill="#666">
+              <text x={p.x} y={H - 9} textAnchor="middle" fontSize={10.5} className="fill-fg-3">
                 {p.label}
               </text>
             )}
@@ -181,11 +196,11 @@ function PageDrawer({ page, onClose }: { page: TopPage | null; onClose: () => vo
         <>
           <DrawerHeader
             eyebrow="Page"
-            title={<h3 className="font-mono text-[16px] text-white">{page.path}</h3>}
+            title={<h3 className="font-mono text-[17px] font-medium text-fg">{page.path}</h3>}
             onClose={onClose}
           />
           <PageMeta page={page} />
-          <div className={`mb-3 mt-6 ${labelCls}`}>Sessions over time</div>
+          <div className={`mb-3 mt-7 ${eyebrowCls}`}>Sessions over time</div>
           <SessionsChart trend={page.trend} />
         </>
       )}
@@ -199,20 +214,30 @@ function PageRow({ page, onOpen }: { page: TopPage; onOpen: () => void }) {
     <tr
       data-component="page-open"
       onClick={onOpen}
-      className={`group cursor-pointer ${divider} transition-colors hover:bg-[#111]`}
+      className={`group cursor-pointer ${divider} transition-colors first:border-t-0 hover:bg-raised/50`}
     >
-      <td className="py-2.5 pl-5 pr-6">
-        <span className="font-mono text-[13px] text-[#ccc] group-hover:text-white">{page.path}</span>
+      <td className="py-3 pl-5 pr-6">
+        <span className="font-mono text-[13px] text-fg-2 transition-colors group-hover:text-fg">
+          {page.path}
+        </span>
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] font-semibold tabular-nums text-white">
+      <td className="py-3 px-4 text-right text-[13px] font-semibold tabular-nums text-fg">
         {page.sessions}
       </td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.pageViews}</td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.rageClicks}</td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.deadClicks}</td>
-      <td className="py-2.5 px-4 text-right text-[13px] tabular-nums text-[#888]">{page.jsErrors}</td>
-      <td className="py-2.5 pl-4 pr-5 text-right text-[13px] tabular-nums text-[#555]">
-        <span className="group-hover:text-[#999]">›</span>
+      <td className="py-3 px-4 text-right text-[13px] tabular-nums text-fg-2">{page.pageViews}</td>
+      <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${page.rageClicks > 0 ? "text-bad" : "text-fg-3"}`}>
+        {page.rageClicks}
+      </td>
+      <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${page.deadClicks > 0 ? "text-warn" : "text-fg-3"}`}>
+        {page.deadClicks}
+      </td>
+      <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${page.jsErrors > 0 ? "text-bad" : "text-fg-3"}`}>
+        {page.jsErrors}
+      </td>
+      <td className="py-3 pl-4 pr-5 text-right text-fg-3">
+        <span className="inline-flex transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-fg-2">
+          <ChevronRightIcon size={15} />
+        </span>
       </td>
     </tr>
   );
@@ -223,11 +248,9 @@ export default function TopPagesTable({ pages }: { pages: TopPage[] }) {
 
   return (
     <>
-      <div className={card}>
+      <div className={`${card} overflow-hidden`}>
         {pages.length === 0 ? (
-          <p className="px-5 py-8 text-center text-[13px] text-[#555]">
-            No data yet — browse the site then refresh.
-          </p>
+          <EmptyState>No data yet — browse the site then refresh.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[520px]">

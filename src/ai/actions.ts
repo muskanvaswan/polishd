@@ -14,10 +14,16 @@
  * re-runs that same callback against the caller's cookies on every call.
  */
 import { requirePolishdAuth } from "./guard";
-import { generateDesignReview } from "./design";
+import { selectVerdictDismissals } from "../dashboard/verdicts";
+import { generateDesignReview, loadDesignReview } from "./design";
 import { suggestIssueFix } from "./fix";
 import { verifyGithubConnection } from "./github";
-import { ignoreLoss, unignoreLoss } from "./ignored";
+import {
+  ignoreDesignIssue,
+  ignoreLoss,
+  unignoreDesignIssue,
+  unignoreLoss,
+} from "./ignored";
 import { createIssueFromDesignIssue, createIssueFromLoss } from "./issues";
 import { generateProjectProfile } from "./profile";
 import { loadPolishdDashboardData } from "../server/queries";
@@ -27,7 +33,7 @@ import {
   type ListModelsInput,
   type SaveAISettingsInput,
 } from "./settings";
-import { generateSummary } from "./summary";
+import { generateSummary, loadSummary } from "./summary";
 import type {
   PolishdAISettingsPublic,
   PolishdDesignIssue,
@@ -38,6 +44,8 @@ import type {
   GenerateSummaryResult,
   IgnoreLossResult,
   ListModelsResult,
+  PolishdVerdictDismissal,
+  RecordVerdictsResult,
   SuggestFixResult,
   UnignoreLossResult,
   VerifyGithubResult,
@@ -158,4 +166,66 @@ export async function unignoreLossAction(evidence: string): Promise<UnignoreLoss
   return (await unignoreLoss(evidence))
     ? { ok: true }
     : { ok: false, message: "Couldn't undo that — the analytics store didn't accept the write." };
+}
+
+/**
+ * The same verdict on one of the design review's issues: it leaves every
+ * review from here on, and the dismissal is replayed into later reviews so the
+ * model doesn't report it again.
+ */
+export async function ignoreDesignIssueAction(
+  issue: Pick<PolishdDesignIssue, "issue" | "evidence">,
+  reason?: string,
+): Promise<IgnoreLossResult> {
+  await requirePolishdAuth();
+  const ignored = await ignoreDesignIssue(issue, reason);
+  return ignored
+    ? { ok: true, ignored }
+    : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
+}
+
+/** Undo a design issue's dismissal. */
+export async function unignoreDesignIssueAction(
+  issue: Pick<PolishdDesignIssue, "issue" | "evidence">,
+): Promise<UnignoreLossResult> {
+  await requirePolishdAuth();
+  return (await unignoreDesignIssue(issue))
+    ? { ok: true }
+    : { ok: false, message: "Couldn't undo that — the analytics store didn't accept the write." };
+}
+
+/**
+ * Record a coding agent's not-real and deliberate verdicts as dismissals.
+ *
+ * The block came from a paste, so nothing in it is taken on trust: each entry
+ * must name a finding the current summary or review holds, and only its
+ * cleaned reason is kept (selectVerdictDismissals, pure and tested). Entries
+ * are written in order, in one call: each dismissal rewrites its log, so
+ * parallel calls would drop each other's entries.
+ */
+export async function recordVerdictsAction(
+  dismissals: PolishdVerdictDismissal[],
+): Promise<RecordVerdictsResult> {
+  await requirePolishdAuth();
+  const [summary, review] = await Promise.all([loadSummary(), loadDesignReview()]);
+  const checked = selectVerdictDismissals(dismissals, {
+    losses: summary?.losses ?? [],
+    issues: review?.issues ?? [],
+  });
+  if (!checked) return { ok: false, message: "That isn't a verdict block from a fix prompt." };
+
+  const recorded: Extract<RecordVerdictsResult, { ok: true }>["recorded"] = [];
+  for (const d of checked.selected) {
+    const ignored =
+      d.source === "design"
+        ? await ignoreDesignIssue(d.finding, d.reason)
+        : await ignoreLoss(d.finding, d.reason);
+    if (!ignored) {
+      return recorded.length
+        ? { ok: true, recorded, skipped: checked.skipped }
+        : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
+    }
+    recorded.push({ source: d.source, id: d.id, ignored });
+  }
+  return { ok: true, recorded, skipped: checked.skipped };
 }

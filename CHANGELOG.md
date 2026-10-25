@@ -8,20 +8,19 @@ The Overview opened on four audience numbers and the two review cards stacked
 one above the other, with the newest snapshot as a strip at the bottom. It
 now reads top to bottom as the site itself.
 
-- **Site snapshots** lead, as a mosaic rather than a strip: desktop shots two
-  columns wide, phone shots one, light and dark side by side, laid straight
-  on the page with no device or theme toggles in front. Every page appears
-  once at each size — the themes alternate route by route, so a site with a
-  dark mode shows both without any page appearing twice, and a site without
-  one shows light. Up to twelve tiles; the rest of the capture is one link
-  away on the Design tab. In the lightbox, phone shots now open at phone
-  width instead of being blown up to desktop width, and Escape closes it.
-- **Brand** is new: the colors and typefaces the pages actually ship, curated
-  the way the brand kit is (one-offs left out). The palette as a strip
-  proportioned by how much of the UI each color covers, the brand colors as
-  named swatches with the neutrals beside them, and each typeface set in its
-  own face with the weights in use. The **Brand kit** download sits in its
-  header.
+- **Site snapshots** lead, as a bento of the site's top pages rather than a
+  strip: the homepage hero largest, the next two most-visited pages' heroes
+  beside it, and the homepage on a phone — four pictures, laid straight on the
+  page with no device or theme toggles in front. A click still opens the
+  full-height shot; the rest of the capture is one link away on the Design
+  tab. In the lightbox, phone shots now open at phone width instead of being
+  blown up to desktop width, and Escape closes it.
+- **Brand** is new: the system the pages actually ship, curated the way the
+  brand kit is (one-offs left out), as two hierarchies. The palette: Primary
+  largest, Secondary and Accent beside it, the neutrals as one scale from
+  light to dark — not every color the site paints. The type: the title,
+  subtitle, body and caption styles stacked, each set in its own face at the
+  size the site really uses it.
 - **Visitors** shows every headline number, not four: sessions, page views,
   views per session and the share on mobile, then rage clicks, dead clicks,
   JS errors and events — each tile opening its chart over time, as on the
@@ -33,8 +32,337 @@ now reads top to bottom as the site itself.
   file-bug controls that act on them — stay on the Analytics and Design tabs.
   The Overview is for reading, not triage.
 
-**Copy fix prompt** is unchanged: it still carries every problem both reviews
-found, built from the latest summary and review the page has.
+**Copy fix prompt** and **Paste verdicts** are unchanged: the prompt still
+carries every problem both reviews found, built from the latest summary and
+review the page has, and a pasted verdict drops its finding from the next
+copy.
+
+### Dead clicks are judged by what happened, and errors say where they came from
+
+A dead click used to mean "a click on something that isn't a button or a
+link". Anything wired with a React `onClick` (a modal backdrop, a clickable
+card) counted as dead on every press, even when the press worked.
+
+- **Judged by outcome.** A click on something that isn't recognisably a
+  control is held for a second. It records as a dead click only if nothing
+  happened: no DOM change, no navigation, no focus move. If the page
+  responded, it's an ordinary click. An element with a React `onClick` (on
+  the clicked element or its parent) counts as a control straight away,
+  except a handler that only stops propagation, like a modal panel's.
+- **A click that worked is never reported dead.** The judge works in tiers,
+  and the first two never ask whether the page was busy anyway:
+  1. Any change to the clicked element or inside it, or to the element
+     carrying its click handler, counts. So does either one being removed or
+     hidden.
+  2. A dialog or modal surface counts at any point in the hold: added, or one
+     already in the page shown or hidden, a fade-in included.
+  3. Otherwise a change counts if it's related to the click and isn't the
+     page's own churn:
+     - on the nearest ancestors;
+     - within 64px of the click point or of the clicked element's box, such
+       as the details a card reveals under itself or an accordion panel
+       opening or closing;
+     - a menu, or a toast near the click or within 300ms.
+- **Background activity doesn't hide real dead clicks** in that third tier.
+  - The page's churn is learned continuously and per container. Every slide
+    of a carousel feeds one `aria-hidden` history, but clickable dots don't
+    share `class` history with each other.
+  - A container is background only while it has changed at least twice in
+    the ten seconds before the click. A list rendered once is never
+    background to its own cards, and neither is a card that infinite scroll
+    just appended.
+  - Learning pauses for the second after a press or click, and for typing in
+    the focused element, never for scrolling.
+  - What the pointer moves onto after the click is hover, and the next click,
+    key press or scroll takes the credit for what follows it.
+  - Polishd's own UI is ignored.
+- **Known limits.** Each of these is a deliberate trade toward never reporting
+  a working click as dead.
+  - Anything that keeps changing the clicked element on its own credits clicks
+    on it: an autoplay carousel swapping out the slide you clicked, a hover
+    animation on the clicked card. A click on a page-sized wrapper is credited
+    by any change inside it.
+  - Rotations inside a focused carousel aren't learned as background.
+  - A plain div whose only effect is far from it, and isn't a dialog, reads
+    as dead.
+  - A hover card marked `role="dialog"` that opens as the pointer moves on
+    credits the click.
+  - The first change a busy region ever makes has no history yet, and a region
+    that changes less than twice in ten seconds (a slow carousel) never
+    becomes background.
+  - Class-only carousels and dots don't share history between siblings.
+  - Details revealed 100–130px from the clicked element read as dead.
+  - A hover menu that opens within 300ms of the click credits it.
+  - A second of steady clicking pauses learning.
+  - `showPopover()` and CSS-only effects leave no DOM change to see.
+- **Near misses.** A dead click beside a control names it in `meta.near`: a
+  full-width row whose button is only its text, or the gap next to a tab. The
+  click no longer carries the button's text as its own label, so it reads as
+  "clicks beside Show # more", not "Show # more doesn't respond".
+- **Counts in labels fold to `#`.** "Show 9 more" and "Show 12 more" are one
+  control now, not a row each. Ingest applies the same rule to clicks sent by
+  older clients.
+- **Errors are diagnosable.** Each `js_error` carries Next's `digest` when
+  there is one, which is the key to the full error in your server logs when
+  production redacts the message. It also carries the top stack frame
+  (`frame`, `file:line:col`) and the click from the two seconds before it:
+  `after` (its component, label or selector), `afterMs` (how long before,
+  to the nearest 100ms) and `afterSelector`.
+- **Selectors stay stable; handles find the element in the source.** The
+  `selector` every event carries is still each level's first class, so element
+  stats keep their history. It now skips Tailwind variants (`lg:sticky`),
+  arbitrary values and generated ids, and never ends in an empty class (`a.`).
+  Rage, dead and near-miss clicks and errors also carry `meta.handle`, a path
+  you can grep for: it stops at the nearest `data-component` or id, and names
+  each level by its most distinctive class rather than a generic utility. A
+  near miss adds `meta.nearHandle` for the control it missed.
+- **Rage clicks count hits on the same control**, not on the exact node
+  clicked. A like button that gains `liked` as it's clicked, or an icon toggle
+  whose `<svg>` is re-created on every click, still adds up to a burst. A fake
+  button (a plain div) counts hits on its selector, as before.
+- **The dashboard reads the new context.** The errors list keeps one entry per
+  error however its context varies. Before, a frequent error whose throws
+  differed by `afterMs` filled the list and pushed the others off. Each error
+  carries its latest digest, frame and preceding click. Session journeys order
+  steps by when they happened, so a held dead click no longer shows up after
+  the page view that followed it. A near miss with no label of its own reads
+  as "beside “Show # more”" in journeys and element stats.
+- **Dashboard telemetry reports its version.** The once-per-session
+  `install_state` event now includes the polishd `version`, and reports again
+  when a tab reloads onto a newer one.
+
+All of this applies to both your site's capture and the dashboard's own
+telemetry, which now share one click-capture module.
+
+### The design review counts decisions, not copies
+
+The Design tab's metrics read repeated copies and framework-standard values
+as drift. A badge class rendered on 38 table rows counted as 38 uses of an
+off-grid 9px padding. Tailwind's own `1.5` and `2.5` steps (6px, 10px) were
+flagged off the 4px grid. Loading skeletons added near-duplicate greys to the
+palette. And the real systemic problem, every color hand-typed with no token
+layer, was never stated.
+
+- **Declarations beside uses.** The scan groups elements by class string (or,
+  for an unclassed element, its tag path). Each font, color, radius and
+  padding value now reports both uses and distinct declarations. Inherited
+  font and text color are credited to the ancestor that set them, so text
+  inside one `text-[#555]` wrapper counts as one declaration. One-offs still
+  have to be rare in uses, under the same per-category shares as before, and
+  now must also be declared exactly once. A rare value chosen in two places is a
+  pattern, not a stray, and repeated copies never promote anything into a
+  one-off. The off-grid share counts declarations too.
+- **Tailwind-aware grid.** When the class names are mostly Tailwind
+  utilities, values on its default spacing scale (1px, 2px, 6px, 10px, 14px,
+  scaled to the root font size) count as on-grid.
+- **Hand-typed values.** Arbitrary-value classes (`text-[#555]`,
+  `bg-[#111]`, `rounded-[2px]`, `p-[13px]`, `text-[11px]`) are counted per
+  category. When more than half of a category's declarations are hand-typed,
+  a new finding says so: *"91% of color declarations (20 of 22) are
+  hand-typed arbitrary values … — there is no color token layer."* A site on
+  theme tokens with a few deliberate arbitrary values stays quiet. So does a
+  site whose arbitrary values are built on tokens: `bg-[hsl(var(--card))]`
+  and `rounded-[calc(1rem-var(--inset))]` count as token references. The scan
+  measures the page at rest, so an arbitrary class counts only when its value
+  is what renders: `hover:text-[#fff]` never does, and `sm:p-[13px]` counts
+  only when the element renders 13px. Inline `style=""` values aren't
+  counted. At runtime `style={{ color: theme.fg }}` and
+  `style={{ color: "#555" }}` produce the same literal, so the DOM can't
+  tell a token from a hand-typed value there.
+- **Transient states left out.** Subtrees that are `aria-busy`, pulse at
+  rest (bare `animate-pulse`, or behind `motion-safe:`, a breakpoint or
+  `dark:` when the computed animation confirms it, never behind `hover:`),
+  carry a skeleton class (`skeleton`, `skeleton-line`,
+  `MuiSkeleton-root`, not `no-skeleton-here`), are `display: none`, or are
+  closed overlays at opacity 0 are skipped. The scan waits up to three 1.5s
+  beats for visible loading states to clear before measuring.
+- The AI review's digest carries all of this: uses and declarations per
+  value, a hand-typed share per category, and whether Tailwind's scale applies.
+- **Older installs keep working.** Scans from earlier package versions carry
+  no declarations or class-name readings. They aggregate as before: counts
+  kept, declarations unknown, the per-use one-off rule and the plain 4px
+  grid. This holds row by row: an old page's uses count as decisions beside
+  newer pages' declarations, so one page nobody has revisited since an
+  upgrade doesn't change how the rest is read. Malformed rows are skipped. The bigger payload still fits ingest's
+  32,000-character cap: the worst page the scan can describe is about 30KB,
+  and serializing drops the declaration ids first (to about 19KB), then the
+  least-used values, instead of dropping the scan.
+
+### The fix prompt carries what a coding agent needs to judge a finding
+
+A fix prompt gave the agent each finding's claim and citation, and little to
+weigh them by. Working through one, an agent couldn't tell how many visitors
+were behind a finding, couldn't find the element when no file was matched, and
+didn't know the design review was 70 days older than the analytics. Prompts
+now carry:
+
+- **Volume.** Each analytics problem shows the count behind it when the
+  summary recorded one: *23 dead clicks across 9 sessions on `/pricing`*.
+- **How it was detected, and the blind spot.** One line per kind of finding
+  present. A dead click is a click on something with no interactive tag, role
+  or inline `onclick`, so a `div` with a React `onClick` counts as one; the
+  agent is told to check for a handler first. Rage clicks, JS errors,
+  page-level signals, component engagement and design measurements have
+  lines of their own.
+- **Search handles.** Read off the citation: a component name's
+  `data-component`, a label's visible text, a selector's meaningful class
+  names and ids (utility and generated classes are skipped; a CSS-module
+  class names its `.module.*` file), or a page's route file. Design values
+  are listed in px and rem.
+- **How current it is.** A note up front when the two reviews are two weeks
+  or more apart, when either is a month old, or when the design measurements
+  have changed since the review. A review that's stale only because of a
+  dismissal or a settings change gets a neutral note (or none, when the
+  measurements are known not to have moved), never a claim of new data.
+- **A verdict block.** The agent is asked to finish with fenced JSON, one
+  entry per problem: `{ "id": "A1", "verdict": "fixed" | "not_real" |
+  "deliberate", "reason": "…", "files": [] }`.
+
+### Verdicts come back, and design issues can be ignored
+
+**Paste verdicts** on the Overview reads that block back. Each verdict is
+shown against the finding it refers to, matched by the prompt as last copied,
+and findings marked `not_real` or `deliberate` are ignored with the agent's
+reason. Before, the agent's "left it, it's deliberate" stayed in its chat and
+the next review reported the same thing again. The paste is untrusted input:
+only `id`, `verdict`, `reason` and `files` are read, a verdict counts only
+for a finding still in the current summary or review (checked again on the
+server, which takes the finding's wording from its own copy), reasons are
+flattened and clipped to 200 characters, and blocks are capped at 20 entries.
+Dismissal reasons, the owner's and the agent's alike, are now quoted in later
+prompts as notes about the site, never instructions.
+
+Design review issues now have the **Ignore** control the summary's losses
+have: an ignored issue leaves every later review, its reason is replayed into
+the review prompt, and the cached review is marked stale. The model rewords
+design evidence on every regenerate, so a dismissed issue is recognised by
+what it's about and the values it cites, never the pages it mentions, with
+wording read only to name a category outright, break a tie or rule a match
+out: "#444444 on #0a0a0a (2.03:1 at 11px)" and "#444 text on #0A0A0A" are the
+same issue. Two colors joined by "on" are a contrast pair, colors
+alone a palette issue, and px values are whatever the wording names outright
+(radius, padding, font size), or else whichever part of the measured design
+holds them, so an 11px caption and an 11px radius stay apart. Where it's
+unclear, a dismissed issue is allowed back rather than a real one hidden: a
+color's role must agree, a contrast failure's sizes must be the same when
+both state them (dismissing it at 11px doesn't hide it at 16px), and of two
+issues citing identical evidence, a dismissal hides only the one worded
+closest to it. Each dismissed issue keeps its own entry and reason. Ignoring, undoing or
+recording verdicts after the dashboard session expires shows an error in
+place instead of crashing the page.
+
+### The design review stops redesigning the site
+
+The review was asked whether the site read as "one deliberate brand, or an
+accumulation of one-off decisions", allowed up to five issues, and was shown
+"collapse 15px and 17px into 16px" as the model fix. It took that as licence to
+consolidate everything, proposing palettes and type scales the code never had.
+It now judges the site's own system on its own terms, raises at most three
+issues and none for a coherent system, and fixes outliers with values the site
+already uses.
+
+Its suggestions are also checked once parsed. One that clearly removes a
+value the same review lists as a strength is withheld, with the reason shown
+on the card and in the fix prompt. That covers replacing it with a different
+value of the same kind ("collapse 22px into 20px"), dropping it, and
+proposing a scale that spans it but skips it. A review once praised 22px and
+28px headings, then proposed a 12/14/16/20/24px scale. The check is
+deliberately narrow: only values written with a unit or `#` count as praised,
+and a fix that changes something about a praised value without replacing it
+("change the 16px body text color", "convert 16px to rem") or an ordinary fix
+such as 9px → 10px is never touched. A value a suggestion introduces that the
+site doesn't render yet is labelled as new.
+
+### Analytics findings stop overstating, and point at the right file
+
+The summary model was told dead and rage clicks were genuine friction on
+things that looked actionable. They aren't always. A dead click is a structural
+guess: a drawer backdrop that closes on click counts as dead, because React's
+handler leaves no trace in the DOM. A click on the bar beside a small button
+reads as that button not responding. The prompt now explains how each signal
+is detected and what it can't see. Findings are written as hypotheses tied to
+the numbers, and say when a pattern looks like a backdrop or a near miss.
+
+- **The digest shows more of what happened.** It shows sessions behind each
+  count and the element that was actually clicked (`<div.flex>`, not just the
+  button text inside it). It also flags text-less positioned layers as possible
+  backdrops. When capture records them, it adds where dead clicks landed and
+  what came just before an error, with its stack frame and digest.
+- **Each finding carries its volume.** `signal` (event kind, count, sessions,
+  pages) is the cited digest line's own numbers, looked up after the model
+  answers and never taken from its prose. The kind follows what the finding is
+  about: a bounce on `/pricing` gets the page's views, not its one dead click.
+  Only a citation that is exactly one printed line gets a signal. One that
+  merely contains a line's name, or could mean two lines, gets none.
+- **Source matching stopped guessing.** It used to match any token of four
+  letters or more. A backdrop cited as `div.fixed>div.absolute` was "verified"
+  against whichever file first said `fixed`. Matching now searches only for
+  names the author chose: component names, routes (`/pricing` →
+  `app/pricing/page.tsx`, even when a component is also called `pricing`), ids
+  and custom classes, and visible labels, numbers included (`Show 9 more` finds
+  `` `Show ${hidden} more` ``). Short labels like "Log in" match only as exact
+  JSX text. Utility classes, tag names and comments never match. Only what a
+  finding cites outright can verify it. A shorter label inside the citation
+  ("Export" in "Export CSV") gives candidates at most, and so does a label
+  that happens to spell a path segment. When several files match equally, the
+  loss lists them as `candidates` and stays unverified instead of picking one.
+- **Matching works on Vercel.** When the source isn't on disk, findings are
+  matched against the connected GitHub repo. Before, every finding came back
+  "not matched to source". The read is bounded by a file budget, a timeout on
+  each request and on the whole match. Repeat reads come from a cache keyed by
+  commit and blob. If any file couldn't be read, only routes verify. If
+  GitHub cut the listing short, nothing verifies. The summary is saved before
+  matching starts, so a slow repo can't cost the model's answer.
+- **No duplicate issues from a lost reply.** Creating an issue no longer
+  aborts on a timer. Before filing, Polishd looks for an issue it already
+  filed for the same evidence, in case an earlier attempt succeeded but the
+  reply was lost.
+
+### The dashboard is redesigned
+
+Every tab keeps its content and layout. Each one is redrawn from a single set
+of design tokens instead of hex values repeated across thirty files.
+
+- **Ink, in light and dark.** Pure neutral greys with no tint. The accent is
+  the text colour itself, so the only colour on the page is status: green for
+  healthy, amber for dead clicks, red for rage clicks and errors. Dark is
+  the default; a muted sun/moon icon at the foot of the sidebar (beside the
+  wordmark on narrow screens) switches to light and back. The choice is remembered in a `polishd_theme` cookie scoped to the
+  dashboard's path, so the server renders it on the next load with no flash
+  of the other theme. Nothing is drawn with a gradient.
+- **The landing site's wordmark.** The sidebar and the lock screens carry the
+  hero's "polishd": the letters in its highway face, and for the h the
+  halftone polish bottle, its dots shimmering. It ships as SVG outlines, so
+  there's no font to load for it. The shimmer is scoped to the bottle, stops
+  under `prefers-reduced-motion`, and links to the Overview from the sidebar.
+- **The brand's type.** Body text is Open Sauce One, page and section titles
+  are Nohemi, and code is JetBrains Mono. The font files ship with the package
+  under private family names and load from the host's own origin. There's no
+  font CDN request, no CSP change, and no collision with a host loading the
+  same families itself. Licences are in `dist/fonts/LICENSE.md`.
+- **Readable at a glance.** Section headings are sentence case, not tracked
+  capitals. Stat tiles lead with their label, and numbers use tabular
+  figures. Secondary text clears WCAG AA (≥5:1) on every surface in both
+  modes, where the old `#555`/`#444` greys sat near 2.5:1. The faintest grey
+  is kept for rules, dots and struck-out marks, never for text, even an
+  em-dash. In light mode the green, amber and red are a step darker, so a
+  status badge's text still clears 4.5:1 on its own tint.
+- **Keyboard-visible.** Every control shows one focus ring, and the "how is
+  this calculated" tips open on focus as well as hover. Text glyphs used as
+  icons (`✕`, `›`, `⏱`, `●`) are now SVG, and motion collapses under
+  `prefers-reduced-motion`.
+- **Nothing reaches the host.** Colour and font tokens are `--pd-*` custom
+  properties declared on `.polishd-root` only, so a host's own Tailwind theme
+  variables are never overwritten. The scoped reset now also covers `label`
+  and `legend`, so a host's global `label { font-weight: 600 }` no longer
+  bolds the dashboard's form fields.
+- **A smaller stylesheet.** The build scans only the dashboard's own source for
+  utilities. It used to scan the whole repository, landing site included, and
+  ship those classes too.
+
+No host changes are needed: the stylesheet import is the same. Its fonts sit
+beside it in `dist/fonts`, and the host's bundler picks them up from the
+stylesheet's relative URLs.
 
 ### Runtime JavaScript errors are captured again
 

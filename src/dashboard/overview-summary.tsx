@@ -16,14 +16,26 @@
  * side never costs the analytics summary that came back fine. Nothing is sent
  * to a model until a button is pressed.
  */
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 
 import { generateDesignReviewAction, generateSummaryAction } from "../ai/actions";
 import type { PolishdAISettingsPublic, PolishdDesignReview, PolishdSummary } from "../ai/types";
 import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
+import { UNREACHABLE } from "./dismissable";
 import Section from "./overview-section";
-import { RefreshIcon, card, iconBtn, labelCls, microBtn, primaryBtn, relTime } from "./ui";
+import {
+  Badge,
+  Callout,
+  RefreshIcon,
+  SparkIcon,
+  card,
+  eyebrowCls,
+  iconBtn,
+  microBtn,
+  primaryBtn,
+  relTime,
+} from "./ui";
 
 export interface OverviewSummaryProps {
   initialSummary: PolishdSummary | null;
@@ -60,31 +72,39 @@ export default function OverviewSummary({
   const canSummary = settings.hasApiKey;
   const canReview = settings.hasApiKey && scannedPages > 0;
 
-  /** Run the halves asked for; each reports its own failure. */
+  /**
+   * Run the halves asked for; each reports its own failure. An action that
+   * throws (an expired dashboard session, a function timeout) is caught here:
+   * uncaught inside a transition it would take the whole tab down.
+   */
   const generate = (halves: Half[], force: boolean) => {
     setErrors([]);
     startGenerate(async () => {
       const jobs: Promise<string | null>[] = [];
       if (halves.includes("summary") && canSummary) {
         jobs.push(
-          generateSummaryAction(force).then((res) => {
-            if (!res.ok) return `Analytics: ${res.message}`;
-            setSummary(res.summary);
-            setSummaryStale(false);
-            onSummaryChange?.(res.summary);
-            return null;
-          }),
+          generateSummaryAction(force)
+            .then((res) => {
+              if (!res.ok) return `Analytics: ${res.message}`;
+              setSummary(res.summary);
+              setSummaryStale(false);
+              onSummaryChange?.(res.summary);
+              return null;
+            })
+            .catch(() => `Analytics: ${UNREACHABLE}`),
         );
       }
       if (halves.includes("review") && canReview) {
         jobs.push(
-          generateDesignReviewAction(force).then((res) => {
-            if (!res.ok) return `Design: ${res.message}`;
-            setReview(res.review);
-            setReviewStale(false);
-            onReviewChange?.(res.review);
-            return null;
-          }),
+          generateDesignReviewAction(force)
+            .then((res) => {
+              if (!res.ok) return `Design: ${res.message}`;
+              setReview(res.review);
+              setReviewStale(false);
+              onReviewChange?.(res.review);
+              return null;
+            })
+            .catch(() => `Design: ${UNREACHABLE}`),
         );
       }
       const failed = (await Promise.all(jobs)).filter((m): m is string => m !== null);
@@ -101,37 +121,35 @@ export default function OverviewSummary({
   const context = settings.context?.trim();
   const audience = settings.audience?.trim();
 
-  const refresh = (
-    <button
-      type="button"
-      data-component="overview-summary-refresh"
-      onClick={() => generate(["summary", "review"], true)}
-      disabled={pending || !canSummary}
-      title={
-        canSummary
-          ? canReview
-            ? "Regenerate the analytics summary and the design review now"
-            : "Regenerate the analytics summary now"
-          : "Connect a model first — Settings tab"
-      }
-      aria-label="Refresh summary"
-      className={iconBtn}
-    >
-      <RefreshIcon spinning={pending} />
-    </button>
-  );
-
   return (
     <Section
       title="Summary"
       action={
         <>
           {settings.hasApiKey && (
-            <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
-              {settings.provider} · {settings.model}
+            <span className="hidden min-w-0 sm:flex">
+              <Badge mono className="truncate">
+                {settings.provider} · {settings.model}
+              </Badge>
             </span>
           )}
-          {refresh}
+          <button
+            type="button"
+            data-component="overview-summary-refresh"
+            onClick={() => generate(["summary", "review"], true)}
+            disabled={pending || !canSummary}
+            title={
+              canSummary
+                ? canReview
+                  ? "Regenerate the analytics summary and the design review now"
+                  : "Regenerate the analytics summary now"
+                : "Connect a model first — Settings tab"
+            }
+            aria-label="Refresh summary"
+            className={iconBtn}
+          >
+            <RefreshIcon spinning={pending} />
+          </button>
         </>
       }
       links={[
@@ -141,14 +159,11 @@ export default function OverviewSummary({
     >
       {/* data-component names feed polishd's own dashboard telemetry; inert for host apps. */}
       <div data-component="overview-summary" className={`${card} overflow-hidden`}>
-        <div className="px-4 py-4 sm:px-5 sm:py-5">
+        <div className="px-4 py-5 sm:px-5">
           {errors.map((message) => (
-            <div
-              key={message}
-              className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400"
-            >
+            <Callout key={message} tone="bad" className="mb-4">
               {message}
-            </div>
+            </Callout>
           ))}
 
           {!hasAny ? (
@@ -160,9 +175,9 @@ export default function OverviewSummary({
           ) : (
             <>
               {(context || audience) && (
-                <p className="mb-4 text-[12px] leading-relaxed text-[#777]">
+                <p className="mb-5 max-w-[72ch] text-[12.5px] leading-relaxed text-fg-3">
                   {context}
-                  {context && audience && <span className="text-[#444]"> · </span>}
+                  {context && audience && <span className="text-fg-4"> · </span>}
                   {audience && <>For {audience}</>}
                 </p>
               )}
@@ -204,12 +219,12 @@ export default function OverviewSummary({
               </Half>
 
               {working.length > 0 && (
-                <div className="mt-5">
-                  <div className={`${labelCls} mb-2 text-emerald-500`}>Working</div>
-                  <ul className="space-y-1.5">
+                <div className="mt-6">
+                  <div className={`${eyebrowCls} mb-2.5 !text-ok`}>Working</div>
+                  <ul className="space-y-2">
                     {working.map((w, i) => (
-                      <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
-                        <span className="mt-px shrink-0 text-emerald-500">✓</span>
+                      <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
+                        <span className="mt-px shrink-0 text-ok">✓</span>
                         <span>{w.cited ? <Annotated text={w.text} /> : w.text}</span>
                       </li>
                     ))}
@@ -217,15 +232,11 @@ export default function OverviewSummary({
                 </div>
               )}
 
-              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+              <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
                 <span>
                   <Provenance summary={summary} review={review} />
                 </span>
-                {stale && (
-                  <span className="rounded-full bg-amber-950/50 px-2 py-0.5 text-amber-400">
-                    Something&rsquo;s changed since this summary — refresh to update
-                  </span>
-                )}
+                {stale && <Badge tone="warn">Something&rsquo;s changed since this summary — refresh to update</Badge>}
               </div>
             </>
           )}
@@ -238,17 +249,22 @@ export default function OverviewSummary({
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
 /** One half of the story: a small-caps eyebrow and whatever stands under it. */
-function Half({ label, children }: { label: string; children: React.ReactNode }) {
+function Half({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="mt-4 first:mt-0">
-      <div className={`${labelCls} mb-1.5`}>{label}</div>
+    <div className="mt-5 first:mt-0">
+      <div className={`${eyebrowCls} mb-2 flex items-center gap-1.5`}>
+        <span className="text-accent">
+          <SparkIcon size={12} />
+        </span>
+        {label}
+      </div>
       {children}
     </div>
   );
 }
 
-function Narrative({ children }: { children: React.ReactNode }) {
-  return <p className="text-[14px] leading-relaxed text-[#e4e4e4]">{children}</p>;
+function Narrative({ children }: { children: ReactNode }) {
+  return <p className="max-w-[72ch] text-[15px] leading-[1.7] text-fg">{children}</p>;
 }
 
 /** A half that hasn't been written yet, and the one click that writes it. */
@@ -262,7 +278,7 @@ function Missing({
   onGenerate: (() => void) | null;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[13px] text-[#777]">
+    <div className="flex flex-wrap items-center gap-2.5 text-[13px] leading-relaxed text-fg-3">
       <span>{text}</span>
       {onGenerate && (
         <button
@@ -289,8 +305,8 @@ function Empty({
   onGenerate: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-[13px] leading-relaxed text-[#888]">
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
         {hasApiKey
           ? "No summary yet — generate the story of how visitors use this site and how its design holds together."
           : "No model connected yet. Add a key in Settings and Polishd will read the numbers and the design back to you in plain English."}

@@ -1,10 +1,11 @@
 /**
  * Tests for the Overview gallery's selection.
  *
- * Run with `npm test`. What's pinned: every route appears once at each size,
- * the themes alternate so both show without doubling any page, a site without
- * dark shots degrades to light, skipped cells never tile, and the cap counts
- * everything it leaves out.
+ * Run with `npm test`. What's pinned: the homepage leads at its largest, the
+ * next two pages by traffic follow, the homepage's phone shot fills the
+ * column between them, a site without dark shots degrades to light, skipped
+ * cells never tile, fewer pages drop the phone column rather than leave a
+ * hole, and the count left out is every pictured shot not shown.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -36,49 +37,72 @@ const full = (routes: string[]) =>
     shot(r, "phone", "dark"),
   ]);
 
-const cell = (s: PolishdSnapshotShot) => `${s.route} ${s.device} ${s.theme}`;
+const cell = (t: { shot: PolishdSnapshotShot; slot: string }) =>
+  `${t.slot}: ${t.shot.route} ${t.shot.device} ${t.shot.theme}`;
 
-test("each route tiles once per device, themes alternating route by route", () => {
-  const { tiles, more } = planGallery(snapshot(full(["/", "/pricing", "/blog"])), 12);
+test("the homepage leads, the two most visited other pages follow, its phone shot fills the column", () => {
+  const snap = snapshot(full(["/", "/settings", "/signup", "/blog", "/pricing"]));
+  const { tiles, more } = planGallery(snap, ["/pricing", "/", "/blog", "/signup"]);
   assert.deepEqual(tiles.map(cell), [
-    "/ desktop light",
-    "/ phone dark",
-    "/pricing desktop dark",
-    "/pricing phone light",
-    "/blog desktop light",
-    "/blog phone dark",
+    "hero: / desktop light",
+    "phone: / phone dark",
+    "second: /pricing desktop light",
+    "third: /blog desktop light",
   ]);
-  assert.equal(more, 6);
+  assert.equal(more, 20 - 4);
+});
+
+test("without a homepage the most visited page leads, and unranked pages fill in", () => {
+  const snap = snapshot(full(["/pricing", "/blog", "/about"]));
+  const { tiles } = planGallery(snap, ["/blog", "/pricing"]);
+  assert.deepEqual(tiles.map(cell), [
+    "hero: /blog desktop light",
+    "phone: /blog phone dark",
+    "second: /pricing desktop light",
+    "third: /about desktop light",
+  ]);
 });
 
 test("a site without dark shots shows light everywhere", () => {
-  const light = ["/", "/pricing"].flatMap((r) => [shot(r, "desktop", "light"), shot(r, "phone", "light")]);
-  const { tiles, more } = planGallery(snapshot(light), 12);
+  const light = ["/", "/a", "/b"].flatMap((r) => [shot(r, "desktop", "light"), shot(r, "phone", "light")]);
+  const { tiles, more } = planGallery(snapshot(light), []);
   assert.deepEqual(tiles.map(cell), [
-    "/ desktop light",
-    "/ phone light",
-    "/pricing desktop light",
-    "/pricing phone light",
+    "hero: / desktop light",
+    "phone: / phone light",
+    "second: /a desktop light",
+    "third: /b desktop light",
+  ]);
+  assert.equal(more, 2);
+});
+
+test("fewer than three pages drop the phone column rather than leave a hole", () => {
+  const two = planGallery(snapshot(full(["/", "/pricing"])), []);
+  assert.deepEqual(two.tiles.map(cell), ["hero: / desktop light", "second: /pricing desktop light"]);
+  assert.equal(two.more, 6);
+  const one = planGallery(snapshot(full(["/"])), []);
+  assert.deepEqual(one.tiles.map(cell), ["hero: / desktop light"]);
+});
+
+test("skipped cells never tile, and a homepage shot only on a phone still leads", () => {
+  const shots = [
+    shot("/", "desktop", "light", false),
+    shot("/", "phone", "light"),
+    shot("/a", "desktop", "light"),
+    shot("/a", "phone", "dark", false),
+    shot("/b", "desktop", "dark"),
+  ];
+  const { tiles, more } = planGallery(snapshot(shots), []);
+  assert.deepEqual(tiles.map(cell), [
+    "hero: / phone light",
+    "second: /a desktop light",
+    "third: /b desktop dark",
   ]);
   assert.equal(more, 0);
 });
 
-test("skipped cells never tile, and a route with one device still shows", () => {
-  const shots = [
-    shot("/", "desktop", "light"),
-    shot("/", "desktop", "dark", false),
-    shot("/", "phone", "light", false),
-    shot("/", "phone", "dark", false),
-    shot("/login", "phone", "light"),
-  ];
-  const { tiles, more } = planGallery(snapshot(shots), 12);
-  assert.deepEqual(tiles.map(cell), ["/ desktop light", "/login phone light"]);
-  assert.equal(more, 0);
-});
-
-test("the cap trims the tail and counts every pictured shot left out", () => {
-  const { tiles, more } = planGallery(snapshot(full(["/", "/a", "/b", "/c"])), 5);
-  assert.equal(tiles.length, 5);
-  assert.equal(more, 16 - 5);
-  assert.deepEqual(planGallery(snapshot(full(["/"])), 0), { tiles: [], more: 4 });
+test("nothing pictured is nothing to show", () => {
+  assert.deepEqual(planGallery(snapshot([shot("/", "desktop", "light", false)]), ["/"]), {
+    tiles: [],
+    more: 0,
+  });
 });

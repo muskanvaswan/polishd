@@ -7,9 +7,11 @@
  * curates rather than copies:
  *
  *   • **One-offs are left out.** Anything the Design tab badges one-off, plus
- *     the spacing values that would earn the badge (padding has no badge of
- *     its own — off-grid is a different question, and a value used all over
- *     the site is part of the system whatever grid it sits on).
+ *     the padding values that pass the same test (the tab marks padding by
+ *     grid instead — off-grid is a different question, and a value used all
+ *     over the site is part of the system whatever grid it sits on). A
+ *     one-off is a value decided once (shared/design-values.ts), so a badge
+ *     class repeated down a table is still one.
  *   • **Near-duplicate colors fold together.** `#fefefe` beside `#ffffff` is
  *     one token drawn twice; the kit keeps the one used more.
  *   • **Fluid sizes snap to whole pixels**, so a heading at 30px and 30.4px
@@ -339,21 +341,6 @@ function slug(s: string): string {
 }
 
 // ── Curation ─────────────────────────────────────────────────────────────────
-
-/**
- * Padding has no one-off badge on the Design tab, so the kit applies the same
- * test the other sections do: a sliver of the tallies, on one page only, once
- * there is enough measured to tell a sliver from a small site.
- */
-function spacingOneOffs(data: PolishdDesignData): Set<number> {
-  const total = data.spacing.reduce((s, v) => s + v.count, 0);
-  const out = new Set<number>();
-  if (total < 40) return out;
-  for (const s of data.spacing) {
-    if (s.count <= Math.max(2, total * 0.02) && s.pages.length === 1) out.add(s.px);
-  }
-  return out;
-}
 
 interface ColorAcc {
   hex: string;
@@ -692,11 +679,10 @@ function curateRadii(data: PolishdDesignData) {
 }
 
 function curateSpacing(data: PolishdDesignData) {
-  const oneOffs = spacingOneOffs(data);
   const omitted: BrandKitOmission[] = [];
   const kept: { px: number; count: number }[] = [];
   for (const s of data.spacing) {
-    if (oneOffs.has(s.px)) omitted.push({ kind: "spacing", label: `${s.px}px` });
+    if (s.outlier) omitted.push({ kind: "spacing", label: `${s.px}px` });
     else kept.push({ px: s.px, count: s.count });
   }
   kept.sort((a, b) => a.px - b.px);

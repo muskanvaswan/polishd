@@ -19,7 +19,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 
 import { unpicturedReason } from "../shared/design-values";
 import { getSnapshotImageAction } from "./snapshot-actions";
-import { labelCls, relTime } from "./ui";
+import { eyebrowCls, relTime } from "./ui";
 
 /** A stored picture of the value, from the newest snapshot that has one. */
 export interface ValuePreviewRef {
@@ -92,7 +92,7 @@ function Picture({ preview }: { preview: ValuePreviewRef }) {
   }, [preview]);
 
   return (
-    <div className="flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-md border border-[#2e2e2e] bg-[#111]">
+    <div className="flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-lg border border-line bg-canvas">
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -101,7 +101,7 @@ function Picture({ preview }: { preview: ValuePreviewRef }) {
           className="h-full w-full object-contain"
         />
       ) : (
-        <span className="text-[11px] text-[#555]">
+        <span className="text-[12px] text-fg-3">
           {src === null ? "picture missing" : "loading picture…"}
         </span>
       )}
@@ -112,12 +112,12 @@ function Picture({ preview }: { preview: ValuePreviewRef }) {
 function PageList({ pages, lead }: { pages: string[]; lead: string }) {
   if (pages.length === 0) return null;
   return (
-    <p className="text-[11px] leading-relaxed text-[#777]">
+    <p className="text-[12px] leading-relaxed text-fg-3">
       {lead}{" "}
       {pages.slice(0, 3).map((p, i) => (
         <span key={p}>
           {i > 0 && ", "}
-          <span className="font-mono text-[#aaa]">{p}</span>
+          <span className="font-mono text-fg-2">{p}</span>
         </span>
       ))}
       {pages.length > 3 && ` +${pages.length - 3} more`}
@@ -140,8 +140,8 @@ function CardBody({
     return (
       <>
         <Picture preview={preview} />
-        <p className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-[#666]">
-          <span className="font-mono text-[12px] text-white">{preview.route}</span>
+        <p className="flex flex-wrap items-baseline gap-x-1.5 text-[12px] text-fg-3">
+          <span className="font-mono text-[12.5px] text-fg">{preview.route}</span>
           <span>
             · {preview.device}, {preview.theme} · {relTime(preview.capturedAt)}
           </span>
@@ -153,7 +153,7 @@ function CardBody({
   return (
     <>
       <PageList pages={pages} lead="Measured on" />
-      <p className="text-[12px] leading-relaxed text-[#888]">
+      <p className="text-[12.5px] leading-relaxed text-fg-2">
         {state.kind === "missed"
           ? `The latest snapshot (${relTime(state.capturedAt)}) didn't find ${label} on screen — it may only render after an interaction, or at a screen size snapshots don't shoot.`
           : unpictured(pages, state)}
@@ -253,14 +253,14 @@ export default function ValuePreview({
       onFocus={open}
       onBlur={close}
       onClick={open}
-      className={`cursor-help outline-none ${className}`}
+      className={`cursor-help focus-visible:-outline-offset-2 ${className}`}
     >
       {children}
       {placement && (
         <div
           id={id}
           role="tooltip"
-          className="pointer-events-none fixed z-50 flex flex-col gap-2.5 rounded-lg border border-[#2e2e2e] bg-[#0a0a0a] p-3 text-left font-sans normal-case tracking-normal shadow-2xl"
+          className="pointer-events-none fixed z-50 flex flex-col gap-2.5 rounded-xl border border-line-strong bg-overlay p-3.5 text-left font-sans normal-case tracking-normal shadow-pop"
           style={{
             left: placement.left,
             width: placement.width,
@@ -269,8 +269,8 @@ export default function ValuePreview({
           }}
         >
           <div className="flex items-baseline justify-between gap-2">
-            <span className={labelCls}>Where it renders</span>
-            <span className="truncate font-mono text-[11px] text-amber-400">{label}</span>
+            <span className={eyebrowCls}>Where it renders</span>
+            <span className="truncate font-mono text-[12px] text-warn">{label}</span>
           </div>
           <CardBody label={label} pages={pages} state={state} />
         </div>

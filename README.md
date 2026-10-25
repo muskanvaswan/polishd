@@ -296,17 +296,17 @@ in production, because that is the only place it is worth acting on.
 The dashboard opens on the **Overview**, laid out as a board of the site, top
 to bottom:
 
-- **Site snapshots** — the newest [snapshot](#site-snapshots) as a mosaic:
-  desktop shots two columns wide, phone shots one, light and dark side by
-  side, with no device or theme toggles in front. Every page appears once at
-  each size; a click opens the full-height shot, and the rest of the capture
-  is one link away on the Design tab.
-- **Brand** — the colors and typefaces the pages actually ship, curated the
-  way the brand kit is (one-offs left out): the palette as a strip
-  proportioned by how much of the UI each color covers, the brand colors as
-  named swatches with the neutrals beside them, and each typeface set in its
-  own face with the weights in use. The **Brand kit** PDF downloads from here
-  too.
+- **Site snapshots** — the newest [snapshot](#site-snapshots) as a bento of
+  the site's top pages: the homepage hero largest, the two most-visited other
+  pages beside it, and the homepage on a phone — four pictures, with no device
+  or theme toggles in front. A click opens the full-height shot, and the rest
+  of the capture is one link away on the Design tab.
+- **Brand** — the system the pages actually ship, curated the way the brand
+  kit is (one-offs left out), as two hierarchies. The palette: Primary
+  largest, Secondary and Accent beside it, and the neutrals as one scale from
+  light to dark — not every color the site paints. The type: the title,
+  subtitle, body and caption styles stacked, each set in its own face at the
+  size the site really uses it. The **Brand kit** PDF downloads from here too.
 - **Visitors** — every headline number from the Analytics tab: sessions, page
   views, views per session, the share on mobile, rage clicks, dead clicks, JS
   errors and events, each tile opening its chart over time.
@@ -321,17 +321,45 @@ for the coding agent working in your repo — Claude Code, Cursor, or anything
 else that reads a prompt. A prompt carries:
 
 - the site description and audience from Settings, and the traffic so far;
+- a warning up front when the two reviews are far apart in time (two weeks or
+  more), when one is a month old, or when the design measurements have changed
+  since the review. A review that's out of date for another reason (a
+  dismissal, a settings change) gets a neutral note, never a claim of new
+  data;
 - each review's summary, and what's working, so the agent doesn't regress it;
 - every problem, labelled `A1`, `D1`…, with the evidence it was found from,
-  the source file it was matched to (or a note to search for it), the
-  suggested fix, and the GitHub issue already filed for it;
+  the source file it was matched to, the suggested fix, and the GitHub issue
+  already filed for it. An analytics problem also carries the volume behind it
+  when the summary recorded one (*23 dead clicks across 9 sessions on
+  `/pricing`*), and handles to search the source for, read off its citation:
+  a `data-component` name, the element's visible text, its meaningful class
+  names, or the route's page file. A design problem names its values in px
+  and rem, says which values its fix would introduce, and says when Polishd
+  withheld the model's fix (see [Design review](#design-review));
+- one line per kind of finding on how it was detected and what that detector
+  can't see. A dead click, for example, is a click on something with no
+  interactive tag or role, so a `div` with a React `onClick` counts as one; the
+  agent is told to check for a handler first;
 - instructions to find the responsible code before changing anything, skip a
-  finding the code shows isn't real, keep each change scoped, and report back
-  per problem.
+  finding the code shows isn't real, keep each change scoped, and finish with
+  a JSON verdict block: `fixed`, `not_real` or `deliberate` per problem, with a
+  reason and the files involved.
 
 The prompt is built in the browser from the latest summary and review the
 page has, so a review you've just regenerated is already in it. It sends
 nothing anywhere: it's text on your clipboard.
+
+**Paste verdicts** reads the agent's verdict block back. Paste its reply (or
+just the block) and each verdict is shown next to the finding it refers to.
+Findings it marked `not_real` or `deliberate` are then ignored with its
+reasons, exactly as if you had clicked **Ignore** on each card, so the next
+review doesn't report them again. Ids are matched against the prompt as you
+last copied it, since ignoring or regenerating in between renumbers the
+problems, and a verdict only counts for a finding still in the current
+summary or review. The paste is treated as untrusted: only the id, verdict,
+reason and files are read, the reason is flattened to one line and clipped,
+the problem's wording comes from Polishd's own copy, and later prompts quote
+the reason as a note about the site, never as an instruction.
 
 ## AI summary
 
@@ -423,6 +451,9 @@ technical analysis and suggested fixes, and a report the code disproves comes
 back as *"checked the source — not an actual bug"* with the reasoning, filing
 nothing.
 
+Design review issues carry the same two buttons, and ignoring one works the
+same way against the design review.
+
 **Ignore** is the other answer: this isn't a problem, stop showing it to me. It
 takes one click and no explanation. The loss drops out of the card and out of
 every later summary — including the cached one, immediately — and the model is
@@ -479,14 +510,50 @@ assembles the site-wide picture:
 The first layer of review is **deterministic** — rule-based checks, no model:
 too many font sizes to be a type scale, extra font families, near-duplicate
 colors (`#fefefe` living next to `#ffffff`), contrast failures with the exact
-ratio, one-off values that appear on a single page, padding off the 4px grid.
+ratio, one-off values that appear on a single page, padding off the 4px grid,
+and Tailwind arbitrary values (`text-[#555]`, `p-[13px]`) standing in for a
+theme.
+
+The checks count **decisions, not copies**. Each value carries both its uses
+(elements rendering it) and its declarations (the distinct class strings
+behind them), so a badge class repeated down a 38-row table is one decision
+and a shared button-class constant is one decision. A one-off is a value
+that's rare in what the page renders, on one page, and declared once; a
+value chosen in two places is a pattern. On a Tailwind site, its spacing scale's half steps
+(2px, 6px, 10px, 14px) count as on-grid. Loading skeletons, `aria-busy`
+regions and closed overlays are left out of the scan, which waits a few
+seconds for them to clear first.
 
 The second layer is the **Aesthetic review** card: the same model you
-configured in Settings reads the measured tokens and findings
-and answers the real question — does this read as one deliberate design, or an
-accumulation of one-off decisions? Issues it raises must cite a token that
-actually appears in the metrics (a hex value, a px size, a page path), and each
-comes with a concrete fix. It follows the summary's token-thrift rules: the
+configured in Settings reads the measured tokens and findings and judges the
+system the site already has, on its own terms. Values that recur are treated
+as decisions, even when they don't follow a textbook scale; a problem is a
+value that breaks the pattern, or a measured failure such as low contrast. It
+raises at most three issues, and none when the system is coherent. Each must
+cite a token that actually appears in the metrics (a hex value, a px size, a
+page path), and its fix should move the outlier onto a value the site already
+uses.
+
+Its fixes are then checked against the review itself. A fix that clearly
+removes a value the same review praised is withheld, and the card says why:
+one that replaces the value with a different one of the same kind
+(*collapse 22px into 20px*), drops it, or comes from a review that admires
+22px and 28px headings and then proposes a 12/14/16/20/24px type scale. A fix
+that only changes something about a praised value (its color, its
+line-height, a token in place of the literal) is left alone, and nothing
+else is withheld. Any value a fix introduces that the site doesn't render yet
+is labelled new. Issues can be ignored like the summary's losses, with a
+reason the model reads on every later review. The dismissal holds when a
+regenerate rewords the issue, as long as it's the same kind (a contrast pair,
+a color, or a type size, radius or padding: named outright, or read from the
+measured design) citing the same values. When it's unclear, Polishd lets a
+dismissed issue come back rather than risk hiding a real one: a color's role
+must agree (one stated and one not is a different issue), and a contrast
+failure's sizes must be the same when both state them, so dismissing it at
+11px doesn't hide it failing at 16px. A rewording that only drops the size
+still matches, and of two issues citing identical evidence, a dismissal hides
+only the one worded closest to it. It
+follows the summary's token-thrift rules: the
 model sees a few hundred tokens of aggregated metrics, the result is cached and
 fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
 for both the metrics and the analysis are on the tab.
@@ -640,8 +707,11 @@ once; nothing is sent unless you say yes. What's shared when you do:
   fingerprinting, no URLs, page content, or user data from your site — your
   analytics never leave your database.
 - Once per session, whether a **model is connected** and which provider/model
-  it is — never the key, never any setting beyond those two names. This is how
-  the project learns which AI setups to test against.
+  it is — never the key, never any setting beyond those two names — and the
+  **polishd version** you run. This is how the project learns which AI setups
+  to test against, and which release an error came from.
+- JavaScript errors raised while the dashboard is open, with the dashboard
+  control clicked just before one, if any.
 
 Say no and it never asks again. Change your mind, or disable it fleet-wide,
 with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of

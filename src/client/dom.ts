@@ -10,23 +10,59 @@
 import {
   INLINE_TEXT_TAGS,
   INTERACTIVE_TAGS,
+  normalizeLabel,
   PROSE_MIN_CHARS,
   PROSE_TAGS,
 } from "../shared/text-signals";
+import {
+  COMPONENT_MAX_VIEWPORT_SHARE,
+  findNearMiss,
+  rectArea,
+  withoutLabel,
+  type Point,
+} from "./near-miss";
+import { hasReactClickHandler } from "./react-props";
+import { componentOf, handleOf, labelOf as rawLabelOf, selectorOf } from "./target";
 
-export { componentOf, labelOf, selectorOf } from "./target";
+export { componentOf, handleOf, selectorOf };
 
-export const isInteractive = (el: Element | null): boolean => {
+/**
+ * An element's visible label, digit runs folded to `#` so a count in a label
+ * ("Show 9 more") doesn't split one control into a row per value.
+ */
+export const labelOf = (target: EventTarget | null): string | undefined =>
+  normalizeLabel(rawLabelOf(target));
+
+/** Does the markup itself say this element is a control? */
+const isMarkupControl = (node: Element): boolean => {
+  if (INTERACTIVE_TAGS.has(node.tagName.toLowerCase())) return true;
+  const role = node.getAttribute("role");
+  if (role && /button|link|menuitem|tab|checkbox|radio|switch/.test(role)) return true;
+  return node.hasAttribute("onclick") || !!(node as HTMLElement).isContentEditable;
+};
+
+/** Is this element itself a control? No ancestor walk — see `controlOf`. */
+export const isControl = (node: Element): boolean =>
+  // A React `onClick` leaves no trace in the DOM but its props (react-props.ts).
+  isMarkupControl(node) || hasReactClickHandler(node);
+
+/**
+ * The control at `el` or up to three levels above it, if any. The markup
+ * rules walk all four levels; a React `onClick` only counts on `el` itself or
+ * its parent — one further up is as likely a container's guard or delegation
+ * (a modal panel stopping propagation), and a click deeper than that is left
+ * to the outcome check.
+ */
+export const controlOf = (el: Element | null): Element | null => {
   let node: Element | null = el;
   for (let depth = 0; node && depth < 4; depth++) {
-    if (INTERACTIVE_TAGS.has(node.tagName.toLowerCase())) return true;
-    const role = node.getAttribute("role");
-    if (role && /button|link|menuitem|tab|checkbox|radio|switch/.test(role)) return true;
-    if (node.hasAttribute("onclick") || (node as HTMLElement).isContentEditable) return true;
+    if (isMarkupControl(node) || (depth <= 1 && hasReactClickHandler(node))) return node;
     node = node.parentElement;
   }
-  return false;
+  return null;
 };
+
+export const isInteractive = (el: Element | null): boolean => controlOf(el) !== null;
 
 /** True when the click coincided with the user highlighting text. */
 export const hasTextSelection = (): boolean => {
@@ -76,6 +112,53 @@ export const isTextTarget = (el: Element | null): boolean => {
  */
 export const isSelectionGesture = (el: Element | null): boolean =>
   !isInteractive(el) && isTextTarget(el);
+
+const viewportArea = (): number =>
+  (window.innerWidth || document.documentElement.clientWidth || 0) *
+  (window.innerHeight || document.documentElement.clientHeight || 0);
+
+/** Is this element a component — a bar, a card — rather than page layout? */
+export const isComponentSized = (el: Element): boolean =>
+  rectArea(el.getBoundingClientRect()) <= viewportArea() * COMPONENT_MAX_VIEWPORT_SHARE;
+
+/** What a control is called: its text, else its accessible name, else its selector. */
+const controlLabel = (control: Element): string | undefined =>
+  labelOf(control) ||
+  normalizeLabel(
+    (control.getAttribute("aria-label") || control.getAttribute("title") || "").trim().slice(0, 80) ||
+      undefined,
+  ) ||
+  selectorOf(control);
+
+/**
+ * The near miss behind a dead click on `target`, if there is one: the label of
+ * the control it missed (`near`), and the click's own label (`text`) with that
+ * control's text taken out when the target contains it — a bar wrapping a
+ * "Show 9 more" button has the button's text as its label, and a dead click on
+ * the bar must not read as one on the button. See near-miss.ts.
+ */
+export const nearMissOf = (
+  target: Element,
+  point: Point | null,
+  text: string | undefined,
+): { near: string; text: string | undefined; control: Element } | null => {
+  const miss = findNearMiss<Element>(target, point, {
+    isControl,
+    controlOf,
+    children: (el) => el.children,
+    rect: (el) => el.getBoundingClientRect(),
+    hitTest: (x, y) => document.elementFromPoint(x, y),
+    viewportArea,
+  });
+  if (!miss) return null;
+  const near = controlLabel(miss.control);
+  if (!near) return null;
+  return {
+    near,
+    text: miss.contained ? withoutLabel(text, labelOf(miss.control)) : text,
+    control: miss.control,
+  };
+};
 
 /**
  * Coarse device buckets keyed off CSS-pixel width. Aligns with common

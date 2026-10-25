@@ -1,6 +1,6 @@
 {
   "name": "@polishd/next",
-  "version": "0.2.3-dev.18",
+  "version": "0.2.3-dev.19",
   "description": "Drop-in product analytics for Next.js — capture real user behavioral signals (rage/dead clicks, scroll depth, errors, web vitals) and explore them on a built-in dashboard. What gets measured gets improved.",
   "type": "module",
   "license": "MIT",
@@ -75,8 +75,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && npm run build:css",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\" \"service/lib/**/*.test.ts\"",
+    "test": "node --experimental-strip-types --import ./scripts/test-resolve.mjs --test \"src/**/*.test.ts\" \"service/lib/**/*.test.ts\"",
     "clean": "rm -rf dist",
+    "version": "node scripts/sync-version.mjs && git add src/version.ts",
     "prepublishOnly": "npm run clean && npm run build",
     "build:css": "node scripts/build-css.mjs"
   },

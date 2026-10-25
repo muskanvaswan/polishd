@@ -10,6 +10,8 @@
  */
 import { useState, type ReactNode } from "react";
 
+import { ChevronDownIcon } from "./ui";
+
 export default function ShowMore({
   count,
   label,
@@ -26,14 +28,20 @@ export default function ShowMore({
   return (
     <>
       {open && children}
-      <div className="border-t border-[#2e2e2e] px-4 py-2.5 sm:px-5">
+      <div className="border-t border-line">
+        {/* The whole strip is the button — a click beside the label used to
+            land on the bare div and do nothing. */}
         <button
           type="button"
           data-component="show-more"
           onClick={() => setOpen((o) => !o)}
-          className="text-[11px] font-medium text-[#888] transition-colors hover:text-white"
+          aria-expanded={open}
+          className="flex w-full items-center gap-1 px-4 py-2.5 text-left text-[12px] font-medium text-fg-3 transition-colors hover:bg-raised/50 hover:text-fg sm:px-5"
         >
-          {open ? `Show less ↑` : `Show ${count} more ${label} ↓`}
+          {open ? "Show less" : `Show ${count} more ${label}`}
+          <span className={`transition-transform ${open ? "rotate-180" : ""}`}>
+            <ChevronDownIcon size={13} />
+          </span>
         </button>
       </div>
     </>
