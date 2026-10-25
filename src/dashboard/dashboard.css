@@ -150,6 +150,21 @@
  */
 @layer base {
   .polishd-root {
+    /* Cut inheritance from the host. Scoping keeps our rules off the host's
+       markup, but nothing stopped the host's *inherited* properties flowing
+       in: a layout that sets `letter-spacing`, `text-transform`,
+       `font-variant`, `word-spacing`, `text-align`, `white-space`, a base
+       `font-size` or `line-height` on `body` reaches every element below it,
+       because the dashboard's own rules only name the properties they care
+       about. `all: initial` resets every inheritable property on this one
+       element, so descendants inherit the dashboard's values, not the host's.
+       It leaves custom properties alone (the `--pd-*` tokens, and any theme
+       variables the host defines), and `direction` too, which is right: an RTL
+       app should still lay the dashboard out right-to-left. It must come
+       first, since later declarations in this rule are what it clears for. */
+    all: initial;
+    display: block;
+
     /* Set explicitly rather than inherited. Inheriting sounds friendlier, but
        a global preflight is what normally puts a sans stack on `html`, and
        this file deliberately ships without one — so in a host that never sets
@@ -298,6 +313,29 @@
   }
 
   /*
+   * Roll every dashboard element back to the browser's own defaults before
+   * anything else applies. This is the hard override: a host rule on a bare
+   * element — `div { background }`, `a { font-size }`, `section { max-width }` —
+   * sets properties the dashboard never declares on that element, so
+   * specificity alone can't beat it; nothing is there to compete. `revert`
+   * discards every author declaration below this rule's specificity, host's
+   * included, and leaves the dashboard's utilities (one class more) to
+   * restyle from a clean slate.
+   *
+   * `:where()` keeps the exclusions from adding specificity, so the scoped
+   * resets below still win by source order. SVG content is skipped because its
+   * geometry (`width`, `height`, `x`, `r`, `d`) is CSS in current browsers and
+   * lives in attributes here — reverting would collapse every chart and icon —
+   * and `img` because its width/height attributes map the same way. Custom
+   * properties are untouched by `all`, so the design tokens survive.
+   */
+  .polishd-root :where(*:not(svg, svg *, img)),
+  .polishd-root :where(*:not(svg, svg *, img))::before,
+  .polishd-root :where(*:not(svg, svg *, img))::after {
+    all: revert;
+  }
+
+  /*
    * The same zeroing a global preflight does, but confined to the dashboard's
    * subtree — which is the whole difference. Applied to `*` rather than an
    * element list because UA defaults turn up in places a list forgets: the
@@ -316,6 +354,46 @@
     margin: 0;
     padding: 0;
     border: 0 solid;
+    /* `all: initial` on the root stops *inherited* host styles. These stop
+       host *element selectors* — `a { color }`, `div { text-transform }`,
+       `p { color }`, `* { color }` — which hit an element directly and so
+       beat inheritance outright. Colour in particular: any element without
+       its own text utility would otherwise take the host's palette, not the
+       dashboard's. (0,2,0) beats a host's element or single-class rule; the
+       dashboard's own utilities, at (0,3,0), still win over this. */
+    color: inherit;
+    text-transform: inherit;
+    font-style: inherit;
+  }
+
+  .polishd-root :is(em, i, cite) {
+    font-style: italic;
+  }
+
+  /* Icons declare `fill`/`stroke` as SVG attributes, which rank below every
+     author rule, so a host `svg { fill: currentColor }` turns a line icon
+     into a solid blob. Say the same thing in CSS. */
+  .polishd-root svg:not([fill]) {
+    fill: currentColor;
+  }
+  .polishd-root svg:not([stroke]) {
+    stroke: none;
+  }
+  .polishd-root svg * {
+    fill: inherit;
+    stroke: inherit;
+  }
+  .polishd-root [fill="none"] {
+    fill: none;
+  }
+  .polishd-root [fill="currentColor"] {
+    fill: currentColor;
+  }
+  .polishd-root [stroke="none"] {
+    stroke: none;
+  }
+  .polishd-root [stroke="currentColor"] {
+    stroke: currentColor;
   }
 
   .polishd-root h1,
