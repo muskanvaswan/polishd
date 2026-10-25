@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  browserFaultOf,
   isVercelProtectionResponse,
   landingOf,
   pinRoute,
   previewClip,
   requestAction,
+  shootRendering,
+  type BrowserFault,
+  type CapturePage,
+  type ShootDeps,
+  type ShootInput,
 } from "./core.ts";
 
 const ORIGIN = "https://example.com";
@@ -162,4 +168,153 @@ test("a phone viewport narrower than the minimum still fits", () => {
 test("an element entirely off screen has no honest crop", () => {
   assert.equal(previewClip({ x: 1500, y: 100, width: 300, height: 600 }, VIEWPORT), null);
   assert.equal(previewClip({ x: 100, y: 100, width: 0, height: 20 }, VIEWPORT), null);
+});
+
+// ── Browser faults ───────────────────────────────────────────────────────────
+
+test("browser faults are told apart from page failures", () => {
+  assert.equal(
+    browserFaultOf("page.goto: net::ERR_INSUFFICIENT_RESOURCES at https://example.com/"),
+    "resources",
+  );
+  assert.equal(browserFaultOf("net::ERR_OUT_OF_MEMORY"), "resources");
+  assert.equal(
+    browserFaultOf("Protocol error (Page.captureScreenshot): Unable to capture screenshot"),
+    "screenshot",
+  );
+  assert.equal(browserFaultOf("Target page, context or browser has been closed"), "closed");
+  assert.equal(browserFaultOf("Protocol error (Target.createTarget): Target closed"), "closed");
+  assert.equal(browserFaultOf("Page crashed"), "closed");
+  for (const ordinary of [
+    "page.goto: Timeout 15000ms exceeded.",
+    "page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/",
+    "page.goto: net::ERR_CONNECTION_REFUSED at https://example.com/",
+    "page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://example.com/",
+    "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://example.com/",
+    "page.goto: net::ERR_ABORTED at https://example.com/",
+    "no 2d context",
+  ]) {
+    assert.equal(browserFaultOf(ordinary), null, ordinary);
+  }
+});
+
+const DESKTOP = { name: "desktop", width: 1440, height: 900, scale: 1, mobile: false };
+const PNG = new Uint8Array([137, 80, 78, 71]);
+const ENCODED = { type: "image/webp", width: 1440, height: 900, data: "AA==" };
+
+/** A page that loads fine and shoots a tiny image, with pieces swapped out per test. */
+function fakePage(over: Partial<CapturePage> = {}): CapturePage {
+  return {
+    goto: async () => ({ status: () => 200, headers: () => ({}) }),
+    url: () => `${ORIGIN}/`,
+    title: async () => "Example",
+    evaluate: async () => 0,
+    screenshot: async () => PNG,
+    waitForLoadState: async () => {},
+    waitForTimeout: async () => {},
+    ...over,
+  };
+}
+const blank = fakePage({ evaluate: async () => ENCODED });
+
+function shootDeps(faults: BrowserFault[]): ShootDeps {
+  return {
+    preparePage: async () => {},
+    looksLikeAuthWall: () => false,
+    looksLikeBotCheck: () => false,
+    onBrowserFault: (fault) => faults.push(fault),
+  };
+}
+
+const INPUT: ShootInput = {
+  origin: ORIGIN,
+  route: "/",
+  device: DESKTOP,
+  theme: "light",
+  find: [],
+  navigationTimeoutMs: 1000,
+  previewBudgetMs: 100,
+  maxImageBytes: 1_000_000,
+};
+
+test("a page that loads comes back with its image and no fault", async () => {
+  const faults: BrowserFault[] = [];
+  const shot = await shootRendering(fakePage(), blank, INPUT, shootDeps(faults));
+  assert.equal(shot.reason, undefined);
+  assert.deepEqual(shot.image, ENCODED);
+  assert.equal(shot.status, 200);
+  assert.equal(shot.title, "Example");
+  assert.deepEqual(faults, []);
+});
+
+test("a browser that can't open a connection is reported to the host, and the cell is skipped", async () => {
+  const faults: BrowserFault[] = [];
+  const page = fakePage({
+    goto: async () => {
+      throw new Error("page.goto: net::ERR_INSUFFICIENT_RESOURCES at https://example.com/");
+    },
+  });
+  const shot = await shootRendering(page, blank, INPUT, shootDeps(faults));
+  assert.equal(shot.reason, "failed");
+  assert.equal(shot.skipped, "net::ERR_INSUFFICIENT_RESOURCES");
+  assert.equal(shot.image, undefined);
+  assert.deepEqual(faults, ["resources"]);
+});
+
+test("a page that merely doesn't resolve is the page's problem, not the browser's", async () => {
+  const faults: BrowserFault[] = [];
+  const page = fakePage({
+    goto: async () => {
+      throw new Error("page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/");
+    },
+  });
+  const shot = await shootRendering(page, blank, INPUT, shootDeps(faults));
+  assert.equal(shot.reason, "failed");
+  assert.equal(shot.skipped, "host not found");
+  assert.deepEqual(faults, []);
+});
+
+test("a compositor that can't rasterise the shot is a browser fault", async () => {
+  const faults: BrowserFault[] = [];
+  const page = fakePage({
+    screenshot: async () => {
+      throw new Error("Protocol error (Page.captureScreenshot): Unable to capture screenshot");
+    },
+  });
+  const shot = await shootRendering(page, blank, INPUT, shootDeps(faults));
+  assert.equal(shot.reason, "failed");
+  assert.match(shot.skipped ?? "", /Unable to capture screenshot/);
+  assert.deepEqual(faults, ["screenshot"]);
+});
+
+test("a browser lost during the value pass still reports the fault, and the shot is kept", async () => {
+  const faults: BrowserFault[] = [];
+  const page = fakePage({
+    evaluate: async (fn: unknown) => {
+      if (typeof fn === "function" && fn.name === "markDesignTargets") {
+        throw new Error("Target page, context or browser has been closed");
+      }
+      return 0;
+    },
+  });
+  const input: ShootInput = {
+    ...INPUT,
+    find: [{ key: "radius:8px", ref: { kind: "radius", value: "8px" } }],
+  };
+  const shot = await shootRendering(page, blank, input, shootDeps(faults));
+  assert.deepEqual(shot.image, ENCODED);
+  assert.deepEqual(shot.previews, []);
+  assert.deepEqual(faults, ["closed"]);
+});
+
+test("the host needn't listen for faults", async () => {
+  const page = fakePage({
+    goto: async () => {
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+  const deps = shootDeps([]);
+  delete deps.onBrowserFault;
+  const shot = await shootRendering(page, blank, INPUT, deps);
+  assert.equal(shot.reason, "failed");
 });
