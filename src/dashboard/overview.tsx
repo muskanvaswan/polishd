@@ -18,10 +18,10 @@
  * flips it below `lg`.
  *
  * The problems themselves aren't on this page. The losses and the design
- * issues are actionables, listed on the Actionables tab with the controls
- * that act on them (ignore, file a bug); the prompt still carries all of
- * them, built at the moment of the click from the latest summary and review
- * this page has — a regenerate from the summary card is in the very next copy.
+ * issues live on the Analytics and Design tabs with the controls that act on
+ * them (ignore, file a bug); the prompt still carries all of them, built at
+ * the moment of the click from the latest summary and review this page has —
+ * a regenerate from the summary card is in the very next copy.
  *
  * The prompt asks the agent to end with a verdict block, and "Paste verdicts"
  * reads it back: the findings the agent showed aren't real, or are
