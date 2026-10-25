@@ -295,19 +295,18 @@ in production, because that is the only place it is worth acting on.
 
 The dashboard opens on the **Overview**, laid out as a board of the site:
 
-- **Site snapshots** — the newest [snapshot](#site-snapshots) as a small
-  bento of the site's top pages: the homepage hero largest, the homepage on a
-  phone beside it, and the two most visited other pages under them, with no
-  device or theme toggles in front. A click opens the full-height shot, and
-  the rest of the capture is one link away on the Design tab.
-- **Brand**, beside it — the system the pages actually ship, curated the way
-  the brand kit is (one-offs left out), as two hierarchies. The palette:
-  Primary largest, Secondary and Accent beside it, and the neutrals as one
-  scale from light to dark — not every color the site paints. The type: the
-  title, subtitle, body and caption styles stacked, each set in its own face
-  at the size the site really uses it. The **Brand kit** PDF downloads from
-  here too.
-- **Summary** — one paragraph, written by the model from the
+- **The site and its brand**, in one card with no headings. On the left, the
+  newest [snapshot](#site-snapshots) as a small bento of the site's top pages:
+  the homepage hero largest, the homepage on a phone beside it, and the two
+  most visited other pages under them, with no device or theme toggles in
+  front. A click opens the full-height shot, and the rest of the capture is
+  one link away on the Design tab. On the right, the system the pages
+  actually ship, curated the way the brand kit is (one-offs left out), as two
+  hierarchies. The palette: Primary largest, Secondary and Accent beside it,
+  and the neutrals as one scale from light to dark — not every color the site
+  paints. The type: "Title", "Subtitle", "Body" and "Caption", each word set
+  in its own face at the size the site really uses that style.
+- **Overview** — one paragraph, written by the model from the
   [AI summary](#ai-summary) and the [design review](#design-review): the
   overall picture, the one or two things most worth fixing, and what to
   protect, saying nothing the two reviews don't. It's cached, goes stale when

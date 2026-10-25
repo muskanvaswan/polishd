@@ -12,18 +12,19 @@ renders with, then one column of the story and the numbers.
 - **Site snapshots** are a small bento of the site's top pages rather than a
   strip: the homepage hero largest, the homepage on a phone beside it, and
   the heroes of the two most visited other pages under them — four pictures,
-  laid straight on the page with no device or theme toggles in front. Pages
+  with no heading over them and no device or theme toggles in front. Pages
   are ranked by the traffic the analytics saw. A click still opens the
   full-height shot; the rest of the capture is one link away on the Design
   tab. In the lightbox, phone shots now open at phone width instead of being
   blown up to desktop width, and Escape closes it.
-- **Brand** is new, beside the snapshots: the system the pages actually ship,
-  curated the way the brand kit is (one-offs left out), as two hierarchies.
-  The palette: Primary largest, Secondary and Accent beside it, the neutrals
-  as one scale from light to dark — not every color the site paints. The
-  type: the title, subtitle, body and caption styles stacked, each set in
-  its own face at the size the site really uses it.
-- **Summary** is one paragraph, written by the model. The analytics summary
+- **The brand** sits in the same card, beside the snapshots: the system the
+  pages actually ship, curated the way the brand kit is (one-offs left out),
+  as two hierarchies and no labels. The palette: Primary largest, Secondary
+  and Accent beside it, the neutrals as one scale from light to dark — not
+  every color the site paints. The type: the words "Title", "Subtitle",
+  "Body" and "Caption", each set in its own face at the size the site really
+  uses that style.
+- **The paragraph**, captioned Overview, is written by the model. The analytics summary
   and the design review are handed to the same provider, model and key the
   owner configured, with instructions to fold them into a single story — the
   overall picture, the one or two things most worth fixing, what to protect —

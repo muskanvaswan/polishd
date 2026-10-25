@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * Polishd — the Overview's summary: one paragraph, and the numbers under it
- * (client).
+ * Polishd — the Overview's paragraph, and the numbers under it (client).
  *
  * The Analytics tab tells how visitors use the site; the Design tab tells how
  * the rendered design holds together. Each has its own card with its own
@@ -10,7 +9,8 @@
  * is asked to fold the two into a single paragraph (ai/overview.ts), and that
  * paragraph is all this card shows — not the two texts one after the other,
  * and not the problems, which stay on their tabs with the controls that act
- * on them. The headline numbers sit under it in the same column.
+ * on them. The card carries its own caption and refresh; the headline numbers
+ * sit under it in the same column.
  *
  * The paragraph is written from the two reviews, so it follows them: one
  * refresh regenerates the summary, the review and then the paragraph, and a
@@ -34,8 +34,7 @@ import type {
 } from "../ai/types";
 import { TabLink } from "./chrome";
 import { UNREACHABLE } from "./dismissable";
-import Section from "./overview-section";
-import { Badge, Callout, RefreshIcon, SparkIcon, card, iconBtn, primaryBtn, relTime } from "./ui";
+import { Badge, Callout, RefreshIcon, SparkIcon, card, eyebrowCls, iconBtn, primaryBtn, relTime } from "./ui";
 
 export interface OverviewSummaryProps {
   initialStory: PolishdOverview | null;
@@ -50,7 +49,7 @@ export interface OverviewSummaryProps {
   /** Told when a regenerate lands — the Overview builds its fix prompt from these. */
   onSummaryChange?: (summary: PolishdSummary) => void;
   onReviewChange?: (review: PolishdDesignReview) => void;
-  /** What sits under the paragraph in the same column — the headline numbers. */
+  /** What sits under the card in the same column — the headline numbers. */
   children?: ReactNode;
 }
 
@@ -146,42 +145,33 @@ export default function OverviewSummary({
   const writing = pending && story === null;
 
   return (
-    <Section
-      title="Summary"
-      action={
-        <>
-          {hasKey && (
-            <span className="hidden min-w-0 sm:flex">
-              <Badge mono className="truncate">
-                {settings.provider} · {settings.model}
-              </Badge>
-            </span>
-          )}
-          <button
-            type="button"
-            data-component="overview-summary-refresh"
-            onClick={refresh}
-            disabled={pending || !hasKey}
-            title={
-              hasKey
-                ? "Regenerate the analytics summary and the design review, then this paragraph from them"
-                : "Connect a model first — Settings tab"
-            }
-            aria-label="Refresh summary"
-            className={iconBtn}
-          >
-            <RefreshIcon spinning={pending} />
-          </button>
-        </>
-      }
-      links={[
-        { tab: "analytics", label: "Analytics" },
-        { tab: "design", label: "Design" },
-      ]}
-    >
+    <>
       {/* data-component names feed polishd's own dashboard telemetry; inert for host apps. */}
-      <div data-component="overview-summary" className={`${card} overflow-hidden`}>
-        <div className="px-4 py-5 sm:px-5">
+      <section
+        data-component="overview-summary"
+        aria-label="Overview"
+        className={`${card} overflow-hidden`}
+      >
+        <div className="px-4 pb-5 pt-4 sm:px-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className={eyebrowCls}>Overview</span>
+            <button
+              type="button"
+              data-component="overview-summary-refresh"
+              onClick={refresh}
+              disabled={pending || !hasKey}
+              title={
+                hasKey
+                  ? "Regenerate the analytics summary and the design review, then this paragraph from them"
+                  : "Connect a model first — Settings tab"
+              }
+              aria-label="Refresh overview"
+              className={iconBtn}
+            >
+              <RefreshIcon spinning={pending} />
+            </button>
+          </div>
+
           {errors.map((message) => (
             <Callout key={message} tone="bad" className="mb-4">
               {message}
@@ -212,7 +202,7 @@ export default function OverviewSummary({
               </div>
             </>
           ) : writing ? (
-            <p className="text-[13px] text-fg-3 motion-safe:animate-pulse">Writing the summary…</p>
+            <p className="text-[13px] text-fg-3 motion-safe:animate-pulse">Writing the overview…</p>
           ) : (
             <Empty
               hasKey={hasKey}
@@ -222,9 +212,9 @@ export default function OverviewSummary({
             />
           )}
         </div>
-      </div>
+      </section>
       {children}
-    </Section>
+    </>
   );
 }
 
@@ -247,8 +237,8 @@ function Empty({
         {!hasKey
           ? "No model connected yet. Add a key in Settings and Polishd will read the numbers and the design back to you in one paragraph."
           : hasSources
-            ? "The summary couldn't be written — try again."
-            : "No summary yet — generate the story of how visitors use this site and how its design holds together."}
+            ? "The overview couldn't be written — try again."
+            : "No overview yet — generate the story of how visitors use this site and how its design holds together."}
       </p>
       {hasKey ? (
         <button
@@ -258,7 +248,7 @@ function Empty({
           disabled={pending}
           className={primaryBtn}
         >
-          {pending ? "Thinking…" : hasSources ? "Try again" : "Generate summary"}
+          {pending ? "Thinking…" : hasSources ? "Try again" : "Generate overview"}
         </button>
       ) : (
         <span data-component="ai-connect-model" className="contents">

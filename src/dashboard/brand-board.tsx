@@ -4,16 +4,18 @@
  * The Design tab lists everything the pages paint, drift included, and the
  * brand kit PDF curates that into a guideline. This is the kit's first page
  * on screen, cut down to what a brand board says at a glance and sized to
- * share a row with the snapshot gallery:
+ * share a card with the snapshot gallery — no headings, the shapes and the
+ * type carry it:
  *
  *   • **The palette as a grid.** Primary largest, Secondary and Accent beside
  *     it, then the neutrals as one scale from light to dark. Not every color
  *     the site paints — the kit already dropped the one-offs, and this shows
  *     only the ranked brand colors and the most used neutrals.
  *   • **The type as a stack.** Title, subtitle, body and caption, one above
- *     the other, each set in its own face at the size the site really uses
- *     it. The roles are read off the kit's scale: the two largest heading
- *     steps, the body step, and the most used step below body.
+ *     the other, each role's own name set in its own face at the size the
+ *     site really uses it — the specimen is the label. The roles are read off
+ *     the kit's scale: the two largest heading steps, the body step, and the
+ *     most used step below body.
  *
  * No `"use client"`: stateless markup, data in, pixels out. Specimens render
  * in the family the site uses, which the dashboard page has when it shares
@@ -28,7 +30,7 @@ import {
   type BrandKitColor,
   type BrandKitTypeStyle,
 } from "../shared/brand-kit";
-import { card, eyebrowCls } from "./ui";
+
 
 /** Neutrals shown on the scale — the most used, light to dark. */
 const NEUTRALS = 6;
@@ -52,20 +54,21 @@ export default function BrandBoard({ kit }: { kit: BrandKit }) {
   const type = typeRoles(kit);
 
   return (
-    <div data-component="overview-brand" className={`${card} flex flex-1 flex-col p-4 sm:p-5`}>
+    <div data-component="overview-brand" className="flex h-full flex-col">
       {brand.length === 0 && neutrals.length === 0 ? (
         <p className="text-[13px] text-fg-3">No colors measured yet.</p>
       ) : (
         <>
           {brand.length > 0 && <BrandGrid colors={brand} />}
           {neutrals.length > 0 && (
-            <div className={brand.length > 0 ? "mt-3" : ""}>
-              <div className={`${eyebrowCls} mb-1.5`}>Neutrals · light to dark</div>
-              <div className="grid grid-cols-6 gap-1.5">
-                {neutrals.map((c) => (
-                  <Swatch key={c.hex} color={c} className="aspect-[4/3]" small />
-                ))}
-              </div>
+            <div
+              className={`grid grid-cols-6 gap-1.5 ${brand.length > 0 ? "mt-1.5" : ""}`}
+              role="img"
+              aria-label={`Neutrals, light to dark: ${neutrals.map((c) => c.name).join(", ")}`}
+            >
+              {neutrals.map((c) => (
+                <Swatch key={c.hex} color={c} className="aspect-[4/3]" small />
+              ))}
             </div>
           )}
         </>
@@ -176,21 +179,19 @@ function typeRoles(kit: BrandKit): TypeRole[] {
  * Specimens are capped per role so a 72px display face doesn't take the card
  * over; the real size is in the label beside it.
  */
-const SPECIMEN_CAP: Record<TypeRoleName, number> = { Title: 28, Subtitle: 20, Body: 15, Caption: 12 };
+const SPECIMEN_CAP: Record<TypeRoleName, number> = { Title: 32, Subtitle: 22, Body: 15, Caption: 12 };
 
+/** The role's own name, set in the style it names — the specimen is the label. */
 function TypeRow({ row, kit, first }: { row: TypeRole; kit: BrandKit; first: boolean }) {
   const { role, style } = row;
   const face = kit.typefaces.find((t) => t.family === style.family);
   const family = face ? cssFamily(face) : `"${style.family}", ui-sans-serif, system-ui, sans-serif`;
   return (
     <div
-      className={`grid grid-cols-[4.25rem_minmax(0,1fr)_auto] items-baseline gap-x-3 ${
-        first ? "" : "mt-2.5 border-t border-line pt-2.5"
-      }`}
+      className={`flex items-baseline justify-between gap-4 ${first ? "" : "mt-2.5 border-t border-line pt-2.5"}`}
     >
-      <div className={eyebrowCls}>{role}</div>
       <div
-        className="truncate text-fg"
+        className="min-w-0 truncate text-fg"
         style={{
           fontFamily: family,
           fontSize: `${Math.min(style.sizePx, SPECIMEN_CAP[role])}px`,
@@ -198,9 +199,9 @@ function TypeRow({ row, kit, first }: { row: TypeRole; kit: BrandKit; first: boo
           lineHeight: 1.2,
         }}
       >
-        {style.sample || role}
+        {role}
       </div>
-      <div className="whitespace-nowrap text-right text-[11px] tabular-nums text-fg-3">
+      <div className="shrink-0 whitespace-nowrap text-right text-[11px] tabular-nums text-fg-3">
         <span className="text-fg-2">{style.familyName}</span> · {style.sizePx}px · {weightName(style.weight)}
       </div>
     </div>

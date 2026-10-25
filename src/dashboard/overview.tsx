@@ -3,13 +3,14 @@
 /**
  * Polishd — the Overview tab (client).
  *
- * The dashboard's front page, laid out as a board. One row: the site as it
+ * The dashboard's front page, laid out as a board. One card: the site as it
  * last rendered, in a bento of its top pages' heroes, beside its brand — the
- * colors and type the pages actually ship. Under it, one column: the story
- * both reviews tell, written as a single paragraph by the model, with the
- * headline audience numbers beneath. Then the step after reading — a prompt
- * that hands every problem to the coding agent working in the repo, copied
- * by the button in the header.
+ * colors and type the pages actually ship — with no headings over either;
+ * the pictures and the type carry it. Under it, one column: the story both
+ * reviews tell, written as a single paragraph by the model, with the headline
+ * audience numbers beneath. Then the step after reading — a prompt that hands
+ * every problem to the coding agent working in the repo, copied by the button
+ * in the header.
  *
  * The problems themselves aren't on this page. The losses and the design
  * issues live on the Analytics and Design tabs with the controls that act on
@@ -38,7 +39,6 @@ import type { DeviceBucket, MetricTrends, OverviewStats } from "../server/querie
 import type { PolishdSnapshot } from "../server/snapshots";
 import type { BrandKit } from "../shared/brand-kit";
 import BrandBoard from "./brand-board";
-import BrandKitButton from "./brand-kit-button";
 import { TabLink } from "./chrome";
 import { copyText } from "./color-chip";
 import { UNREACHABLE } from "./dismissable";
@@ -51,7 +51,6 @@ import {
   type FixPromptInput,
 } from "./fix-prompt";
 import OverviewTiles from "./metric-trends";
-import Section from "./overview-section";
 import OverviewSummary from "./overview-summary";
 import SnapshotGallery from "./snapshot-gallery";
 import {
@@ -254,13 +253,9 @@ export default function OverviewPanel({
         </Callout>
       )}
 
-      {/* One row: the site as it renders, beside the system it renders with. */}
-      <div className="mb-10 grid gap-6 lg:grid-cols-2">
-        <Section
-          title="Site snapshots"
-          links={[{ tab: "design", label: snapshot ? "All snapshots" : "Capture one" }]}
-          className=""
-        >
+      {/* One card: the site as it renders, beside the system it renders with. */}
+      <div className={`mb-6 grid overflow-hidden lg:grid-cols-2 ${card}`}>
+        <div className="flex flex-col p-4 sm:p-5">
           {snapshot ? (
             <SnapshotGallery snapshot={snapshot} topPages={topPages} />
           ) : (
@@ -272,14 +267,8 @@ export default function OverviewPanel({
               to see every page of the site as it renders right now.
             </Callout>
           )}
-        </Section>
-
-        <Section
-          title="Brand"
-          action={kit && <BrandKitButton kit={kit} />}
-          links={[{ tab: "design", label: "Design" }]}
-          className=""
-        >
+        </div>
+        <div className="border-t border-line p-4 sm:p-5 lg:border-l lg:border-t-0">
           {kit ? (
             <BrandBoard kit={kit} />
           ) : (
@@ -288,7 +277,7 @@ export default function OverviewPanel({
               session — browse a few pages of the site and the brand board appears here.
             </Callout>
           )}
-        </Section>
+        </div>
       </div>
 
       {/* One column: the story, then the numbers it's told about. */}
