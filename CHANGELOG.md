@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Snapshots spend fewer shots
+
+- **One page per dynamic route.** Pages that read as instances of one route —
+  `/posts/hello-world`, `/posts/launch-week`, `/tags/react` — are shot once,
+  as the most visited of them, in gallery and review captures alike. A slug is
+  read from the URL: a number, UUID or `@handle` anywhere; below the top level,
+  hyphenated words or a token with digits; anything under a collection such as
+  `/blog`, `/tags` or `/products`. Top-level pages (`/privacy-policy`) keep
+  their names.
+- **The landing page's phone view goes first, light then dark.** When the two
+  render the same, the site has one look, and the rest of the run skips every
+  dark rendering instead of shooting pictures the finish would throw away —
+  13 shots instead of 24 for six pages with no dark mode. The gallery
+  also leads with `/`, so the route cap never cuts it.
+
 ### A Fix dispatch card on the Settings tab
 
 polishd is building toward handing the issues it verifies to a coding agent
