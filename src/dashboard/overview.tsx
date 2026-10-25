@@ -12,6 +12,11 @@
  * hands every problem to the coding agent working in the repo, copied by the
  * button in the header.
  *
+ * On a phone the board reads the other way up — numbers, story, brand,
+ * snapshots — so the quickest read comes first and the pictures, which take
+ * the most scrolling, last. The DOM order stays the desktop's; CSS order
+ * flips it below `lg`.
+ *
  * The problems themselves aren't on this page. The losses and the design
  * issues live on the Analytics and Design tabs with the controls that act on
  * them (ignore, file a bug); the prompt still carries all of them, built at
@@ -253,9 +258,11 @@ export default function OverviewPanel({
         </Callout>
       )}
 
-      {/* One card: the site as it renders, beside the system it renders with. */}
-      <div className={`mb-6 grid overflow-hidden lg:grid-cols-2 ${card}`}>
-        <div className="flex flex-col p-4 sm:p-5">
+      <div className="flex flex-col gap-6">
+        {/* One card: the site as it renders, beside the system it renders with.
+            On a phone the brand comes first and the pictures last. */}
+        <div className={`order-2 grid overflow-hidden lg:order-1 lg:grid-cols-2 ${card}`}>
+        <div className="order-2 flex flex-col border-t border-line p-4 sm:p-5 lg:order-1 lg:border-t-0">
           {snapshot ? (
             <SnapshotGallery snapshot={snapshot} topPages={topPages} />
           ) : (
@@ -268,7 +275,7 @@ export default function OverviewPanel({
             </Callout>
           )}
         </div>
-        <div className="border-t border-line p-4 sm:p-5 lg:border-l lg:border-t-0">
+        <div className="order-1 p-4 sm:p-5 lg:order-2 lg:border-l lg:border-line">
           {kit ? (
             <BrandBoard kit={kit} />
           ) : (
@@ -282,29 +289,33 @@ export default function OverviewPanel({
 
       {/* The story, with the numbers it's told about in a narrow column beside
           it. Neither side is stretched to the other: a paragraph padded out to
-          four tiles' height, or tiles padded out to a paragraph's, reads as a
-          mistake. */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_11rem] lg:items-start">
-        <OverviewSummary
-          initialStory={story}
-          initialStale={storyStale}
-          summary={summary}
-          review={review}
-          settings={settings}
-          scannedPages={scannedPages}
-          onSummaryChange={onSummaryChange}
-          onReviewChange={onReviewChange}
-        />
-        {/* One row of three under the paragraph on small screens; one column beside it from lg. */}
-        <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
+          three tiles' height, or tiles padded out to a paragraph's, reads as a
+          mistake. On a phone the numbers lead. */}
+      <div className="order-1 grid gap-3 lg:order-2 lg:grid-cols-[minmax(0,1fr)_11rem] lg:items-start">
+        <div className="order-2 min-w-0 lg:order-1">
+          <OverviewSummary
+            initialStory={story}
+            initialStale={storyStale}
+            summary={summary}
+            review={review}
+            settings={settings}
+            scannedPages={scannedPages}
+            onSummaryChange={onSummaryChange}
+            onReviewChange={onReviewChange}
+          />
+        </div>
+        {/* One row of three on small screens; one column beside the paragraph from lg. */}
+        <div className="order-1 grid grid-cols-3 gap-3 lg:order-2 lg:grid-cols-1">
           <OverviewTiles
             overview={overview}
             trends={trends}
             metrics={["sessions", "pageViews"]}
             gridClassName="contents"
+            dot={false}
           />
           <MobileTile devices={devices} />
         </div>
+      </div>
       </div>
     </main>
   );
@@ -708,7 +719,6 @@ function PlainTile({
     <div className={`${card} px-4 pb-3 pt-4`}>
       {/* The label wraps rather than truncates: three tiles share a phone's width. */}
       <div className={`flex items-center gap-1.5 ${labelCls}`}>
-        <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg-4" />
         <span className="min-w-0 leading-tight">{label}</span>
         <InfoTip text={tip} />
       </div>

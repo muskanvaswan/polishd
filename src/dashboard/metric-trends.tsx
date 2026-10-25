@@ -117,6 +117,7 @@ export default function OverviewTiles({
   trends,
   metrics,
   gridClassName = "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6",
+  dot = true,
 }: {
   overview: OverviewStats;
   trends: MetricTrends;
@@ -127,6 +128,12 @@ export default function OverviewTiles({
   metrics?: MetricKey[];
   /** The tiles' grid. `contents` lets them join a grid the caller owns. */
   gridClassName?: string;
+  /**
+   * The tone dot before each label. It tells the friction tiles from the
+   * audience ones on the Analytics tab; a page showing only audience tiles
+   * has nothing for it to tell apart.
+   */
+  dot?: boolean;
 }) {
   // Daily is the better default once there's more than a day of history;
   // before that it's a single bar, and hourly is the only shape worth drawing.
@@ -149,6 +156,7 @@ export default function OverviewTiles({
             value={overview[m.key]}
             spark={hasTrend ? series.map((p) => p[m.key]) : []}
             onOpen={hasTrend ? () => setOpen(m.key) : null}
+            dot={dot}
           />
         ))}
       </div>
@@ -204,16 +212,18 @@ function StatTile({
   value,
   spark,
   onOpen,
+  dot,
 }: {
   meta: MetricMeta;
   value: number;
   spark: number[];
   onOpen: (() => void) | null;
+  dot: boolean;
 }) {
   const body = (
     <>
       <div className={`flex items-center gap-1.5 ${labelCls}`}>
-        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneDot[meta.tone]}`} />
+        {dot && <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneDot[meta.tone]}`} />}
         <span className="min-w-0 leading-tight">{meta.label}</span>
         <InfoTip text={meta.tip} focusable={false} />
       </div>
