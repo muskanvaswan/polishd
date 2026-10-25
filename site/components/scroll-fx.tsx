@@ -40,8 +40,7 @@ export default function ScrollFX() {
     const reveal = (el: HTMLElement, instant = false) => {
       el.classList.add("in");
 
-      const n = el.querySelector<HTMLElement>("[data-count]");
-      if (n) countUp(n, instant);
+      el.querySelectorAll<HTMLElement>("[data-count]").forEach((n) => countUp(n, instant));
 
       el.querySelectorAll<HTMLElement>(".fill").forEach((f, i) => {
         const paint = () => {
@@ -73,10 +72,13 @@ export default function ScrollFX() {
         return;
       }
 
-      // Rewind the server-rendered figure so it can count back up. Safe to do
-      // after paint: `.r` is still transparent until this element is revealed.
-      const n = el.querySelector<HTMLElement>("[data-count]");
-      if (n && !reduce) n.textContent = "0";
+      // Rewind the server-rendered figures so they can count back up. Safe to
+      // do after paint: `.r` is still transparent until this element is revealed.
+      if (!reduce) {
+        el.querySelectorAll<HTMLElement>("[data-count]").forEach((n) => {
+          n.textContent = "0";
+        });
+      }
 
       io.observe(el);
     });

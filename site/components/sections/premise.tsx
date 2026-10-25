@@ -26,23 +26,23 @@ export default function Premise() {
         <Heading>
           Build fast,
           <br />
-          <span className="text-[#666]">refine relentlessly.</span>
+          <span className="text-fg-3">refine relentlessly.</span>
         </Heading>
         <Sub>
           Vibe coding gets you to a working build in a weekend, and hands the rough edges to your
           users to discover. Shipping got cheap; finishing didn&apos;t.
         </Sub>
 
-        <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-[#2e2e2e] bg-[#2e2e2e] sm:grid-cols-3">
+        <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-line bg-[#2e2e2e] sm:grid-cols-3">
           {BEATS.map((b, i) => (
             <div
               key={b.k}
-              className="r bg-[#0a0a0a] p-5"
+              className="r bg-surface p-5"
               style={{ "--d": `${i * 80}ms` } as React.CSSProperties}
             >
               <div className="label">{b.k}</div>
               <div className="mt-3 text-[22px] font-semibold tracking-[-0.025em]">{b.v}</div>
-              <p className="mt-2.5 text-[13.5px] leading-[1.2] text-[#666]">{b.d}</p>
+              <p className="mt-2.5 text-[13.5px] leading-[1.2] text-fg-3">{b.d}</p>
             </div>
           ))}
         </div>

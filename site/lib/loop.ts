@@ -43,7 +43,7 @@ export const STAGES: Stage[] = [
     name: "Surface",
     status: "live",
     lead: "A bug, not a chart.",
-    body: "Wins and losses, each cited to the exact page, selector or source file — and filed to GitHub in one click. Citations that aren’t in the data are thrown away.",
+    body: "Every loss and design issue lands in one Actionables list, cited to the exact page, selector or source file — verified against your source and filed to GitHub in one click. Citations that aren’t in the data are thrown away.",
   },
   {
     id: "05",
