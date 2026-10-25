@@ -35,8 +35,9 @@ renders with, then one column of the story and the numbers.
   issues — and the ignore and file-bug controls that act on them — stay on
   the Analytics and Design tabs.
 - **Visitors** — sessions, page views, views per session and the share on
-  mobile — sit under the paragraph in the same column; the friction counts
-  stay on the Analytics tab.
+  mobile — sit beside the paragraph; the friction counts stay on the
+  Analytics tab. Colors the paragraph cites render as the Design tab's
+  copyable chips.
 
 **Copy fix prompt** and **Paste verdicts** are unchanged: the prompt still
 carries every problem both reviews found, built from the latest summary and

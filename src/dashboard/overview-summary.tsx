@@ -10,7 +10,8 @@
  * paragraph is all this card shows — not the two texts one after the other,
  * and not the problems, which stay on their tabs with the controls that act
  * on them. The card carries its own caption and refresh; the headline numbers
- * sit under it in the same column.
+ * sit beside it. Hex colors the paragraph cites render as the Design tab's
+ * copyable chips, and contrast ratios as its contrast score.
  *
  * The paragraph is written from the two reviews, so it follows them: one
  * refresh regenerates the summary, the review and then the paragraph, and a
@@ -19,7 +20,7 @@
  * and folding them is the one call the Overview owes for itself. Nothing
  * else here calls a model unprompted.
  */
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import {
   generateDesignReviewAction,
@@ -33,6 +34,7 @@ import type {
   PolishdSummary,
 } from "../ai/types";
 import { TabLink } from "./chrome";
+import { Annotated } from "./design-tokens";
 import { UNREACHABLE } from "./dismissable";
 import { Badge, Callout, RefreshIcon, SparkIcon, card, eyebrowCls, iconBtn, primaryBtn, relTime } from "./ui";
 
@@ -49,8 +51,6 @@ export interface OverviewSummaryProps {
   /** Told when a regenerate lands — the Overview builds its fix prompt from these. */
   onSummaryChange?: (summary: PolishdSummary) => void;
   onReviewChange?: (review: PolishdDesignReview) => void;
-  /** What sits under the card in the same column — the headline numbers. */
-  children?: ReactNode;
 }
 
 export default function OverviewSummary({
@@ -62,7 +62,6 @@ export default function OverviewSummary({
   scannedPages,
   onSummaryChange,
   onReviewChange,
-  children,
 }: OverviewSummaryProps) {
   const [story, setStory] = useState(initialStory);
   const [stale, setStale] = useState(initialStale);
@@ -145,13 +144,12 @@ export default function OverviewSummary({
   const writing = pending && story === null;
 
   return (
-    <>
-      {/* data-component names feed polishd's own dashboard telemetry; inert for host apps. */}
-      <section
-        data-component="overview-summary"
-        aria-label="Overview"
-        className={`${card} overflow-hidden`}
-      >
+    // data-component names feed polishd's own dashboard telemetry; inert for host apps.
+    <section
+      data-component="overview-summary"
+      aria-label="Overview"
+      className={`${card} h-full overflow-hidden`}
+    >
         <div className="px-4 pb-5 pt-4 sm:px-5">
           <div className="mb-3 flex items-center justify-between gap-3">
             <span className={eyebrowCls}>Overview</span>
@@ -180,7 +178,9 @@ export default function OverviewSummary({
 
           {story ? (
             <>
-              <p className="max-w-[80ch] text-[15px] leading-[1.7] text-fg">{story.text}</p>
+              <p className="max-w-[80ch] text-[15px] leading-[1.7] text-fg">
+                <Annotated text={story.text} />
+              </p>
               <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="text-accent">
@@ -212,9 +212,7 @@ export default function OverviewSummary({
             />
           )}
         </div>
-      </section>
-      {children}
-    </>
+    </section>
   );
 }
 

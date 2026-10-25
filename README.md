@@ -315,8 +315,7 @@ The dashboard opens on the **Overview**, laid out as a board of the site:
   the paragraph. The problems each review found stay on its own tab, with the
   ignore and file-bug controls that act on them.
 - **Visitors** — sessions, page views, views per session and the share on
-  mobile, under the paragraph in the same column, each tile opening its chart
-  over time.
+  mobile, beside the paragraph, each tile opening its chart over time.
 
 **Copy fix prompt** turns every problem the two reviews found into one message
 for the coding agent working in your repo — Claude Code, Cursor, or anything

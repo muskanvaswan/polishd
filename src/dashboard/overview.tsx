@@ -6,11 +6,11 @@
  * The dashboard's front page, laid out as a board. One card: the site as it
  * last rendered, in a bento of its top pages' heroes, beside its brand — the
  * colors and type the pages actually ship — with no headings over either;
- * the pictures and the type carry it. Under it, one column: the story both
+ * the pictures and the type carry it. Under it, a second row: the story both
  * reviews tell, written as a single paragraph by the model, with the headline
- * audience numbers beneath. Then the step after reading — a prompt that hands
- * every problem to the coding agent working in the repo, copied by the button
- * in the header.
+ * audience numbers beside it. Then the step after reading — a prompt that
+ * hands every problem to the coding agent working in the repo, copied by the
+ * button in the header.
  *
  * The problems themselves aren't on this page. The losses and the design
  * issues live on the Analytics and Design tabs with the controls that act on
@@ -280,18 +280,19 @@ export default function OverviewPanel({
         </div>
       </div>
 
-      {/* One column: the story, then the numbers it's told about. */}
-      <OverviewSummary
-        initialStory={story}
-        initialStale={storyStale}
-        summary={summary}
-        review={review}
-        settings={settings}
-        scannedPages={scannedPages}
-        onSummaryChange={onSummaryChange}
-        onReviewChange={onReviewChange}
-      >
-        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* The story, with the numbers it's told about beside it. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <OverviewSummary
+          initialStory={story}
+          initialStale={storyStale}
+          summary={summary}
+          review={review}
+          settings={settings}
+          scannedPages={scannedPages}
+          onSummaryChange={onSummaryChange}
+          onReviewChange={onReviewChange}
+        />
+        <div className="grid grid-cols-2 auto-rows-fr gap-3">
           <OverviewTiles
             overview={overview}
             trends={trends}
@@ -301,7 +302,7 @@ export default function OverviewPanel({
           <DepthTile overview={overview} />
           <MobileTile devices={devices} />
         </div>
-      </OverviewSummary>
+      </div>
     </main>
   );
 }
