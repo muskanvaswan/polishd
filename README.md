@@ -3,8 +3,8 @@
 > **What gets measured gets improved.**
 
 Drop-in **product analytics** for Next.js (App Router). Capture real user
-behavioral signals — rage clicks, dead clicks, scroll depth, JS errors, web
-vitals, component engagement — and explore them on a built-in, Vercel-style
+behavioral signals — rage clicks, dead clicks, scroll depth, web vitals,
+component engagement — and explore them on a built-in, Vercel-style
 dashboard at `/polishd`. A second **Design** tab reverse-engineers your site's
 design system from the rendered pages — typography, palette, radii, spacing —
 and flags what breaks it. The **Overview** the dashboard opens on puts both
@@ -448,7 +448,7 @@ authoritative context, so:
 
 > **What the model sees.** A compact, server-side digest of the aggregated
 > analytics (page paths, element selectors, `data-component` names, sample
-> text, error messages), the cached project profile, and the description you
+> text), the cached project profile, and the description you
 > provide. Your source is read only during an explicit scan (or a targeted
 > gap-fill), and always under strict size budgets.
 
@@ -879,7 +879,7 @@ tracked have none.
 
 **On the Analytics tab**, a range control in the header scopes every section
 at once — the tiles and their charts, top pages, device sizes, journeys,
-elements, errors — to the last 24 hours, 7, 30 or 90 days, all time (the
+elements — to the last 24 hours, 7, 30 or 90 days, all time (the
 default), or **This build**: the one currently shipping. The range is in the
 URL (`?tab=analytics&range=7d`), so a view is a link. Windows are measured on
 the server's receive time, so a visitor with a wrong clock can't move an event
@@ -941,9 +941,7 @@ once; nothing is sent unless you say yes. What's shared when you do:
 - Once per session, whether a **model is connected** and which provider/model
   it is — never the key, never any setting beyond those two names — and the
   **polishd version** you run. This is how the project learns which AI setups
-  to test against, and which release an error came from.
-- JavaScript errors raised while the dashboard is open, with the dashboard
-  control clicked just before one, if any.
+  to test against, and which release the friction it sees came from.
 
 Say no and it never asks again. Change your mind, or disable it fleet-wide,
 with `POLISHD_TELEMETRY=off`; `navigator.doNotTrack` is honored regardless of
@@ -973,20 +971,8 @@ import { definePolishdConfig } from "@polishd/next";
 export default definePolishdConfig({
   sampleRate: 1,
   rageClick: { count: 3, windowMs: 500 },
-  ignoreErrors: [],
 });
 ```
-
-Browser-extension errors are never recorded. `window` hears every throw in the
-tab, so an extension's failures — "Failed to connect to MetaMask" and its kin —
-would otherwise show up as your site's noisiest bugs. Rather than match error
-text, polishd asks whose script threw: the browser records every script your
-document actually fetched, extension code is never among them, so an error
-whose stack points outside that set is identifiable as injected without knowing
-what it's called. Confident extension errors are dropped at capture and again
-at ingest; errors that merely *can't* be attributed to your code are kept and
-labelled, not hidden. `ignoreErrors` (strings, matched case-insensitively, or
-regexes) drops anything else you'd rather not see.
 
 The dashboard never measures itself: nothing on `/polishd` (or below it) is
 captured, so reading your analytics can't show up as your site's most-used

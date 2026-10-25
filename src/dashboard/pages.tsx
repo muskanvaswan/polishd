@@ -46,9 +46,19 @@ function Th({
 }
 
 // ── Page-level metadata grid ──────────────────────────────────────────────────
-function MetaCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function MetaCell({
+  label,
+  value,
+  tone,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  className?: string;
+}) {
   return (
-    <div className="bg-surface px-4 py-3">
+    <div className={`bg-surface px-4 py-3 ${className}`}>
       <div className={labelCls}>{label}</div>
       <div className={`mt-1 text-[18px] font-semibold tracking-[-0.01em] tabular-nums ${tone ?? "text-fg"}`}>
         {value}
@@ -77,15 +87,12 @@ function PageMeta({ page }: { page: TopPage }) {
         value={String(page.rageClicks)}
         tone={page.rageClicks > 0 ? "text-bad" : "text-fg-3"}
       />
+      {/* Seven cells: the last spans two so neither layout leaves a gap. */}
       <MetaCell
         label="Dead clicks"
         value={String(page.deadClicks)}
         tone={page.deadClicks > 0 ? "text-warn" : "text-fg-3"}
-      />
-      <MetaCell
-        label="JS errors"
-        value={String(page.jsErrors)}
-        tone={page.jsErrors > 0 ? "text-bad" : "text-fg-3"}
+        className="col-span-2"
       />
     </div>
   );
@@ -231,9 +238,6 @@ function PageRow({ page, onOpen }: { page: TopPage; onOpen: () => void }) {
       <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${page.deadClicks > 0 ? "text-warn" : "text-fg-3"}`}>
         {page.deadClicks}
       </td>
-      <td className={`py-3 px-4 text-right text-[13px] tabular-nums ${page.jsErrors > 0 ? "text-bad" : "text-fg-3"}`}>
-        {page.jsErrors}
-      </td>
       <td className="py-3 pl-4 pr-5 text-right text-fg-3">
         <span className="inline-flex transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-fg-2">
           <ChevronRightIcon size={15} />
@@ -265,7 +269,6 @@ export default function TopPagesTable({ pages }: { pages: TopPage[] }) {
                 <Th tip="page_view events — loads plus soft navigations to this route.">Views</Th>
                 <Th tip="Rage clicks (3+ in 500ms on one element) on this page.">Rage</Th>
                 <Th tip="Dead clicks (on non-interactive, non-text elements) on this page.">Dead</Th>
-                <Th tip="JS errors thrown on this page.">Errors</Th>
                 <Th tip="Open the sessions-over-time chart.">{""}</Th>
               </tr>
             </thead>

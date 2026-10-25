@@ -261,21 +261,25 @@ export default function Design() {
               </div>
 
               <div className="space-y-2 px-4 pt-5 sm:px-5">
-                {SPACING.map((s) => (
-                  <div key={s.px} className="flex items-center gap-3">
-                    <span className="w-9 shrink-0 text-right font-mono text-[11.5px] tabular-nums text-fg-2">
-                      {s.px}px
-                    </span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-raised">
-                      <div
-                        className={`fill h-full rounded-full ${s.offGrid ? "bg-warn/80" : "bg-accent/80"}`}
-                        data-w={Math.max((s.px / SPACING_MAX) * 100, 2)}
-                      />
+                {SPACING.map((s) => {
+                  const w = Math.max((s.px / SPACING_MAX) * 100, 2);
+                  return (
+                    <div key={s.px} className="flex items-center gap-3">
+                      <span className="w-9 shrink-0 text-right font-mono text-[11.5px] tabular-nums text-fg-2">
+                        {s.px}px
+                      </span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-raised">
+                        <div
+                          className={`fill h-full rounded-full ${s.offGrid ? "bg-warn/80" : "bg-accent/80"}`}
+                          data-w={w}
+                          style={{ "--w": w } as React.CSSProperties}
+                        />
+                      </div>
+                      <span className="w-9 shrink-0 text-right text-[11.5px] tabular-nums text-fg-3">×{s.uses}</span>
+                      <span className="w-14 shrink-0">{s.offGrid && <Badge tone="warn">off-grid</Badge>}</span>
                     </div>
-                    <span className="w-9 shrink-0 text-right text-[11.5px] tabular-nums text-fg-3">×{s.uses}</span>
-                    <span className="w-14 shrink-0">{s.offGrid && <Badge tone="warn">off-grid</Badge>}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <Callout tone="info" className="mx-4 my-4 sm:mx-5">

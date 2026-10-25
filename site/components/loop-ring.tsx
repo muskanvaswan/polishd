@@ -2,9 +2,10 @@ import type { Stage } from "@/lib/loop";
 import { StatusChip } from "@/components/ui";
 
 /**
- * The loop as a ring: six nodes, the shipped half drawn solid and the half
- * still in beta drawn dashed. The travelling arc closes the circle on the last
- * stage — the point being that this is a cycle, not a funnel.
+ * The loop as a ring: a node per stage, the shipped stretch drawn solid and
+ * the stretch still in beta drawn dashed. The travelling arc closes the
+ * circle on the last stage — the point being that this is a cycle, not a
+ * funnel.
  */
 
 const CX = 200;
@@ -12,9 +13,6 @@ const CY = 200;
 const R = 115;
 const LABEL_R = 141;
 const CIRC = 2 * Math.PI * R;
-const STEP = 60; // 6 stages around the ring
-
-const angleOf = (i: number) => -90 + i * STEP;
 
 function point(radius: number, deg: number) {
   const rad = (deg * Math.PI) / 180;
@@ -38,10 +36,16 @@ function anchorFor(deg: number): { anchor: "start" | "middle" | "end"; dy: numbe
 export default function LoopRing({
   stages,
   active,
+  dir = 1,
 }: {
   stages: Stage[];
   active: number;
+  /** Which way the reader last moved through the stages: 1 down, -1 back up. */
+  dir?: 1 | -1;
 }) {
+  // Evenly round the ring, starting at twelve o'clock.
+  const angleOf = (i: number) => -90 + (i * 360) / stages.length;
+
   const current = stages[active];
   const coming = current.status === "coming";
   const accent = coming ? "#fbbf24" : "#f5f5f5";
@@ -59,7 +63,9 @@ export default function LoopRing({
 
   return (
     <div className="relative mx-auto w-full max-w-[320px] sm:max-w-[380px]">
-      <svg viewBox="0 0 400 400" className="w-full" role="img" aria-label="The Polishd loop">
+      {/* A little room either side: with seven stages the labels nearest
+          three and nine o'clock reach almost to the ring's own width. */}
+      <svg viewBox="-12 0 424 400" className="w-full" role="img" aria-label="The Polishd loop">
         {/* Shipped half — solid. Beta half — dashed. */}
         <path
           d={arcPath(angleOf(0), angleOf(firstComing))}
@@ -116,21 +122,24 @@ export default function LoopRing({
 
           return (
             <g key={stage.id} className="ring-node">
-              {isActive && (
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={13}
-                  fill="none"
-                  stroke={tone}
-                  strokeWidth={1}
-                  opacity={0.28}
-                />
-              )}
+              {/* Every node keeps its halo and its size change mounted, so moving
+                  between stages is a transition rather than a swap (globals.css). */}
               <circle
                 cx={node.x}
                 cy={node.y}
-                r={isActive ? 6.5 : 5}
+                r={13}
+                fill="none"
+                stroke={tone}
+                strokeWidth={1}
+                className="ring-halo"
+                data-active={isActive || undefined}
+              />
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={5}
+                className="ring-dot"
+                data-active={isActive || undefined}
                 fill={isActive ? tone : reached ? "#5e5e5e" : "#121212"}
                 stroke={isActive ? tone : reached ? "#5e5e5e" : "#363636"}
                 strokeWidth={1.5}
@@ -155,14 +164,21 @@ export default function LoopRing({
       <div className="pointer-events-none absolute inset-0 grid place-items-center">
         <div className="text-center">
           <div className="label">Stage</div>
+          {/* Keyed per stage, so each new one plays its entrance. */}
           <div
-            className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.04em] tabular-nums transition-colors duration-300"
-            style={{ color: accent }}
+            key={current.id}
+            className="ring-readout"
+            style={{ "--dir": dir } as React.CSSProperties}
           >
-            {current.id}
+            <div
+              className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.04em] tabular-nums"
+              style={{ color: accent }}
+            >
+              {current.id}
+            </div>
+            <div className="mt-2 text-[15px] font-medium">{current.name}</div>
+            <StatusChip status={current.status} dot className="mt-2.5" />
           </div>
-          <div className="mt-2 text-[15px] font-medium">{current.name}</div>
-          <StatusChip status={current.status} dot className="mt-2.5" />
         </div>
       </div>
     </div>

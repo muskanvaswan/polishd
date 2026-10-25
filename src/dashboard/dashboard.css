@@ -192,7 +192,7 @@
 
     /* Ink: pure neutral greys, no tint. The accent is the text colour
        itself, so the only colour on the page is status — green healthy,
-       amber dead clicks, red rage and errors — and nothing decorative ever
+       amber dead clicks, red rage clicks — and nothing decorative ever
        competes with it. Three surface steps a few points apart let a card sit
        on the page and a control on the card without heavy borders. Text steps
        are chosen against the surfaces they appear on: fg-3 still clears

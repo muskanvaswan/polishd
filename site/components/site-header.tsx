@@ -49,7 +49,7 @@ function NavLink({
     <a
       href={href}
       rel="noopener"
-      className={`rounded-[7px] px-2.5 py-[7px] text-[12.5px] text-fg-3 transition-colors duration-200 hover:bg-raised hover:text-fg ${
+      className={`rounded-[7px] px-2.5 py-[7px] text-[12.5px] text-fg-3 transition-[color,background-color,scale] duration-150 ease-out hover:bg-raised hover:text-fg active:scale-[0.97] ${
         hideOnMobile ? "max-sm:hidden" : ""
       }`}
     >

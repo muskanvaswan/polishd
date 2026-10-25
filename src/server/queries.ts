@@ -20,7 +20,6 @@ import {
 import { NO_SESSION_META_KEY } from "./ingest";
 import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
-import { isIgnorableError } from "../shared/error-noise";
 import {
   EMPTY_FRICTION,
   foldFriction,
@@ -122,7 +121,6 @@ export interface OverviewStats {
   pageViews: number;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
 }
 
 export interface PageStat {
@@ -131,47 +129,9 @@ export interface PageStat {
   pageViews: number;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
   avgScrollDepth: number | null;
   /** Composite score; higher = worse. */
   score: number;
-}
-
-/**
- * One distinct error, with every recorded throw of it folded in. Identity is
- * the message, component and origin — not the page, so a bug that fires on
- * every product page is one entry rather than one per URL.
- */
-export interface RecentError {
-  /** The page it was most recently seen on. */
-  path: string;
-  message: string;
-  component?: string;
-  /** When it was most recently seen. */
-  ts: number;
-  /** How many times it was recorded, across all pages. */
-  count: number;
-  /** Every page it was seen on, most recent first. */
-  paths: string[];
-  /**
-   * Who the client attributed the throw to. Absent means the site's own code —
-   * the common case, left unlabeled. `foreign` is a script this page never
-   * loaded (injected from somewhere), `unknown` is an error with nothing
-   * attributable at all. Confident extension errors never make it this far.
-   */
-  origin?: "foreign" | "unknown";
-  /**
-   * Context from the most recent occurrence, each absent when that throw
-   * didn't carry it (older clients carry none): Next's error digest, the top
-   * stack frame, the click shortly before it (`after`, `afterMs` before,
-   * `afterSelector`), and a path to find the element in the source.
-   */
-  digest?: string;
-  frame?: string;
-  after?: string;
-  afterMs?: number;
-  afterSelector?: string;
-  handle?: string;
 }
 
 export interface ElementStat {
@@ -251,7 +211,6 @@ export async function getOverview(filter: EventFilter = {}): Promise<OverviewSta
       pageViews: 0,
       rageClicks: 0,
       deadClicks: 0,
-      jsErrors: 0,
     };
   }
   const [row] = await query(
@@ -260,8 +219,7 @@ export async function getOverview(filter: EventFilter = {}): Promise<OverviewSta
        COUNT(DISTINCT session_id)                                    AS sessions,
        SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)          AS "pageViews",
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)          AS "rageClicks",
-       SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)          AS "deadClicks",
-       SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)          AS "jsErrors"
+       SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)          AS "deadClicks"
      FROM ${polishdEventsSource(filter)}`,
   );
 
@@ -272,14 +230,13 @@ export async function getOverview(filter: EventFilter = {}): Promise<OverviewSta
     pageViews: num(row, "pageViews"),
     rageClicks: num(row, "rageClicks"),
     deadClicks: num(row, "deadClicks"),
-    jsErrors: num(row, "jsErrors"),
   };
 }
 
 /**
  * Score ranking. Weights match the build plan's guidance — rage clicks are
- * the strongest frustration signal, then dead clicks and errors; shallow
- * scroll (content not reached) contributes mildly.
+ * the strongest frustration signal, then dead clicks; shallow scroll (content
+ * not reached) contributes mildly.
  */
 export async function getPageStats(limit = 5, filter: EventFilter = {}): Promise<PageStat[]> {
   const rows = await query(
@@ -289,7 +246,6 @@ export async function getPageStats(limit = 5, filter: EventFilter = {}): Promise
        SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)           AS "pageViews",
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)           AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)           AS "deadClicks",
-       SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)           AS "jsErrors",
        AVG(CASE WHEN type = 'scroll_depth' THEN value END)            AS "avgScrollDepth"
      FROM ${polishdEventsSource(filter)}
      GROUP BY path`,
@@ -299,21 +255,18 @@ export async function getPageStats(limit = 5, filter: EventFilter = {}): Promise
     .map((r): PageStat => {
       const rageClicks = num(r, "rageClicks");
       const deadClicks = num(r, "deadClicks");
-      const jsErrors = num(r, "jsErrors");
       const avg = r.avgScrollDepth;
       const avgNum = typeof avg === "number" ? avg : typeof avg === "string" ? Number(avg) : NaN;
       const avgScrollDepth = Number.isFinite(avgNum) ? Math.round(avgNum) : null;
       const shallowPenalty =
         avgScrollDepth !== null && avgScrollDepth < 50 ? (50 - avgScrollDepth) / 25 : 0;
-      const score =
-        rageClicks * 3 + deadClicks * 2 + jsErrors * 2.5 + shallowPenalty;
+      const score = rageClicks * 3 + deadClicks * 2 + shallowPenalty;
       return {
         path: r.path as string,
         sessions: num(r, "sessions"),
         pageViews: num(r, "pageViews"),
         rageClicks,
         deadClicks,
-        jsErrors,
         avgScrollDepth,
         score: Math.round(score * 10) / 10,
       };
@@ -373,7 +326,6 @@ export interface TopPage {
   pageViews: number;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
   avgScrollDepth: number | null;
   /** Daily sessions series, oldest → newest, gap-filled. */
   trend: PageTrendPoint[];
@@ -411,7 +363,6 @@ export async function getTopPages(limit = 8, filter: EventFilter = {}): Promise<
        SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)           AS "pageViews",
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)           AS "rageClicks",
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)           AS "deadClicks",
-       SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)           AS "jsErrors",
        AVG(CASE WHEN type = 'scroll_depth' THEN value END)            AS "avgScrollDepth"
      FROM ${polishdEventsSource(filter)}
      GROUP BY path`,
@@ -427,7 +378,6 @@ export async function getTopPages(limit = 8, filter: EventFilter = {}): Promise<
         pageViews: num(r, "pageViews"),
         rageClicks: num(r, "rageClicks"),
         deadClicks: num(r, "deadClicks"),
-        jsErrors: num(r, "jsErrors"),
         avgScrollDepth: Number.isFinite(avgNum) ? Math.round(avgNum) : null,
       };
     })
@@ -478,9 +428,9 @@ export async function getTopPages(limit = 8, filter: EventFilter = {}): Promise<
 }
 
 // ── Overview metric trends ───────────────────────────────────────────────────
-// The six numbers at the top of the dashboard are all-time totals, which say
+// The five numbers at the top of the dashboard are all-time totals, which say
 // nothing about *when* anything happened. These series are what the tiles open
-// into: the same six metrics bucketed over time, at both granularities, so the
+// into: the same five metrics bucketed over time, at both granularities, so the
 // chart can switch between them without another round trip.
 
 /** The overview tiles, each of which has a series in `MetricPoint`. */
@@ -489,7 +439,6 @@ export type MetricKey =
   | "pageViews"
   | "rageClicks"
   | "deadClicks"
-  | "jsErrors"
   | "totalEvents";
 
 /** How wide one bucket is. Both are always computed; the reader picks. */
@@ -498,9 +447,9 @@ export type TrendGranularity = "hour" | "day";
 /**
  * One time bucket, carrying every overview metric at once.
  *
- * All six ride together because they come from one grouped scan and the chart
- * lets you flip between metrics — paying for six columns once is cheaper than
- * six queries, and much cheaper than a fetch per switch.
+ * All five ride together because they come from one grouped scan and the chart
+ * lets you flip between metrics — paying for five columns once is cheaper than
+ * five queries, and much cheaper than a fetch per switch.
  */
 export interface MetricPoint {
   /** Bucket start — UTC, ms since epoch. */
@@ -518,7 +467,6 @@ export interface MetricPoint {
   pageViews: number;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
   /** Every captured event in the bucket, of any type. */
   totalEvents: number;
 }
@@ -571,8 +519,7 @@ async function metricSeries(
             COUNT(DISTINCT session_id)                               AS sessions,
             SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)     AS "pageViews",
             SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)     AS "rageClicks",
-            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)     AS "deadClicks",
-            SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)     AS "jsErrors"
+            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)     AS "deadClicks"
      FROM ${polishdEventsSource(filter)}
      GROUP BY (ts / ${bucketMs})`,
   );
@@ -584,7 +531,6 @@ async function metricSeries(
       pageViews: num(r, "pageViews"),
       rageClicks: num(r, "rageClicks"),
       deadClicks: num(r, "deadClicks"),
-      jsErrors: num(r, "jsErrors"),
       totalEvents: num(r, "totalEvents"),
     });
   }
@@ -603,7 +549,6 @@ async function metricSeries(
         pageViews: c?.pageViews ?? 0,
         rageClicks: c?.rageClicks ?? 0,
         deadClicks: c?.deadClicks ?? 0,
-        jsErrors: c?.jsErrors ?? 0,
         totalEvents: c?.totalEvents ?? 0,
       };
     },
@@ -767,8 +712,6 @@ export interface JourneyStep {
   path: string;
   /** Component name, element text, or selector — whatever identifies the target. */
   label: string | null;
-  /** Extra context for the step (error message, scroll %, etc.). */
-  detail: string | null;
 }
 
 /** Device/viewport details sampled once at the start of a session. */
@@ -795,7 +738,6 @@ export interface SessionJourney {
   device: JourneyDevice;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
   /** Composite score; higher = worse. Drives the sampling order. */
   score: number;
   /** Ordered list of user actions. */
@@ -810,7 +752,6 @@ const JOURNEY_ACTION_TYPES: ReadonlySet<PolishdEventType> = new Set<PolishdEvent
   "click",
   "rage_click",
   "dead_click",
-  "js_error",
   "session_end",
 ]);
 
@@ -820,8 +761,8 @@ const MAX_JOURNEY_STEPS = 50;
 /**
  * Sampled full-session recordings, reconstructed as ordered action flows.
  *
- * Sampling strategy: every session is scored by a composite score (rage×3 + dead×2 +
- * errors×2.5). We surface the highest-scoring sessions first — those are the
+ * Sampling strategy: every session is scored by a composite score (rage×3 +
+ * dead×2). We surface the highest-scoring sessions first — those are the
  * ones worth replaying — preferring *complete* recordings (a `session_end` was
  * captured) and breaking ties by recency. When there's no signal at all this
  * degrades to "most recent complete sessions", so the section is still useful.
@@ -841,7 +782,6 @@ export async function getSessionJourneys(
        COUNT(DISTINCT path)                                           AS pages,
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)          AS rage,
        SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)          AS dead,
-       SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)          AS errors,
        MAX(CASE WHEN type = 'session_end' THEN 1 ELSE 0 END)         AS complete,
        SUM(CASE WHEN type IN ('page_view','click','rage_click','dead_click')
                 THEN 1 ELSE 0 END)                                   AS actions
@@ -853,7 +793,6 @@ export async function getSessionJourneys(
     .map((r) => {
       const rage = num(r, "rage");
       const dead = num(r, "dead");
-      const errors = num(r, "errors");
       return {
         id: r.id as string,
         started: num(r, "started"),
@@ -861,10 +800,9 @@ export async function getSessionJourneys(
         pages: num(r, "pages"),
         rage,
         dead,
-        errors,
         complete: num(r, "complete") === 1,
         actions: num(r, "actions"),
-        score: Math.round((rage * 3 + dead * 2 + errors * 2.5) * 10) / 10,
+        score: rage * 3 + dead * 2,
       };
     })
     // A "journey" needs at least a couple of actions to be worth showing.
@@ -926,11 +864,7 @@ export async function getSessionJourneys(
       if (steps.length >= MAX_JOURNEY_STEPS) break;
 
       let label: string | null = null;
-      let detail: string | null = null;
-      if (type === "js_error") {
-        const meta = parseMeta(e.meta);
-        detail = meta && typeof meta.message === "string" ? meta.message : "Unknown error";
-      } else if (type !== "page_view" && type !== "session_end") {
+      if (type !== "page_view" && type !== "session_end") {
         const near = type === "dead_click" ? parseMeta(e.meta)?.near : undefined;
         label =
           (e.component as string) ||
@@ -940,7 +874,7 @@ export async function getSessionJourneys(
           null;
       }
 
-      steps.push({ type, ts: num(e, "ts"), path: e.path as string, label, detail });
+      steps.push({ type, ts: num(e, "ts"), path: e.path as string, label });
     }
 
     return {
@@ -953,7 +887,6 @@ export async function getSessionJourneys(
       device,
       rageClicks: s.rage,
       deadClicks: s.dead,
-      jsErrors: s.errors,
       score: s.score,
       steps,
       truncated: steps.length >= MAX_JOURNEY_STEPS,
@@ -1002,9 +935,9 @@ export interface MonitoredComponent {
  * complete picture.
  *
  * The per-view `meta` (height, scrollDepth) is parsed and aggregated in JS.
- * A single key can be read in SQL on both backends with `meta ->> 'key'` (see
- * `getRecentErrors`), but averaging numbers out of it would need a cast each
- * backend spells differently — and this table is small enough to fold here.
+ * A single key can be read in SQL on both backends with `meta ->> 'key'`, but
+ * averaging numbers out of it would need a cast each backend spells
+ * differently — and this table is small enough to fold here.
  */
 export async function getMonitoredComponents(filter: EventFilter = {}): Promise<MonitoredComponent[]> {
   if (!(await storeReady())) return [];
@@ -1167,7 +1100,6 @@ export interface BuildStat {
   pageViews: number;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
 }
 
 /**
@@ -1191,8 +1123,7 @@ export async function getBuilds(limit = 50, filter: EventFilter = {}): Promise<B
             COUNT(*)                                              AS events,
             SUM(CASE WHEN type = 'page_view'  THEN 1 ELSE 0 END)  AS "pageViews",
             SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)  AS "rageClicks",
-            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)  AS "deadClicks",
-            SUM(CASE WHEN type = 'js_error'   THEN 1 ELSE 0 END)  AS "jsErrors"
+            SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END)  AS "deadClicks"
      FROM ${polishdEventsSource(filter)}
      WHERE build IS NOT NULL
      GROUP BY build
@@ -1209,7 +1140,6 @@ export async function getBuilds(limit = 50, filter: EventFilter = {}): Promise<B
     pageViews: num(r, "pageViews"),
     rageClicks: num(r, "rageClicks"),
     deadClicks: num(r, "deadClicks"),
-    jsErrors: num(r, "jsErrors"),
   }));
 }
 
@@ -1234,7 +1164,6 @@ export interface PolishdDashboardData {
   devices: Awaited<ReturnType<typeof getDeviceBreakdown>>;
   topUsed: Awaited<ReturnType<typeof getTopInteractions>>;
   journeys: Awaited<ReturnType<typeof getSessionJourneys>>;
-  errors: Awaited<ReturnType<typeof getRecentErrors>>;
   monitored: Awaited<ReturnType<typeof getMonitoredComponents>>;
 }
 
@@ -1262,7 +1191,6 @@ export async function loadPolishdDashboardData(filter: EventFilter = {}): Promis
     devices,
     topUsed,
     journeys,
-    errors,
     monitored,
   ] = await Promise.all([
     getOverview(filter),
@@ -1273,7 +1201,6 @@ export async function loadPolishdDashboardData(filter: EventFilter = {}): Promis
     getDeviceBreakdown(filter),
     getTopInteractions(12, filter),
     getSessionJourneys(6, filter),
-    getRecentErrors(20, filter),
     getMonitoredComponents(filter),
   ]);
   return {
@@ -1285,120 +1212,8 @@ export async function loadPolishdDashboardData(filter: EventFilter = {}): Promis
     devices,
     topUsed,
     journeys,
-    errors,
     monitored,
   };
-}
-
-/**
- * The most recently seen distinct errors, up to `limit`, each with its total
- * count and the context of its latest occurrence.
- *
- * The SQL groups on what stays the same every time a throw site fires — page,
- * component, message, source, frame, line, origin — read out of `meta` with
- * `->>`, which both backends spell the same way on this column (Postgres on
- * `jsonb`, SQLite since 3.38; `node:sqlite` ships 3.46+). It used to group by
- * the whole `meta`, and once errors carried per-occurrence context (`after`,
- * `afterMs`) every throw became a group of its own: one frequent error filled
- * the window and the others fell out of it. The final fold by message, across
- * pages and throw sites, happens here.
- */
-export async function getRecentErrors(limit = 10, filter: EventFilter = {}): Promise<RecentError[]> {
-  // A message can span many SQL groups — one per page and throw site — so
-  // fetch well past `limit`. The cap only bounds history: an error whose
-  // older variants fall past it reads a little low, never wrong in kind.
-  // `->>` is text on Postgres but keeps a JSON number a number on SQLite, so
-  // `line: 12` and `line: "12"` would group apart on one engine only. The cast
-  // makes both engines group, and return, the same text.
-  const field = (key: string) => `CAST(meta ->> '${key}' AS TEXT)`;
-  const stable = [
-    "path",
-    "component",
-    field("message"),
-    field("source"),
-    field("frame"),
-    field("line"),
-    field("origin"),
-  ];
-  const rows = await query(
-    `SELECT path, component,
-            ${field("message")} AS message,
-            ${field("source")}  AS source,
-            ${field("origin")}  AS origin,
-            COUNT(*) AS n, MAX(ts) AS last_ts, MAX(id) AS last_id
-     FROM ${polishdEventsSource(filter)} WHERE type = 'js_error'
-     GROUP BY ${stable.join(", ")}
-     ORDER BY last_id DESC LIMIT ?`,
-    [limit * 20],
-  );
-  const errors = new Map<string, RecentError>();
-  /** The newest row of each folded error, whose meta carries its context. */
-  const latestId = new Map<RecentError, number>();
-  for (const r of rows) {
-    const message = typeof r.message === "string" ? r.message : "Unknown error";
-    const source = typeof r.source === "string" ? r.source : "";
-    // Extension errors are dropped at capture and again at ingest, but rows
-    // written before that filter existed are still in the table — and this
-    // list is where they were loudest. Drop them on the way out, so the fix
-    // applies to history and not just to new sessions.
-    if (isIgnorableError({ message, source })) continue;
-    const origin: RecentError["origin"] =
-      r.origin === "foreign" || r.origin === "unknown" ? r.origin : undefined;
-    const component = (r.component as string) ?? undefined;
-    const path = r.path as string;
-    const key = JSON.stringify([message, component ?? null, origin ?? null]);
-    const seen = errors.get(key);
-    if (seen) {
-      // Rows arrive most recent first, so the first one already set the
-      // latest page; later rows only add to the tally.
-      seen.count += num(r, "n");
-      seen.ts = Math.max(seen.ts, num(r, "last_ts"));
-      if (!seen.paths.includes(path)) seen.paths.push(path);
-    } else if (errors.size < limit) {
-      const error: RecentError = {
-        path,
-        component,
-        message,
-        origin,
-        ts: num(r, "last_ts"),
-        count: num(r, "n"),
-        paths: [path],
-      };
-      errors.set(key, error);
-      latestId.set(error, num(r, "last_id"));
-    }
-  }
-
-  // The varying context — digest, frame, the click before — from each error's
-  // newest occurrence: one lookup by id for the whole list.
-  const ids = [...latestId.values()];
-  if (ids.length > 0) {
-    const metas = new Map<number, ReturnType<typeof parseMeta>>();
-    for (const r of await query(
-      `SELECT id, meta FROM events WHERE id IN (${ids.map(() => "?").join(", ")})`,
-      ids,
-    )) {
-      metas.set(num(r, "id"), parseMeta(r.meta));
-    }
-    for (const [error, id] of latestId) {
-      const meta = metas.get(id);
-      if (!meta) continue;
-      const text = (k: string) =>
-        typeof meta[k] === "string" || typeof meta[k] === "number" ? String(meta[k]) : undefined;
-      const digest = text("digest");
-      const frame = text("frame");
-      const after = text("after");
-      const afterSelector = text("afterSelector");
-      const handle = text("handle");
-      if (digest) error.digest = digest;
-      if (frame) error.frame = frame;
-      if (after) error.after = after;
-      if (typeof meta.afterMs === "number") error.afterMs = meta.afterMs;
-      if (afterSelector) error.afterSelector = afterSelector;
-      if (handle) error.handle = handle;
-    }
-  }
-  return [...errors.values()];
 }
 
 /** How an element with no label of its own is named after the control it missed. */
@@ -1412,15 +1227,14 @@ const FRICTION_ROW_CAP = 10_000;
 const RAGE_HANDLE_ROWS = 2_000;
 
 /**
- * Rage clicks, dead clicks and errors, folded per element, component, page
- * and error message — with distinct sessions, the pages each happened on, and
- * the context capture attached (`meta.near`, `meta.handle`; on an error
- * `digest`, `frame`, `after`, `afterMs`, `afterSelector`). See friction.ts.
+ * Rage and dead clicks, folded per element, component and page — with
+ * distinct sessions, the pages each happened on, and the context capture
+ * attached (`meta.near`, `meta.handle`). See friction.ts.
  *
  * Deliberately not part of `loadPolishdDashboardData`: only the AI summary
  * reads it, so it runs when a summary is generated, never on a dashboard
  * render. One grouped query — events of one kind, on one page, target and
- * session (and, for dead clicks and errors, meta) collapse to a row. Past the
+ * session (and, for dead clicks, meta) collapse to a row. Past the
  * row cap the most recent friction wins, and the index says it was capped.
  *
  * A rage click's meta only matters for its handle, which is the same on every
@@ -1435,7 +1249,7 @@ export async function getFriction(): Promise<FrictionIndex> {
       `SELECT type, path, selector, component, session_id, ${metaExpr} AS meta,
               MAX(text) AS text, COUNT(*) AS n, MAX(id) AS last_id
        FROM ${polishdEventsSource()}
-       WHERE type IN ('rage_click', 'dead_click', 'js_error')
+       WHERE type IN ('rage_click', 'dead_click')
        GROUP BY type, path, selector, component, session_id, ${metaExpr}
        ORDER BY last_id DESC LIMIT ?`,
       [FRICTION_ROW_CAP + 1],
@@ -1452,22 +1266,14 @@ export async function getFriction(): Promise<FrictionIndex> {
   const capped = rows.length > FRICTION_ROW_CAP;
   const parsed: FrictionRow[] = [];
   for (const r of rows.slice(0, FRICTION_ROW_CAP)) {
-    const meta = parseMeta(r.meta) ?? null;
-    const type = r.type as FrictionKind;
-    if (type === "js_error") {
-      // The same extension-noise rule getRecentErrors applies to history.
-      const message = typeof meta?.message === "string" ? meta.message : "";
-      const source = typeof meta?.source === "string" ? meta.source : "";
-      if (isIgnorableError({ message, source })) continue;
-    }
     parsed.push({
-      type,
+      type: r.type as FrictionKind,
       path: r.path as string,
       selector: (r.selector as string) ?? null,
       component: (r.component as string) ?? null,
       text: (r.text as string) ?? null,
       session: r.session_id as string,
-      meta,
+      meta: parseMeta(r.meta) ?? null,
       n: num(r, "n"),
     });
   }

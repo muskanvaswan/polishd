@@ -3,8 +3,8 @@
  *
  * The capture layer stopped recording clicks on text as dead/rage clicks —
  * reading isn't friction. Rows stored by older clients still carry the old
- * semantics though, and the precedent here (see `getRecentErrors`) is that a
- * fix applies to history, not just to new sessions. Deleting the owner's data
+ * semantics though, and the precedent here is that a fix applies to history,
+ * not just to new sessions. Deleting the owner's data
  * is off the table, so misclassified rows are retyped to `text_click`: kept in
  * the table, visible to raw debugging, counted by nothing — exactly as if the
  * new client had captured them.

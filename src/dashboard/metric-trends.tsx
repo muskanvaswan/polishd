@@ -3,12 +3,12 @@
 /**
  * Polishd — the Overview tiles and the metric charts they open (client).
  *
- * The six numbers at the top of the Analytics tab are all-time totals, which
+ * The five numbers at the top of the Analytics tab are all-time totals, which
  * answer "how much" and never "when". Every tile is now a button: clicking one
  * opens a bottom drawer with that metric bucketed over time, so "142 sessions"
  * becomes "40 of them on Tuesday, none since".
  *
- * All six series ride down from the server together (see `getMetricTrends`),
+ * All five series ride down from the server together (see `getMetricTrends`),
  * at both granularities, so switching metric or switching hourly/daily is
  * instant and costs no round trip. Buckets are UTC — the labels are rendered
  * server-side, and a local-timezone label would follow wherever the server
@@ -83,15 +83,6 @@ const METRICS: MetricMeta[] = [
     unit: ["dead click", "dead clicks"],
   },
   {
-    key: "jsErrors",
-    label: "JS errors",
-    tip: "Uncaught exceptions and unhandled promise rejections, with page and component context. Click for errors over time.",
-    tone: "bad",
-    accent: "var(--pd-bad)",
-    additive: true,
-    unit: ["error", "errors"],
-  },
-  {
     key: "totalEvents",
     label: "Events",
     tip: "Total raw signals captured across all event types. Click for events over time.",
@@ -116,7 +107,7 @@ export default function OverviewTiles({
   overview,
   trends,
   metrics,
-  gridClassName = "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6",
+  gridClassName = "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5",
   dot = true,
   scope = "all time",
 }: {
@@ -128,7 +119,7 @@ export default function OverviewTiles({
    */
   scope?: string;
   /**
-   * The tiles to show, in their usual order — all six when omitted. The
+   * The tiles to show, in their usual order — all five when omitted. The
    * chart drawer still switches between every metric, since all are loaded.
    */
   metrics?: MetricKey[];
@@ -338,7 +329,7 @@ function GranularityToggle({
   );
 }
 
-/** Switch series without closing the drawer — all six are already loaded. */
+/** Switch series without closing the drawer — all five are already loaded. */
 function MetricPicker({
   value,
   onChange,

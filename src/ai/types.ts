@@ -134,8 +134,8 @@ export type GenerateProfileError =
 /**
  * How much behaviour a loss's evidence accounts for, looked up in the
  * aggregated analytics after the model answers — never the model's numbers.
- * `kind` is the event type counted: `dead_click`, `rage_click`, `js_error`,
- * or, for evidence with no friction on it, `page_view` / `component_view`.
+ * `kind` is the event type counted: `dead_click`, `rage_click`, or, for
+ * evidence with no friction on it, `page_view` / `component_view`.
  * `pages` lists where it happened, most affected first (capped; empty for a
  * component's views).
  */
@@ -528,7 +528,7 @@ export interface PolishdFiledIssue {
 /**
  * The two failure classes a filed issue falls into, which decide the practice
  * the fix leans on: an interaction issue (something users do fails — dead
- * handlers, broken flows, errors) draws on usability and ARIA authoring
+ * handlers, broken flows) draws on usability and ARIA authoring
  * practice; a design issue (something users see is wrong — contrast,
  * hierarchy, spacing, layout shift) draws on WCAG and visual-rhythm practice.
  */

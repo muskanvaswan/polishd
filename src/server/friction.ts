@@ -1,12 +1,12 @@
 /**
  * Polishd — friction index (pure).
  *
- * The dashboard's aggregates say how many rage clicks, dead clicks and errors
- * each element, page and component collected. What they can't say is how many
- * people that was, where it happened, or the context capture attached to it —
- * the control a dead click landed next to, the last thing a user did before an
- * error. That's what this index holds: the friction events folded per target,
- * with distinct sessions, the pages they happened on, and that context.
+ * The dashboard's aggregates say how many rage and dead clicks each element,
+ * page and component collected. What they can't say is how many people that
+ * was, where it happened, or the context capture attached to it — the control
+ * a dead click landed next to, a path to find the element by. That's what
+ * this index holds: the friction events folded per target, with distinct
+ * sessions, the pages they happened on, and that context.
  *
  * It feeds two things: the AI digest (so the model reads "14 dead clicks in 6
  * sessions, 12 of them next to «Show 9 more»" rather than a bare count) and
@@ -18,12 +18,12 @@
  */
 
 /** The friction event kinds the index folds. */
-export type FrictionKind = "dead_click" | "rage_click" | "js_error";
+export type FrictionKind = "dead_click" | "rage_click";
 
 /**
  * One row of the grouped friction query: every event of one kind, on one
- * page, target and session — and for dead clicks and errors, one `meta` —
- * collapsed to a count.
+ * page, target and session — and for dead clicks, one `meta` — collapsed to
+ * a count.
  */
 export interface FrictionRow {
   type: FrictionKind;
@@ -33,7 +33,7 @@ export interface FrictionRow {
   /** A sample of the target's visible text, when it had any. */
   text: string | null;
   session: string;
-  /** Parsed meta (`near`, `handle`, the error fields), when the event had any. */
+  /** Parsed meta (`near`, `handle`), when the event had any. */
   meta?: Record<string, unknown> | null;
   /** How many events the row stands for. */
   n: number;
@@ -81,32 +81,11 @@ export interface PageFriction {
   path: string;
   dead: FrictionTally;
   rage: FrictionTally;
-  error: FrictionTally;
-}
-
-/** One distinct error message and the context capture attached to it. */
-export interface ErrorFriction {
-  message: string;
-  tally: FrictionTally;
-  /** Server error digest (`meta.digest`), from the most recent throw that had one. */
-  digest?: string;
-  /** Top stack frame (`meta.frame`), from the most recent throw that had one. */
-  frame?: string;
-  /**
-   * The interaction most often recorded just before the throw (`meta.after`),
-   * with how many throws followed it and the median gap between them.
-   */
-  after?: { label: string; count: number; medianMs?: number };
-  /** Selector of that preceding interaction (`meta.afterSelector`), most recent. */
-  afterSelector?: string;
-  /** Greppable selector path for the throw site (`meta.handle`), most frequent. */
-  handle?: string;
 }
 
 export interface FrictionIndex {
   clicks: ClickFriction[];
   pages: PageFriction[];
-  errors: ErrorFriction[];
   /**
    * True when the query hit its row cap: the tallies then cover the most
    * recent friction only and read low, never wrong in kind.
@@ -114,7 +93,7 @@ export interface FrictionIndex {
   capped: boolean;
 }
 
-export const EMPTY_FRICTION: FrictionIndex = { clicks: [], pages: [], errors: [], capped: false };
+export const EMPTY_FRICTION: FrictionIndex = { clicks: [], pages: [], capped: false };
 
 /** How many pages a tally lists. */
 export const MAX_TALLY_PAGES = 5;
@@ -156,19 +135,6 @@ function metaString(meta: FrictionRow["meta"], key: string, max = 120): string |
   return s ? s.slice(0, max) : undefined;
 }
 
-function metaNumber(meta: FrictionRow["meta"], key: string): number | undefined {
-  const v = meta?.[key];
-  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
-}
-
-function median(values: number[]): number | undefined {
-  if (!values.length) return undefined;
-  const s = [...values].sort((a, b) => a - b);
-  const mid = s.length >> 1;
-  return Math.round(s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2);
-}
-
 /** Labels with their counts, most frequent first, capped. */
 function ranked(counts: Map<string, number>, max: number): { label: string; count: number }[] {
   return [...counts.entries()]
@@ -189,11 +155,8 @@ const topHandle = (handles: Map<string, number>): { handle?: string } => {
 };
 
 /**
- * Fold the grouped friction rows into per-target tallies.
- *
- * Rows are expected most recent first (the query orders them that way), which
- * is what "the most recent throw that had one" means for an error's digest
- * and frame. `capped` is passed through from the query.
+ * Fold the grouped friction rows into per-target tallies. `capped` is passed
+ * through from the query.
  */
 export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex {
   const clicks = new Map<
@@ -208,55 +171,13 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
       handles: Map<string, number>;
     }
   >();
-  const pages = new Map<string, { dead: Acc; rage: Acc; error: Acc }>();
-  const errors = new Map<
-    string,
-    {
-      tally: Acc;
-      digest?: string;
-      frame?: string;
-      afterSelector?: string;
-      after: Map<string, number>;
-      afterMs: Map<string, number[]>;
-      handles: Map<string, number>;
-    }
-  >();
+  const pages = new Map<string, { dead: Acc; rage: Acc }>();
 
   for (const row of rows) {
     if (!row || row.n <= 0) continue;
 
     let page = pages.get(row.path);
-    if (!page) pages.set(row.path, (page = { dead: acc(), rage: acc(), error: acc() }));
-
-    if (row.type === "js_error") {
-      add(page.error, row);
-      // Verbatim, as getRecentErrors keys it, so the two line up by message.
-      const raw = row.meta?.message;
-      const message = typeof raw === "string" && raw ? raw : "Unknown error";
-      let e = errors.get(message);
-      if (!e) {
-        errors.set(
-          message,
-          (e = { tally: acc(), after: new Map(), afterMs: new Map(), handles: new Map() }),
-        );
-      }
-      add(e.tally, row);
-      e.digest ??= metaString(row.meta, "digest", 80);
-      e.frame ??= metaString(row.meta, "frame", 160);
-      e.afterSelector ??= metaString(row.meta, "afterSelector", 160);
-      tallyHandle(e.handles, row);
-      const after = metaString(row.meta, "after", 80);
-      if (after) {
-        e.after.set(after, (e.after.get(after) ?? 0) + row.n);
-        const ms = metaNumber(row.meta, "afterMs");
-        if (ms !== undefined) {
-          const list = e.afterMs.get(after) ?? [];
-          list.push(ms);
-          e.afterMs.set(after, list);
-        }
-      }
-      continue;
-    }
+    if (!page) pages.set(row.path, (page = { dead: acc(), rage: acc() }));
 
     const kind = row.type === "dead_click" ? "dead" : "rage";
     add(page[kind], row);
@@ -306,23 +227,7 @@ export function foldFriction(rows: FrictionRow[], capped = false): FrictionIndex
       path,
       dead: finish(p.dead),
       rage: finish(p.rage),
-      error: finish(p.error),
     })),
-    errors: [...errors.entries()].map(([message, e]): ErrorFriction => {
-      const [top] = ranked(e.after, 1);
-      const medianMs = top ? median(e.afterMs.get(top.label) ?? []) : undefined;
-      return {
-        message,
-        tally: finish(e.tally),
-        ...(e.digest ? { digest: e.digest } : {}),
-        ...(e.frame ? { frame: e.frame } : {}),
-        ...(e.afterSelector ? { afterSelector: e.afterSelector } : {}),
-        ...topHandle(e.handles),
-        ...(top
-          ? { after: { ...top, ...(medianMs !== undefined ? { medianMs } : {}) } }
-          : {}),
-      };
-    }),
     capped,
   };
 }

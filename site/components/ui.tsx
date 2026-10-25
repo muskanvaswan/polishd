@@ -43,10 +43,13 @@ export function Wrap({
   );
 }
 
-/** The dashboard's eyebrow: 11px, uppercase, 0.08em, fg-3. */
-export function Eyebrow({ children }: { children: ReactNode }) {
+/**
+ * The dashboard's eyebrow: 11px, uppercase, 0.08em, fg-3. `atLoad` reveals it
+ * on first paint rather than on scroll — for the hero, already in view.
+ */
+export function Eyebrow({ children, atLoad = false }: { children: ReactNode; atLoad?: boolean }) {
   return (
-    <p className="label r flex items-center gap-2">
+    <p className={`label ${atLoad ? "r-load" : "r"} flex items-center gap-2`}>
       <span className="inline-block h-[5px] w-[5px] rounded-full bg-fg-4" />
       {children}
     </p>
@@ -79,7 +82,7 @@ export function GhostLink({ href, children }: { href: string; children: ReactNod
     <a
       href={href}
       rel="noopener"
-      className="inline-flex items-center gap-2 rounded-[10px] border border-line px-4 py-3 text-[13px] text-fg-3 transition-colors duration-200 hover:border-fg-4 hover:text-fg"
+      className="group inline-flex items-center gap-2 rounded-[10px] border border-line px-4 py-3 text-[13px] text-fg-3 transition-[color,border-color,scale] duration-150 ease-out hover:border-fg-4 hover:text-fg active:scale-[0.97]"
     >
       {children}
       <svg
@@ -89,7 +92,7 @@ export function GhostLink({ href, children }: { href: string; children: ReactNod
         strokeWidth={1.6}
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="h-[13px] w-[13px]"
+        className="h-[13px] w-[13px] transition-transform duration-200 ease-out group-hover:translate-x-px group-hover:-translate-y-px"
         aria-hidden
       >
         <path d="M4 12 12 4M6 4h6v6" />

@@ -64,63 +64,27 @@ test("near-miss labels are tallied by events, most frequent first", () => {
 
 test("pages tally each kind separately, and keep the most affected first", () => {
   const idx = foldFriction([
-    row({ type: "js_error", session: "a", path: "/checkout", meta: { message: "boom" } }),
+    row({ type: "rage_click", session: "a", path: "/checkout", selector: "button.pay" }),
     row({ type: "dead_click", session: "a", path: "/checkout", selector: "div.x", n: 2 }),
+    row({ type: "dead_click", session: "b", path: "/", selector: "div.x" }),
   ]);
   const page = idx.pages.find((p) => p.path === "/checkout")!;
-  assert.equal(page.error.count, 1);
+  assert.equal(page.rage.count, 1);
   assert.equal(page.dead.count, 2);
-  assert.equal(page.rage.count, 0);
-});
-
-test("errors carry digest, frame and the interaction that preceded them, when captured", () => {
-  const idx = foldFriction([
-    // Most recent first: the newest digest/frame wins.
-    row({ type: "js_error", session: "a", path: "/cart", meta: { message: "x is undefined", digest: "123", frame: "at Cart (app/cart/page.tsx:4:2)", after: "Checkout", afterMs: 120 } }),
-    row({ type: "js_error", session: "b", path: "/cart", meta: { message: "x is undefined", digest: "999", after: "Checkout", afterMs: 80 } }),
-    row({ type: "js_error", session: "b", path: "/", meta: { message: "x is undefined", after: "Apply coupon", afterMs: 40 }, n: 1 }),
-    row({ type: "js_error", session: "c", path: "/cart", meta: { message: "x is undefined", after: "Checkout", afterMs: 300 } }),
-  ]);
-  const [e] = idx.errors;
-  assert.equal(e.message, "x is undefined");
-  assert.deepEqual(e.tally, { count: 4, sessions: 3, pages: ["/cart", "/"] });
-  assert.equal(e.digest, "123");
-  assert.equal(e.frame, "at Cart (app/cart/page.tsx:4:2)");
-  assert.deepEqual(e.after, { label: "Checkout", count: 3, medianMs: 120 });
-});
-
-test("errors without the new meta fold exactly as before — no empty fields", () => {
-  const idx = foldFriction([
-    row({ type: "js_error", session: "a", meta: { message: "boom", source: "app.js", line: 3 } }),
-    row({ type: "js_error", session: "a", meta: null }),
-  ]);
-  const boom = idx.errors.find((e) => e.message === "boom")!;
-  assert.deepEqual(Object.keys(boom).sort(), ["message", "tally"]);
-  assert.ok(idx.errors.some((e) => e.message === "Unknown error"));
-});
-
-test("a numeric digest is kept as text; non-numeric afterMs is ignored", () => {
-  const idx = foldFriction([
-    row({ type: "js_error", session: "a", meta: { message: "m", digest: 4242, after: "Save", afterMs: "soon" } }),
-  ]);
-  assert.equal(idx.errors[0].digest, "4242");
-  assert.deepEqual(idx.errors[0].after, { label: "Save", count: 1 });
+  assert.equal(idx.pages.find((p) => p.path === "/")!.rage.count, 0);
 });
 
 test("the cap flag passes through; empty input is an empty index", () => {
   assert.equal(foldFriction([], true).capped, true);
-  assert.deepEqual(foldFriction([]), { clicks: [], pages: [], errors: [], capped: false });
+  assert.deepEqual(foldFriction([]), { clicks: [], pages: [], capped: false });
 });
 
-test("handles are kept per target and per error, most frequent first; afterSelector is pinned", () => {
+test("handles are kept per target, most frequent first", () => {
   const idx = foldFriction([
     row({ type: "rage_click", session: "a", selector: "div.x", meta: { handle: "div#toolbar>button.export" }, n: 3 }),
     row({ type: "dead_click", session: "b", selector: "div.x", meta: { handle: "div#toolbar>div.x" } }),
-    row({ type: "js_error", session: "c", meta: { message: "boom", handle: "div#cart>button.pay", afterSelector: "div#cart>button.pay" } }),
   ]);
   assert.equal(idx.clicks[0].handle, "div#toolbar>button.export");
-  assert.equal(idx.errors[0].handle, "div#cart>button.pay");
-  assert.equal(idx.errors[0].afterSelector, "div#cart>button.pay");
   const old = foldFriction([row({ type: "dead_click", session: "a", selector: "div.x" })]);
   assert.equal("handle" in old.clicks[0], false, "older clients: no field at all");
 });

@@ -40,7 +40,6 @@ export interface FixPromptTraffic {
   pageViews: number;
   rageClicks: number;
   deadClicks: number;
-  jsErrors: number;
   /** Share of sessions per device category ("mobile", "desktop"…), 0–100. */
   devices: { category: string; pct: number }[];
 }
@@ -183,7 +182,7 @@ function trafficSection(traffic: FixPromptTraffic | null, analytics: boolean): s
   // has no use for them.
   if (analytics) {
     lines.push(
-      `- ${n(traffic.rageClicks)} rage clicks · ${n(traffic.deadClicks)} dead clicks · ${n(traffic.jsErrors)} JS errors`,
+      `- ${n(traffic.rageClicks)} rage clicks · ${n(traffic.deadClicks)} dead clicks`,
     );
   }
   lines.push("");
@@ -265,7 +264,7 @@ function freshnessSection(input: FixPromptInput, analytics: boolean, design: boo
 
 // ── How findings were detected ───────────────────────────────────────────────
 
-type FindingKind = "dead-click" | "rage-click" | "error" | "page" | "engagement" | "design";
+type FindingKind = "dead-click" | "rage-click" | "page" | "engagement" | "design";
 
 /**
  * One line per kind of finding: how Polishd detected it, and what that
@@ -287,16 +286,10 @@ const DETECTION: Record<FindingKind, { name: string; line: string }> = {
       "**Rage click** — the same element clicked several times in quick succession (3 within 500ms by default), not counting double- and triple-clicks that select text. " +
       "Blind spot: it can't tell frustration from controls meant to be clicked fast (steppers, carousels, quantity buttons), or a click that failed from one whose feedback was slow. Check what the click does and how quickly it visibly responds.",
   },
-  error: {
-    name: "JS error",
-    line:
-      "**JS error** — an uncaught error or unhandled promise rejection the browser reported, grouped by message. Errors from browser extensions are dropped where they can be attributed. " +
-      "Blind spot: this prompt has only the message and where it was seen, no stack, and a third-party script's error can still slip through. Find the code that can throw it, or reproduce it, before fixing.",
-  },
   page: {
     name: "page-level signal",
     line:
-      "**Page-level signal** — per-page totals of sessions, rage and dead clicks, JS errors and scroll depth. " +
+      "**Page-level signal** — per-page totals of sessions, rage and dead clicks and scroll depth. " +
       "Blind spot: a total doesn't say which element is responsible, and scroll depth is only measured on pages tall enough to scroll. Find the element behind the number before changing the page.",
   },
   engagement: {
@@ -313,14 +306,13 @@ const DETECTION: Record<FindingKind, { name: string; line: string }> = {
   },
 };
 
-const KIND_ORDER: FindingKind[] = ["dead-click", "rage-click", "error", "page", "engagement", "design"];
+const KIND_ORDER: FindingKind[] = ["dead-click", "rage-click", "page", "engagement", "design"];
 
-/** Which detector a `signal.kind` names: `dead_click`, `rage-click`, `js_error`… */
+/** Which detector a `signal.kind` names: `dead_click`, `rage-click`, `page_view`… */
 function signalKind(kind: string): FindingKind | null {
   const k = kind.toLowerCase();
   if (/dead/.test(k)) return "dead-click";
   if (/rage/.test(k)) return "rage-click";
-  if (/error|exception/.test(k)) return "error";
   if (/scroll|page/.test(k)) return "page";
   if (/view|engage|monitor|component|hover/.test(k)) return "engagement";
   return null;
@@ -334,7 +326,6 @@ function lossKinds(loss: PolishdLossItem): FindingKind[] {
   const said: FindingKind[] = [];
   if (/dead[- ]?clicks?/.test(text)) said.push("dead-click");
   if (/rage[- ]?clicks?/.test(text)) said.push("rage-click");
-  if (/\b(errors?|exceptions?|throws?|crash(es)?)\b/.test(text)) said.push("error");
   return said;
 }
 
@@ -376,7 +367,6 @@ const KIND_NOUNS: Record<string, [string, string]> = {
   dead_click: ["dead click", "dead clicks"],
   rage_click: ["rage click", "rage clicks"],
   click: ["click", "clicks"],
-  js_error: ["JS error", "JS errors"],
   page_view: ["page view", "page views"],
   component_view: ["component view", "component views"],
   scroll_depth: ["scroll-depth reading", "scroll-depth readings"],
@@ -458,15 +448,6 @@ function lossHandles(loss: PolishdLossItem): string[] {
   }
   if (COMPONENT.test(evidence)) return [code(`data-component="${evidence}"`)];
   if (SELECTOR.test(evidence) && /[.#>]/.test(evidence)) return selectorHandles(evidence);
-  if (lossKinds(loss).includes("error")) {
-    // The message names what threw: a property, a function, a module.
-    const names: string[] = [];
-    for (const m of evidence.matchAll(/'([A-Za-z_$][\w$.]*)'|\b([a-z]+[A-Z][\w$]*)\b/g)) {
-      const name = m[1] ?? m[2];
-      if (name && !names.includes(name)) names.push(name);
-    }
-    return names.slice(0, 3).map(code);
-  }
   // Prose that isn't a selector: the element's visible label.
   return /\s/.test(evidence) ? [textHandle(evidence)] : [];
 }
@@ -493,7 +474,7 @@ function analyticsSection(summary: PolishdSummary, kinds: Set<FindingKind>): str
   const lines = [
     "## Analytics: how visitors use the site",
     "",
-    `_Reviewed ${day(summary.generatedAt)} by ${summary.provider}/${summary.model}, from captured clicks, rage and dead clicks, scroll depth and errors._`,
+    `_Reviewed ${day(summary.generatedAt)} by ${summary.provider}/${summary.model}, from captured clicks, rage and dead clicks and scroll depth._`,
     "",
     summary.text.trim(),
     "",

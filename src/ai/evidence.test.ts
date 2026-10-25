@@ -23,7 +23,6 @@ import {
 
 const BAR = "div.polishd-root>div.flex>div.flex";
 const BACKDROP = "div.polishd-root>div.fixed>div.absolute";
-const MESSAGE = "Cannot read properties of undefined (reading 'map')";
 
 const row = (p: Partial<FrictionRow> & Pick<FrictionRow, "type" | "session">): FrictionRow => ({
   path: "/~polishd",
@@ -43,25 +42,17 @@ function friction(withMeta: boolean): FrictionIndex {
     row({ type: "dead_click", session: "s1", selector: BACKDROP, n: 5 }),
     row({ type: "dead_click", session: "s4", selector: BACKDROP, n: 2 }),
     row({ type: "rage_click", session: "s2", selector: BAR, text: "Show 9 more", n: 3 }),
-    row({
-      type: "js_error",
-      session: "s5",
-      meta: withMeta
-        ? { message: MESSAGE, digest: "2938471", frame: "at Journeys (src/dashboard/journeys.tsx:88:12)", after: "journey-row", afterMs: 140 }
-        : { message: MESSAGE },
-      n: 2,
-    }),
   ]);
 }
 
 function data(): PolishdDashboardData {
   return {
-    overview: { ready: true, totalEvents: 500, sessions: 40, pageViews: 120, rageClicks: 3, deadClicks: 21, jsErrors: 2 },
+    overview: { ready: true, totalEvents: 500, sessions: 40, pageViews: 120, rageClicks: 3, deadClicks: 21 },
     health: {} as PolishdDashboardData["health"],
     pages: [
-      { path: "/~polishd", sessions: 30, pageViews: 90, rageClicks: 3, deadClicks: 17, jsErrors: 2, avgScrollDepth: null, trend: [] },
-      { path: "/~polishd/design", sessions: 12, pageViews: 30, rageClicks: 0, deadClicks: 4, jsErrors: 0, avgScrollDepth: null, trend: [] },
-      { path: "/~polishd/settings", sessions: 9, pageViews: 11, rageClicks: 0, deadClicks: 0, jsErrors: 0, avgScrollDepth: 30, trend: [] },
+      { path: "/~polishd", sessions: 30, pageViews: 90, rageClicks: 3, deadClicks: 17, avgScrollDepth: null, trend: [] },
+      { path: "/~polishd/design", sessions: 12, pageViews: 30, rageClicks: 0, deadClicks: 4, avgScrollDepth: null, trend: [] },
+      { path: "/~polishd/settings", sessions: 9, pageViews: 11, rageClicks: 0, deadClicks: 0, avgScrollDepth: 30, trend: [] },
     ],
     trends: {} as PolishdDashboardData["trends"],
     elements: [
@@ -71,7 +62,6 @@ function data(): PolishdDashboardData {
     devices: [],
     topUsed: [],
     journeys: [],
-    errors: [{ path: "/~polishd", message: MESSAGE, ts: 1, count: 2, paths: ["/~polishd"] }],
     monitored: [],
   };
 }
@@ -101,27 +91,15 @@ test("a text-less positioned layer is flagged as a possible backdrop", () => {
   assert.equal(looksLikeOverlay("div.flex>div.flex", null), false);
 });
 
-test("errors carry digest, frame and the preceding interaction when captured", () => {
-  const line = buildDigest(data(), undefined, friction(true))
-    .split("\n")
-    .find((l) => l.includes("Cannot read properties"))!;
-  assert.equal(
-    line,
-    `  - "${MESSAGE}" on /~polishd — 2× in 1 session; after "journey-row" (~140ms before); at Journeys (src/dashboard/journeys.tsx:88:12); digest 2938471`,
-  );
-});
-
 test("without the new capture meta, the digest reads as it did — no empty clauses", () => {
   const digest = buildDigest(data(), undefined, friction(false));
-  assert.doesNotMatch(digest, /near miss|after "|digest |; at |handle/);
-  assert.match(digest, /- "Cannot read properties of undefined \(reading 'map'\)" on \/~polishd — 2× in 1 session$/m);
+  assert.doesNotMatch(digest, /near miss|handle/);
   assert.match(digest, /- Show 9 more <div\.flex>: 3 rage in 1 session, 14 dead in 3 sessions, 2 pages$/m);
 });
 
 test("without a friction index — a dashboard render's fingerprint — the base digest is unchanged", () => {
   const digest = buildDigest(data());
   assert.match(digest, /- Show 9 more <div\.flex>: 3 rage, 14 dead, 2 pages$/m);
-  assert.match(digest, /- "Cannot read properties of undefined \(reading 'map'\)" on \/~polishd$/m);
   assert.doesNotMatch(digest, /COMPONENTS USERS STRUGGLE WITH/);
 });
 
@@ -197,18 +175,11 @@ test("a citation that names two digest lines equally attaches nothing", () => {
   assert.equal(lossSignal("Export <span>", "dead clicks", ts)?.count, 40, "the printed form tells them apart");
 });
 
-test("an error message cited as printed gets the error's volume; its opening words don't", () => {
-  const s = { kind: "js_error", count: 2, sessions: 1, pages: ["/~polishd"] };
-  assert.deepEqual(lossSignal(MESSAGE, "crash", targets()), s);
-  assert.deepEqual(lossSignal(`"${MESSAGE}"`, "crash", targets()), s);
-  assert.equal(lossSignal('"Cannot read properties of undefined"', "crash", targets()), undefined);
-});
-
 test("a citation that merely contains a printed name gets none of that line's numbers", () => {
   const d = data();
   d.elements.push({ label: "div.bar>button", selector: "div.bar>button", sampleText: "Export", pages: 1, clicks: 0, rageClicks: 0, deadClicks: 2, score: 4, lastInteraction: 0 });
   d.topUsed = [{ label: "Export CSV", isComponent: false, selector: "a.csv", sampleText: "Export CSV", clicks: 30, sessions: 9, pages: 1 }];
-  d.pages.push({ path: "/docs", sessions: 50, pageViews: 70, rageClicks: 0, deadClicks: 0, jsErrors: 0, avgScrollDepth: null, trend: [] });
+  d.pages.push({ path: "/docs", sessions: 50, pageViews: 70, rageClicks: 0, deadClicks: 0, avgScrollDepth: null, trend: [] });
   const f = foldFriction([row({ type: "dead_click", session: "a", selector: "div.bar>button", text: "Export", n: 2 })]);
   const { targets: ts } = digestParts(d, undefined, f);
   assert.equal(lossSignal("Export CSV", "people don't find the CSV export", ts), undefined);
@@ -220,7 +191,7 @@ test("a citation that merely contains a printed name gets none of that line's nu
 
 test("an engagement loss on a page gets its views, never its friction", () => {
   const d = data();
-  d.pages.push({ path: "/pricing", sessions: 400, pageViews: 500, rageClicks: 0, deadClicks: 1, jsErrors: 0, avgScrollDepth: 20, trend: [] });
+  d.pages.push({ path: "/pricing", sessions: 400, pageViews: 500, rageClicks: 0, deadClicks: 1, avgScrollDepth: 20, trend: [] });
   const f = foldFriction([row({ type: "dead_click", session: "a", path: "/pricing", selector: "div.x" })]);
   const { targets: ts } = digestParts(d, undefined, f);
   assert.deepEqual(lossSignal("/pricing", "80% of visitors bounce from pricing", ts), {
@@ -234,15 +205,15 @@ test("an engagement loss on a page gets its views, never its friction", () => {
 
 test("the issue's wording picks the kind among the line's counts — and never supplies one", () => {
   assert.equal(lossSignal("Show 9 more", "Users rage-click Show 9 more", targets())?.kind, "rage_click");
-  assert.equal(lossSignal("/~polishd", "an error on load", targets())?.kind, "js_error");
+  assert.equal(lossSignal("/~polishd", "dead clicks on load", targets())?.kind, "dead_click");
   // Names a kind the line doesn't have.
   assert.equal(lossSignal("/~polishd/design", "rage clicks on the design tab", targets()), undefined);
   // Names two kinds: unclear.
   assert.equal(lossSignal("Show 9 more", "rage and dead clicks", targets()), undefined);
-  // A path's own words aren't wording: `/errors` is a page.
+  // A path's own words aren't wording: `/dead-ends` is a page.
   const d = data();
-  d.pages.push({ path: "/errors", sessions: 5, pageViews: 6, rageClicks: 0, deadClicks: 0, jsErrors: 0, avgScrollDepth: null, trend: [] });
-  assert.equal(lossSignal("/errors", "few people reach it", digestParts(d, undefined, friction(true)).targets)?.kind, "page_view");
+  d.pages.push({ path: "/dead-ends", sessions: 5, pageViews: 6, rageClicks: 0, deadClicks: 0, avgScrollDepth: null, trend: [] });
+  assert.equal(lossSignal("/dead-ends", "few people reach it", digestParts(d, undefined, friction(true)).targets)?.kind, "page_view");
 });
 
 test("an element with both kinds and no wording for either carries no signal", () => {

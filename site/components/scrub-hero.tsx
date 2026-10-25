@@ -81,6 +81,7 @@ const FIRST_ROW = 0; // start on the browser chrome — polish everything
 const BANDS = Math.ceil((ROWS - FIRST_ROW) / BAND_H);
 const BAND_SECONDS = 1.2;
 const SHINE_SECONDS = 1.6;
+const DULL_SECONDS = 0.6; // the shine fades back to the unfinished build
 const WIGGLES = 6; // back-and-forth scrubs per band
 
 const ease = (t: number) => t * t * (3 - 2 * t);
@@ -90,15 +91,17 @@ const hash = (n: number) => {
 };
 
 export default function ScrubHero() {
+  const rootRef = useRef<HTMLDivElement>(null);
   const brightRef = useRef<HTMLPreElement>(null);
   const brushRef = useRef<HTMLPreElement>(null);
   const shineRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
+    const root = rootRef.current;
     const bright = brightRef.current;
     const brush = brushRef.current;
     const shine = shineRef.current;
-    if (!bright || !brush || !shine) return;
+    if (!root || !bright || !brush || !shine) return;
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (reduced.matches) {
@@ -112,6 +115,9 @@ export default function ScrubHero() {
     let raf = 0;
     let start = performance.now();
     let loop = 0;
+    // Paused until the observer first sees the scene; the clock stands still
+    // while it's off screen, so the brush resumes mid-stroke, not mid-skip.
+    let pausedAt: number | null = start;
 
     const render = (now: number) => {
       const t = (now - start) / 1000;
@@ -168,9 +174,17 @@ export default function ScrubHero() {
           s = rows.join("\n");
         }
         shine.textContent = s;
+      } else if (t < scrubTotal + SHINE_SECONDS + DULL_SECONDS) {
+        // -- Dull: the finished surface fades back down to the wireframe, so
+        // the next pass doesn't open on the whole page snapping dark. --
+        const u = (t - scrubTotal - SHINE_SECONDS) / DULL_SECONDS;
+        bright.style.opacity = String((1 - u) ** 2); // ease-out: an exit
+        brush.style.opacity = "0";
+        shine.textContent = "";
       } else {
         // -- Reset: wipe the polish and start the next pass. --
         polished.fill(0);
+        bright.style.opacity = "1";
         start = now;
         loop++;
       }
@@ -189,12 +203,30 @@ export default function ScrubHero() {
       raf = requestAnimationFrame(render);
     };
 
-    raf = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(raf);
+    // Only run while the scene is on screen: past the hero it would just be
+    // rebuilding text nobody sees, on the main thread the rest of the page's
+    // scroll effects share.
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && pausedAt !== null) {
+        start += performance.now() - pausedAt;
+        pausedAt = null;
+        raf = requestAnimationFrame(render);
+      } else if (!entry.isIntersecting && pausedAt === null) {
+        cancelAnimationFrame(raf);
+        pausedAt = performance.now();
+      }
+    });
+    io.observe(root);
+
+    return () => {
+      io.disconnect();
+      cancelAnimationFrame(raf);
+    };
   }, []);
 
   return (
     <div
+      ref={rootRef}
       role="img"
       aria-label="A shoe-polish brush scrubbing a website wireframe until it shines"
       className="pointer-events-none relative select-none overflow-x-clip [container-type:inline-size]"

@@ -95,7 +95,6 @@ function summarize(j: SessionJourney): string {
   if (actions) parts.push(`${actions} ${actions === 1 ? "interaction" : "interactions"}`);
   if (j.rageClicks) parts.push(`${j.rageClicks} rage`);
   if (j.deadClicks) parts.push(`${j.deadClicks} dead`);
-  if (j.jsErrors) parts.push(`${j.jsErrors} ${j.jsErrors === 1 ? "error" : "errors"}`);
   return parts.join(" · ");
 }
 
@@ -117,12 +116,6 @@ const STEP_STYLE: Record<
     verb: "Dead-clicked",
     verbTone: "text-warn",
     tag: { text: "dead", tone: "warn" },
-  },
-  js_error: {
-    dot: "bg-bad",
-    verb: "Error",
-    verbTone: "text-bad",
-    tag: { text: "error", tone: "bad" },
   },
   session_end: { dot: "bg-fg-4", verb: "Left the site", verbTone: "text-fg-3" },
   // Non-action types never reach the flow chart, but the map must be total.
@@ -168,9 +161,6 @@ function JourneyStepRow({
           ) : null}
           {s.tag && <Badge tone={s.tag.tone}>{s.tag.text}</Badge>}
         </div>
-        {step.detail && (
-          <div className="mt-1 truncate font-mono text-[11.5px] text-bad/85">{step.detail}</div>
-        )}
         {!showPath && step.type !== "session_end" && prevPath !== step.path && (
           <div className="mt-0.5 font-mono text-[11.5px] text-fg-3">on {step.path}</div>
         )}
@@ -340,18 +330,17 @@ function JourneyDrawer({
                 <MetaCell
                   label="Frustration"
                   value={
-                    journey.rageClicks + journey.deadClicks + journey.jsErrors === 0
+                    journey.rageClicks + journey.deadClicks === 0
                       ? "none"
                       : [
                           journey.rageClicks ? `${journey.rageClicks} rage` : null,
                           journey.deadClicks ? `${journey.deadClicks} dead` : null,
-                          journey.jsErrors ? `${journey.jsErrors} err` : null,
                         ]
                           .filter(Boolean)
                           .join(" · ")
                   }
                   tone={
-                    journey.rageClicks + journey.deadClicks + journey.jsErrors > 0
+                    journey.rageClicks + journey.deadClicks > 0
                       ? "text-warn"
                       : "text-ok"
                   }
