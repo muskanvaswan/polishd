@@ -20,11 +20,13 @@
  */
 import type { PolishdDesignScanPayload } from "../shared/types";
 import { aggregateDesignScans, contrastRatio, type DesignScanRow } from "./design-aggregate";
+import { selectBuildScans, type DesignBuildCoverage } from "./design-builds";
 import { buildDesignFlags } from "./design-flags";
-import { polishdEventsSource } from "./queries";
+import { getCurrentBuild, polishdEventsSource } from "./queries";
 import { parseMeta, query, storeReady } from "./store";
 
-export { aggregateDesignScans, buildDesignFlags, contrastRatio };
+export { aggregateDesignScans, buildDesignFlags, contrastRatio, selectBuildScans };
+export type { DesignBuildCoverage };
 
 // ── Aggregated shapes (what the Design tab renders) ──────────────────────────
 
@@ -145,12 +147,19 @@ export interface DesignPageScan {
   path: string;
   scannedAt: number;
   elements: number;
+  /** The build the page was served from when scanned; absent when unknown. */
+  build?: string;
 }
 
 export interface PolishdDesignData {
   ready: boolean;
   /** Pages with a scan, newest first. */
   pages: DesignPageScan[];
+  /**
+   * How the current build's scans stand, and whether only they are merged
+   * (see design-builds.ts). Absent when no build has been stamped on anything.
+   */
+  build?: DesignBuildCoverage;
   fonts: DesignFontUsage[];
   /** Distinct font families, most used first. */
   families: { family: string; count: number }[];
@@ -175,41 +184,65 @@ export const EMPTY_DESIGN_DATA: PolishdDesignData = {
   flags: [],
 };
 
-/** Latest parseable scan per page, newest first. */
+/**
+ * The latest scan per page, newest first, with the build each was taken on.
+ *
+ * The newest row per path is picked in SQL rather than by reading the last
+ * few hundred scans: pages now scan again on every build (and on every load
+ * in development), so one busy page could otherwise fill that window and
+ * push the others out of the Design tab.
+ */
 async function loadPageScans(): Promise<DesignScanRow[]> {
   const rows = await query(
-    `SELECT path, ts, meta FROM ${polishdEventsSource()}
-     WHERE type = 'design_scan'
-     ORDER BY id DESC
-     LIMIT 300`,
+    `SELECT path, ts, meta, build FROM ${polishdEventsSource()}
+     WHERE id IN (
+       SELECT MAX(id) FROM ${polishdEventsSource()}
+       WHERE type = 'design_scan'
+       GROUP BY path
+     )`,
   );
-  const byPath = new Map<string, DesignScanRow>();
+  const scans: DesignScanRow[] = [];
   for (const r of rows) {
-    const path = r.path as string;
-    if (byPath.has(path)) continue; // newest wins (rows are id DESC)
     const meta = parseMeta(r.meta);
     const raw = meta && typeof meta.payload === "string" ? meta.payload : null;
     if (!raw) continue;
     try {
       const payload = JSON.parse(raw) as PolishdDesignScanPayload;
       if (payload?.v !== 1 || !Array.isArray(payload.fonts)) continue;
-      byPath.set(path, { path, ts: Number(r.ts) || 0, payload });
+      scans.push({
+        path: r.path as string,
+        ts: Number(r.ts) || 0,
+        payload,
+        build: typeof r.build === "string" && r.build ? r.build : null,
+      });
     } catch {
       // A clipped or malformed payload is dropped, never fatal.
     }
   }
-  return [...byPath.values()].sort((a, b) => b.ts - a.ts);
+  return scans.sort((a, b) => b.ts - a.ts);
+}
+
+/** Every page the build has served: distinct paths with a page_view on it. */
+async function loadPathsViewedOn(build: string): Promise<Set<string>> {
+  const rows = await query(
+    `SELECT DISTINCT path FROM ${polishdEventsSource({ build })} WHERE type = 'page_view'`,
+  );
+  return new Set(rows.map((r) => r.path as string));
 }
 
 /**
- * Build the full design dataset: merge per-page tallies site-wide, then run
+ * Build the full design dataset: pick the scans that describe the current
+ * build (design-builds.ts), merge their per-page tallies site-wide, then run
  * the deterministic checks (design-aggregate.ts). Read-only; degrades to
  * `EMPTY_DESIGN_DATA`.
  */
 export async function getDesignData(): Promise<PolishdDesignData> {
   if (!(await storeReady())) return EMPTY_DESIGN_DATA;
-  const scans = await loadPageScans();
-  if (scans.length === 0) return { ...EMPTY_DESIGN_DATA, ready: true };
-  return aggregateDesignScans(scans);
+  const [latest, current] = await Promise.all([loadPageScans(), getCurrentBuild()]);
+  if (latest.length === 0) return { ...EMPTY_DESIGN_DATA, ready: true };
+  const viewed = current ? await loadPathsViewedOn(current.build) : new Set<string>();
+  const { scans, coverage } = selectBuildScans(latest, current, viewed);
+  const data = aggregateDesignScans(scans);
+  return coverage ? { ...data, build: coverage } : data;
 }
 

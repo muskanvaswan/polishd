@@ -84,6 +84,13 @@ export interface PolishdIngestBody {
   events: PolishdEvent[];
   /** Page that produced this batch, for sanity/debugging. */
   page?: string;
+  /**
+   * The build the page was served from — a commit sha or deployment label —
+   * sent once per batch and stamped on every event in it. Absent when the
+   * client bundle was built without one; ingest then falls back to the build
+   * the server knows (see server/build.ts).
+   */
+  build?: string;
 }
 
 /**
@@ -111,6 +118,12 @@ export interface PolishdEventRow extends PolishdEvent {
    * Origin header). Only set on telemetry-ingested rows; null on first-party.
    */
   install_id?: string;
+  /**
+   * The build of the site this event was captured on (see
+   * `PolishdIngestBody.build`). Null on rows stored before builds were
+   * tracked, and wherever neither the client nor the server knew one.
+   */
+  build?: string;
 }
 
 /** The set of event types the client is allowed to send. */

@@ -333,6 +333,7 @@ survive there.
 | `POLISHD_DASHBOARD_TOKEN` | for production, unless auth is wired | Protects `/polishd`. `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | no | `true` to serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | no | Rename the session cookie; read by both proxy and ingest |
+| `NEXT_PUBLIC_POLISHD_BUILD` | no | Build label stamped on every event (commit sha, version, date), inlined at build time. On Vercel, `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` is read automatically; elsewhere set this in the build command (`NEXT_PUBLIC_POLISHD_BUILD=$COMMIT_REF next build`). Without it the server stamps its own commit variable, or `git rev-parse HEAD` in development. Don't make it a secret or a per-deploy random value |
 | `POLISHD_DB_PATH` | no | Custom SQLite path in dev |
 | `POLISHD_AI_*` | no | Preset AI provider/model/key instead of using the dashboard |
 | `POLISHD_GITHUB_*` | no | Repo + token for filing issues from findings |

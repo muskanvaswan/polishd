@@ -47,6 +47,15 @@ export interface PolishdConfig {
    * `createPolishdPage()` somewhere other than `/polishd`.
    */
   dashboardRoute: string;
+  /**
+   * The build this bundle was made from — a commit sha or any deployment
+   * label — stamped on every captured event. Optional: when omitted the
+   * client reads `NEXT_PUBLIC_POLISHD_BUILD` (or Vercel's
+   * `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`), inlined at build time, and failing
+   * that ingest stamps the build the server knows — its own commit variables,
+   * or `git rev-parse HEAD` in development. Pass it to `initPolishd()`.
+   */
+  build?: string;
 }
 
 export const defaultPolishdConfig: PolishdConfig = {

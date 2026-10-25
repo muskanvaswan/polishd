@@ -580,9 +580,9 @@ the Actionables tab carries a one-line pointer to it.
 
 The dashboard's **Design** tab (in the sidebar) is your site's brand guideline
 reverse-engineered from what actually shipped. Every page measures its own
-rendered design once per visitor session — the computed typography, colors,
-corner radii and padding, reduced to a compact tally of a few KB — and the tab
-assembles the site-wide picture:
+rendered design once per visitor session and [build](#builds) — the computed
+typography, colors, corner radii and padding, reduced to a compact tally of a
+few KB — and the tab assembles the site-wide picture:
 
 - **Typography** — every font family / size / weight combination in use,
   rendered as specimens with real text from your pages.
@@ -779,6 +779,61 @@ also tells you when a preview deployment is behind Vercel's Deployment
 Protection: the service can only see the login page there, so capture from
 your production domain instead.
 
+## Builds
+
+Every captured event is stamped with the **build** of the site it came from —
+a commit sha where one is known, otherwise whatever label the deployment
+carries. That is what lets the dashboard answer "did the rage clicks start
+with Tuesday's deploy?" and what tells the Design tab which scans describe the
+site as it ships now.
+
+**Where the label comes from.** The client bundle sends its own build with
+every batch when it knows it: `NEXT_PUBLIC_POLISHD_BUILD`, inlined at build
+time, or Vercel's `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` (set when system
+environment variables are exposed, the default for new projects), or a
+`build` passed to `initPolishd()`. A batch that names none is stamped by the
+server with its own: `POLISHD_BUILD`, else the host's commit variable
+(`VERCEL_GIT_COMMIT_SHA`, Netlify's `COMMIT_REF`, Cloudflare's
+`CF_PAGES_COMMIT_SHA`, Railway, Render, Heroku), and in development the
+checked-out commit from `git rev-parse HEAD`. The client's label is preferred
+because it is exact: a tab left open across a deploy keeps posting from the
+old bundle, and only the bundle knows that. On a host without a public commit
+variable, set it in the build command:
+
+```bash
+NEXT_PUBLIC_POLISHD_BUILD=$COMMIT_REF next build
+```
+
+A label is letters, digits and `. _ - / + : @`, up to 80 characters; anything
+else is dropped rather than guessed at. Events stored before builds were
+tracked have none.
+
+**On the Analytics tab**, a range control in the header scopes every section
+at once — the tiles and their charts, top pages, device sizes, journeys,
+elements, errors — to the last 24 hours, 7, 30 or 90 days, all time (the
+default), or **This build**: the one currently shipping. The range is in the
+URL (`?tab=analytics&range=7d`), so a view is a link. Windows are measured on
+the server's receive time, so a visitor with a wrong clock can't move an event
+out of the week it arrived in. A **Builds** table lists every build events
+have landed on, newest first, with its sessions, views and friction; clicking
+one scopes the tab to it. A build is "new" the first time it is seen — a
+lingering tab reporting from the previous build can't make that one current
+again. The AI summary and its staleness are always written from the whole
+history, whatever the range, so changing the range never marks it stale.
+
+**On the Design tab**, scans are chosen per build. Taking each page's newest
+scan is right while the site is on one build and wrong the day after a deploy:
+a page nobody has revisited still contributes the old build's type and colors,
+and a page the new build removed never stops contributing at all. So once
+every page the current build has served has also been scanned on it, only its
+scans are merged and the previous build's drop out — removed pages with them.
+Until then the newest scan per page is still used, whichever build took it, and
+a note under the header says how many pages have been re-scanned and which are
+still waiting; open each and refresh the metrics to finish the picture. Pages
+re-scan once per session per build (and on every load in development), so a
+deploy is picked up as visitors return. The Scanned pages list shows the build
+each scan came from, marking any carried over from the previous one.
+
 ## Component-level tracking
 
 Wrap any element to track it explicitly. Interactive controls get hover + click
@@ -908,6 +963,8 @@ POLISHD_SESSION_COOKIE=my_session
 |---|---|---|
 | `POLISHD_DATABASE_URL` | production | Pooled Postgres connection string — enables capture |
 | `POLISHD_DB_PATH` | dev (optional) | Custom SQLite path (default `.polishd/analytics.db`) |
+| `NEXT_PUBLIC_POLISHD_BUILD` | optional | The build label stamped on every event, inlined into the client bundle at build time — a commit sha, version or date. Vercel's `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` is read when this isn't set; see [Builds](#builds) |
+| `POLISHD_BUILD` | optional | The server's build, stamped on batches whose bundle names none. Hosts' own commit variables (`VERCEL_GIT_COMMIT_SHA`, Netlify's `COMMIT_REF`, Cloudflare's `CF_PAGES_COMMIT_SHA`, Railway, Render, Heroku) are read when this isn't set; in development it's `git rev-parse HEAD` |
 | `POLISHD_DASHBOARD_TOKEN` | production | Protects `/polishd` with the built-in gate. Generate with `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | production (optional) | `true` — serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | optional | Rename the anonymous session cookie. Read by both the proxy and ingest, so they cannot disagree |

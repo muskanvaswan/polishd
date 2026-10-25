@@ -46,6 +46,8 @@ export interface DesignScanRow {
   path: string;
   ts: number;
   payload: PolishdDesignScanPayload;
+  /** The build the page was served from when scanned; null when unknown. */
+  build?: string | null;
 }
 
 // ── Color math ───────────────────────────────────────────────────────────────
@@ -346,7 +348,12 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
 
   const data: PolishdDesignData = {
     ready: true,
-    pages: scans.map((s) => ({ path: s.path, scannedAt: s.ts, elements: s.payload.el })),
+    pages: scans.map((s) => ({
+      path: s.path,
+      scannedAt: s.ts,
+      elements: s.payload.el,
+      ...(s.build ? { build: s.build } : {}),
+    })),
     fonts: fontList,
     families,
     colors: colorList.slice(0, 64),
