@@ -13,7 +13,7 @@ import {
 } from "../config";
 import { foldNoSessionDrop, parseNoSessionRecord } from "../shared/capture-status";
 import { isIgnorableError } from "../shared/error-noise";
-import { reclassifiedClickType } from "../shared/text-signals";
+import { normalizeLabel, reclassifiedClickType } from "../shared/text-signals";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { getMeta, insertEvents, setMeta } from "./store";
 
@@ -153,6 +153,14 @@ function sanitize(raw: unknown): PolishdEvent | null {
   // actually holds lives here too: retype stragglers to `text_click`, exactly
   // what the one-time sweep does to rows already stored.
   out.type = reclassifiedClickType(out.type, out.selector, out.text) as PolishdEvent["type"];
+
+  // Same reasoning for click labels: current clients fold digit runs to `#`
+  // so "Show 9 more" and "Show 12 more" count as one control, and an older
+  // bundle — or an older install's telemetry — gets the same treatment here.
+  // After the retype, whose length test mirrors the client's raw-text check.
+  if (out.type === "click" || out.type === "rage_click" || out.type === "dead_click") {
+    out.text = normalizeLabel(out.text);
+  }
 
   return out;
 }

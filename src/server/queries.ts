@@ -21,6 +21,14 @@ import { NO_SESSION_META_KEY } from "./ingest";
 import { resolveAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
 import { isIgnorableError } from "../shared/error-noise";
+import {
+  EMPTY_FRICTION,
+  foldFriction,
+  withRageHandles,
+  type FrictionIndex,
+  type FrictionKind,
+  type FrictionRow,
+} from "./friction";
 import { trendWindow } from "../shared/metric-buckets";
 import type { PolishdEventType } from "../shared/types";
 
@@ -120,6 +128,18 @@ export interface RecentError {
    * attributable at all. Confident extension errors never make it this far.
    */
   origin?: "foreign" | "unknown";
+  /**
+   * Context from the most recent occurrence, each absent when that throw
+   * didn't carry it (older clients carry none): Next's error digest, the top
+   * stack frame, the click shortly before it (`after`, `afterMs` before,
+   * `afterSelector`), and a path to find the element in the source.
+   */
+  digest?: string;
+  frame?: string;
+  after?: string;
+  afterMs?: number;
+  afterSelector?: string;
+  handle?: string;
 }
 
 export interface ElementStat {
@@ -127,8 +147,19 @@ export interface ElementStat {
   label: string;
   /** A representative DOM selector for this element. */
   selector: string | null;
-  /** A sample of the element's visible text (label), if any. */
+  /**
+   * A sample of the element's visible text (label), if any. For an element
+   * whose dead clicks carry no text of their own but missed a control beside
+   * them, `beside “<control>”`.
+   */
   sampleText: string | null;
+  /** The control this element's dead clicks narrowly missed, if they did. */
+  near?: string;
+  /**
+   * True when `sampleText` is the `beside “…”` label rather than the element's
+   * own text — render and report it as where the clicks land, not as a quote.
+   */
+  sampleIsNear?: boolean;
   /** How many distinct pages this element was interacted with on. */
   pages: number;
   clicks: number;
@@ -543,6 +574,7 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
        COALESCE(selector, '(unknown)')                                 AS label,
        MAX(selector)                                                    AS selector,
        MAX(text)                                                        AS "sampleText",
+       MAX(CASE WHEN type = 'dead_click' THEN meta ->> 'near' END)      AS near,
        COUNT(DISTINCT path)                                             AS pages,
        SUM(CASE WHEN type = 'click'      THEN 1 ELSE 0 END)             AS clicks,
        SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END)             AS "rageClicks",
@@ -558,10 +590,14 @@ export async function getElementStats(limit = 12): Promise<ElementStat[]> {
       const rageClicks = num(r, "rageClicks");
       const deadClicks = num(r, "deadClicks");
       const clicks = num(r, "clicks");
+      const near = typeof r.near === "string" && r.near ? r.near : undefined;
+      const own = (r.sampleText as string) || null;
       return {
         label: r.label as string,
         selector: (r.selector as string) ?? null,
-        sampleText: (r.sampleText as string) ?? null,
+        sampleText: own ?? besideLabel(near),
+        ...(near ? { near } : {}),
+        ...(!own && near ? { sampleIsNear: true } : {}),
         pages: num(r, "pages"),
         clicks,
         rageClicks,
@@ -773,7 +809,7 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
     `SELECT session_id, type, ts, path, selector, component, text, value, meta
      FROM ${polishdEventsSource()}
      WHERE session_id IN (${placeholders})
-     ORDER BY session_id, id`,
+     ORDER BY session_id, ts, id`,
     ids,
   );
 
@@ -816,8 +852,13 @@ export async function getSessionJourneys(limit = 6): Promise<SessionJourney[]> {
         const meta = parseMeta(e.meta);
         detail = meta && typeof meta.message === "string" ? meta.message : "Unknown error";
       } else if (type !== "page_view" && type !== "session_end") {
+        const near = type === "dead_click" ? parseMeta(e.meta)?.near : undefined;
         label =
-          (e.component as string) || (e.text as string) || (e.selector as string) || null;
+          (e.component as string) ||
+          (e.text as string) ||
+          besideLabel(typeof near === "string" ? near : undefined) ||
+          (e.selector as string) ||
+          null;
       }
 
       steps.push({ type, ts: num(e, "ts"), path: e.path as string, label, detail });
@@ -881,10 +922,10 @@ export interface MonitoredComponent {
  * We then pull all event types for those components so the table shows the
  * complete picture.
  *
- * The per-view `meta` (height, scrollDepth) is aggregated in JS rather than SQL:
- * the two backends spell JSON extraction differently (SQLite `JSON_EXTRACT`,
- * Postgres `->>`), and there's no portable function, so we parse meta here —
- * matching how `getSessionJourneys` and `getTopPages` keep their SQL portable.
+ * The per-view `meta` (height, scrollDepth) is parsed and aggregated in JS.
+ * A single key can be read in SQL on both backends with `meta ->> 'key'` (see
+ * `getRecentErrors`), but averaging numbers out of it would need a cast each
+ * backend spells differently — and this table is small enough to fold here.
  */
 export async function getMonitoredComponents(): Promise<MonitoredComponent[]> {
   if (!(await storeReady())) return [];
@@ -1100,33 +1141,58 @@ export async function loadPolishdDashboardData(): Promise<PolishdDashboardData> 
 
 /**
  * The most recently seen distinct errors, up to `limit`, each with its total
- * count. The SQL collapses identical rows (a throw site's meta is the same
- * every time it fires); the message itself lives inside that JSON, which the
- * two backends extract differently, so the final fold by message happens here.
+ * count and the context of its latest occurrence.
+ *
+ * The SQL groups on what stays the same every time a throw site fires — page,
+ * component, message, source, frame, line, origin — read out of `meta` with
+ * `->>`, which both backends spell the same way on this column (Postgres on
+ * `jsonb`, SQLite since 3.38; `node:sqlite` ships 3.46+). It used to group by
+ * the whole `meta`, and once errors carried per-occurrence context (`after`,
+ * `afterMs`) every throw became a group of its own: one frequent error filled
+ * the window and the others fell out of it. The final fold by message, across
+ * pages and throw sites, happens here.
  */
 export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
   // A message can span many SQL groups — one per page and throw site — so
   // fetch well past `limit`. The cap only bounds history: an error whose
   // older variants fall past it reads a little low, never wrong in kind.
+  // `->>` is text on Postgres but keeps a JSON number a number on SQLite, so
+  // `line: 12` and `line: "12"` would group apart on one engine only. The cast
+  // makes both engines group, and return, the same text.
+  const field = (key: string) => `CAST(meta ->> '${key}' AS TEXT)`;
+  const stable = [
+    "path",
+    "component",
+    field("message"),
+    field("source"),
+    field("frame"),
+    field("line"),
+    field("origin"),
+  ];
   const rows = await query(
-    `SELECT path, component, meta, COUNT(*) AS n, MAX(ts) AS last_ts, MAX(id) AS last_id
+    `SELECT path, component,
+            ${field("message")} AS message,
+            ${field("source")}  AS source,
+            ${field("origin")}  AS origin,
+            COUNT(*) AS n, MAX(ts) AS last_ts, MAX(id) AS last_id
      FROM ${polishdEventsSource()} WHERE type = 'js_error'
-     GROUP BY path, component, meta
+     GROUP BY ${stable.join(", ")}
      ORDER BY last_id DESC LIMIT ?`,
     [limit * 20],
   );
   const errors = new Map<string, RecentError>();
+  /** The newest row of each folded error, whose meta carries its context. */
+  const latestId = new Map<RecentError, number>();
   for (const r of rows) {
-    const meta = parseMeta(r.meta);
-    const message = meta && typeof meta.message === "string" ? meta.message : "Unknown error";
-    const source = meta && typeof meta.source === "string" ? meta.source : "";
+    const message = typeof r.message === "string" ? r.message : "Unknown error";
+    const source = typeof r.source === "string" ? r.source : "";
     // Extension errors are dropped at capture and again at ingest, but rows
     // written before that filter existed are still in the table — and this
     // list is where they were loudest. Drop them on the way out, so the fix
     // applies to history and not just to new sessions.
     if (isIgnorableError({ message, source })) continue;
     const origin: RecentError["origin"] =
-      meta?.origin === "foreign" || meta?.origin === "unknown" ? meta.origin : undefined;
+      r.origin === "foreign" || r.origin === "unknown" ? r.origin : undefined;
     const component = (r.component as string) ?? undefined;
     const path = r.path as string;
     const key = JSON.stringify([message, component ?? null, origin ?? null]);
@@ -1138,7 +1204,7 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
       seen.ts = Math.max(seen.ts, num(r, "last_ts"));
       if (!seen.paths.includes(path)) seen.paths.push(path);
     } else if (errors.size < limit) {
-      errors.set(key, {
+      const error: RecentError = {
         path,
         component,
         message,
@@ -1146,10 +1212,126 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
         ts: num(r, "last_ts"),
         count: num(r, "n"),
         paths: [path],
-      });
+      };
+      errors.set(key, error);
+      latestId.set(error, num(r, "last_id"));
+    }
+  }
+
+  // The varying context — digest, frame, the click before — from each error's
+  // newest occurrence: one lookup by id for the whole list.
+  const ids = [...latestId.values()];
+  if (ids.length > 0) {
+    const metas = new Map<number, ReturnType<typeof parseMeta>>();
+    for (const r of await query(
+      `SELECT id, meta FROM events WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      ids,
+    )) {
+      metas.set(num(r, "id"), parseMeta(r.meta));
+    }
+    for (const [error, id] of latestId) {
+      const meta = metas.get(id);
+      if (!meta) continue;
+      const text = (k: string) =>
+        typeof meta[k] === "string" || typeof meta[k] === "number" ? String(meta[k]) : undefined;
+      const digest = text("digest");
+      const frame = text("frame");
+      const after = text("after");
+      const afterSelector = text("afterSelector");
+      const handle = text("handle");
+      if (digest) error.digest = digest;
+      if (frame) error.frame = frame;
+      if (after) error.after = after;
+      if (typeof meta.afterMs === "number") error.afterMs = meta.afterMs;
+      if (afterSelector) error.afterSelector = afterSelector;
+      if (handle) error.handle = handle;
     }
   }
   return [...errors.values()];
+}
+
+/** How an element with no label of its own is named after the control it missed. */
+function besideLabel(near: string | undefined): string | null {
+  return near ? `beside “${near}”` : null;
+}
+
+/** Grouped friction rows read at most — well past what a small site produces. */
+const FRICTION_ROW_CAP = 10_000;
+/** Rage-click meta rows read for their handles, most recent first. */
+const RAGE_HANDLE_ROWS = 2_000;
+
+/**
+ * Rage clicks, dead clicks and errors, folded per element, component, page
+ * and error message — with distinct sessions, the pages each happened on, and
+ * the context capture attached (`meta.near`, `meta.handle`; on an error
+ * `digest`, `frame`, `after`, `afterMs`, `afterSelector`). See friction.ts.
+ *
+ * Deliberately not part of `loadPolishdDashboardData`: only the AI summary
+ * reads it, so it runs when a summary is generated, never on a dashboard
+ * render. One grouped query — events of one kind, on one page, target and
+ * session (and, for dead clicks and errors, meta) collapse to a row. Past the
+ * row cap the most recent friction wins, and the index says it was capped.
+ *
+ * A rage click's meta only matters for its handle, which is the same on every
+ * click of one element, so rage rows aren't split by it; the handles come
+ * from a second, small query instead of spending the row cap.
+ */
+export async function getFriction(): Promise<FrictionIndex> {
+  if (!(await storeReady())) return EMPTY_FRICTION;
+  const metaExpr = `CASE WHEN type = 'rage_click' THEN NULL ELSE meta END`;
+  const [rows, rageMeta] = await Promise.all([
+    query(
+      `SELECT type, path, selector, component, session_id, ${metaExpr} AS meta,
+              MAX(text) AS text, COUNT(*) AS n, MAX(id) AS last_id
+       FROM ${polishdEventsSource()}
+       WHERE type IN ('rage_click', 'dead_click', 'js_error')
+       GROUP BY type, path, selector, component, session_id, ${metaExpr}
+       ORDER BY last_id DESC LIMIT ?`,
+      [FRICTION_ROW_CAP + 1],
+    ),
+    query(
+      `SELECT selector, component, meta, COUNT(*) AS n, MAX(id) AS last_id
+       FROM ${polishdEventsSource()}
+       WHERE type = 'rage_click' AND meta IS NOT NULL
+       GROUP BY selector, component, meta
+       ORDER BY last_id DESC LIMIT ?`,
+      [RAGE_HANDLE_ROWS],
+    ),
+  ]);
+  const capped = rows.length > FRICTION_ROW_CAP;
+  const parsed: FrictionRow[] = [];
+  for (const r of rows.slice(0, FRICTION_ROW_CAP)) {
+    const meta = parseMeta(r.meta) ?? null;
+    const type = r.type as FrictionKind;
+    if (type === "js_error") {
+      // The same extension-noise rule getRecentErrors applies to history.
+      const message = typeof meta?.message === "string" ? meta.message : "";
+      const source = typeof meta?.source === "string" ? meta.source : "";
+      if (isIgnorableError({ message, source })) continue;
+    }
+    parsed.push({
+      type,
+      path: r.path as string,
+      selector: (r.selector as string) ?? null,
+      component: (r.component as string) ?? null,
+      text: (r.text as string) ?? null,
+      session: r.session_id as string,
+      meta,
+      n: num(r, "n"),
+    });
+  }
+  const handles = rageMeta.flatMap((r) => {
+    const handle = parseMeta(r.meta)?.handle;
+    return typeof handle === "string" && handle.trim()
+      ? [{
+          selector: (r.selector as string) ?? null,
+          component: (r.component as string) ?? null,
+          handle,
+          n: num(r, "n"),
+        }]
+      : [];
+  });
+  return withRageHandles(foldFriction(parsed, capped), handles);
 }
 
 // ── Cross-install telemetry (the installs view) ──────────────────────────────

@@ -24,11 +24,120 @@
 @layer theme, base, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
 
-/* Scan the compiled dashboard for the utilities it actually uses. */
+/* Scan the dashboard — and only the dashboard — for the utilities it uses.
+   `source(none)` above turns off Tailwind's automatic detection, which would
+   otherwise read the whole repository (the landing site, the docs) and ship
+   whatever it found there. */
 @source "../../dist/dashboard";
 @source "../../src/dashboard";
+
+/*
+ * The dashboard's design tokens.
+ *
+ * Components never name a raw colour: they say `bg-surface`, `text-fg-3`,
+ * `border-line`, and the values live once, below, on `.polishd-root`.
+ *
+ * `inline` is what keeps these off the host page. A plain `@theme` block would
+ * emit each colour as a `--color-<name>` variable on `:root` — the build widens
+ * `:root` to the host's document — and names like these are exactly what a
+ * host's own Tailwind theme already uses. Inlined, each utility resolves
+ * straight to a `--pd-*` variable that exists only inside the dashboard.
+ *
+ * Don't spell a full `--color-<token>` name anywhere under src/dashboard, even
+ * in a comment: Tailwind's scanner reads it as a use and emits the variable
+ * on `:root` after all.
+ */
+@theme inline {
+  --color-canvas: var(--pd-canvas);
+  --color-sunken: var(--pd-sunken);
+  --color-surface: var(--pd-surface);
+  --color-raised: var(--pd-raised);
+  --color-overlay: var(--pd-overlay);
+  --color-line: var(--pd-line);
+  --color-line-strong: var(--pd-line-strong);
+  --color-fg: var(--pd-fg);
+  --color-fg-2: var(--pd-fg-2);
+  --color-fg-3: var(--pd-fg-3);
+  --color-fg-4: var(--pd-fg-4);
+  --color-accent: var(--pd-accent);
+  --color-accent-hover: var(--pd-accent-hover);
+  --color-accent-fg: var(--pd-accent-fg);
+  --color-ok: var(--pd-ok);
+  --color-warn: var(--pd-warn);
+  --color-bad: var(--pd-bad);
+  --color-info: var(--pd-info);
+  --color-violet: var(--pd-violet);
+
+  --shadow-card: var(--pd-shadow-card);
+  --shadow-pop: var(--pd-shadow-pop);
+}
+
+/*
+ * The Polishd brand faces, bundled so the dashboard looks the same in every
+ * host without fetching from a font CDN (and without a host CSP having to
+ * allow one). They sit beside the compiled stylesheet in dist/fonts — the
+ * build copies them — and a bundler resolves these relative URLs the way it
+ * would any other asset in an imported stylesheet. Fonts only download when
+ * text actually uses them. Licences: fonts/LICENSE.md.
+ *
+ * The family names are private on purpose: a host that loads its own Open
+ * Sauce One or JetBrains Mono under the real names never collides with these.
+ */
+@font-face {
+  font-family: "Polishd Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/open-sauce-one-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Polishd Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/open-sauce-one-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Polishd Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/open-sauce-one-600.woff2") format("woff2");
+}
+/* Nohemi ships as the original TTF: its licence forbids modifying the files,
+   so it isn't re-encoded to WOFF. Only the SemiBold every title uses. */
+@font-face {
+  font-family: "Polishd Display";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/nohemi-600.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Polishd Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono.woff2") format("woff2");
+}
+
+/*
+ * The wordmark's polish bottle: its halftone dots brighten and dim in a slow
+ * wave, each on its own delay (set inline per dot). Copied from the landing
+ * site's hero, but scoped — the site's version styles every `circle` on the
+ * page, which here would include chart points and icons, and the host's own.
+ */
+@keyframes pd-polish-shimmer {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 
 /*
  * A scoped stand-in for Tailwind's preflight.
@@ -46,24 +155,141 @@
        a font, inheriting lands on the browser default and the whole dashboard
        renders in serif. Naming the stack is what makes it look the same in
        every host, which is the point of shipping the stylesheet at all. */
-    font-family:
-      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-      Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    --pd-font-sans:
+      "Polishd Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    --pd-font-display: "Polishd Display", var(--pd-font-sans);
+    --pd-font-mono:
+      "Polishd Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    font-family: var(--pd-font-sans);
+    /* Tailwind's own `--font-*` defaults land on `:root` with the theme, and
+       the `font-sans`/`font-mono` utilities read them. Pointing them at the
+       brand stacks here, on the dashboard's root only, is what keeps those
+       utilities on-brand without touching the host's own `--font-mono`. */
+    --font-sans: var(--pd-font-sans);
+    --font-mono: var(--pd-font-mono);
     line-height: 1.5;
     -webkit-text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    color: #fff;
 
-    /* The dashboard is dark whatever the host's theme is, so say so. Without
-       it the browser draws native chrome for a light page: every table that
-       scrolls sideways gets a white scrollbar track across the bottom of a
-       dark card. `scrollbar-color` inherits, so this one rule covers every
-       scroll container below — the card rail's own utility predates it.
-       `color-scheme` is the fallback where `scrollbar-color` isn't supported,
-       and also darkens the native <select> menus and checkboxes. */
+    /* Ink: pure neutral greys, no tint. The accent is the text colour
+       itself, so the only colour on the page is status — green healthy,
+       amber dead clicks, red rage and errors — and nothing decorative ever
+       competes with it. Three surface steps a few points apart let a card sit
+       on the page and a control on the card without heavy borders. Text steps
+       are chosen against the surfaces they appear on: fg-3 still clears
+       WCAG AA (≥5:1) on every one of them, in both schemes; fg-4
+       (≈2.5–3:1) never carries text, not even an em-dash or a separator dot:
+       it's for rules, underlines, status dots, an icon beside its own label,
+       and struck-out glyphs.
+       Dark is the default; the light set below applies when the owner picks
+       it with the sidebar toggle. */
+    --pd-canvas: #0a0a0a;
+    --pd-sunken: #0d0d0d;
+    --pd-surface: #121212;
+    --pd-raised: #1a1a1a;
+    --pd-overlay: #202020;
+    --pd-line: #262626;
+    --pd-line-strong: #363636;
+    --pd-fg: #f5f5f5;
+    --pd-fg-2: #b8b8b8;
+    --pd-fg-3: #8f8f8f;
+    --pd-fg-4: #5e5e5e;
+    --pd-accent: #f5f5f5;
+    --pd-accent-hover: #ffffff;
+    --pd-accent-fg: #0a0a0a;
+    --pd-ok: #4ade80;
+    --pd-warn: #fbbf24;
+    --pd-bad: #f87171;
+    /* No blues or purples: "info" (component badges, notes) stays neutral and
+       "violet" (closed issues, hover events) is a warm tan. */
+    --pd-info: #d4d4d4;
+    --pd-violet: #c9b08f;
+    --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --pd-shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.75);
+
+    color: var(--pd-fg);
+
+    /* Say which scheme is showing, whatever the host's theme is. Without it
+       the browser draws native chrome for the host's mode: a dark card gets a
+       white scrollbar track across its bottom. `scrollbar-color` inherits, so
+       this one rule covers every scroll container below; `color-scheme` is
+       the fallback where it isn't supported, and also themes the native
+       <select> menus and checkboxes. */
     color-scheme: dark;
-    scrollbar-color: #2e2e2e transparent;
+    scrollbar-color: var(--pd-line-strong) transparent;
+  }
+
+  /* Ink, light. Chosen with the sidebar toggle, which sets `data-theme` on
+     the root and remembers it in a cookie the server reads, so a reload
+     renders the chosen theme straight away. Dark otherwise, whatever the OS
+     says — the dashboard is a dark tool by default.
+     Status hues are dark enough to clear 4.5:1 on their own 10–15% tint
+     (badges, the filed-issue chip) over every light surface, not just on
+     white: the 700 steps managed ≈4.0:1 there, so ok and warn take their
+     800 steps and bad Tailwind's red-700. */
+  .polishd-root[data-theme="light"] {
+    --pd-canvas: #fafafa;
+    --pd-sunken: #f4f4f4;
+    --pd-surface: #ffffff;
+    --pd-raised: #f4f4f4;
+    --pd-overlay: #ffffff;
+    --pd-line: #e7e7e7;
+    --pd-line-strong: #d4d4d4;
+    --pd-fg: #0a0a0a;
+    --pd-fg-2: #404040;
+    --pd-fg-3: #666666;
+    --pd-fg-4: #a3a3a3;
+    --pd-accent: #0a0a0a;
+    --pd-accent-hover: #2a2a2a;
+    --pd-accent-fg: #ffffff;
+    --pd-ok: #166534;
+    --pd-warn: #92400e;
+    --pd-bad: #b91c1c;
+    --pd-info: #404040;
+    --pd-violet: #7d5f3e;
+    --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --pd-shadow-pop: 0 0 0 1px rgb(0 0 0 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.18);
+    color-scheme: light;
+  }
+
+  .polishd-root ::selection {
+    background-color: color-mix(in oklab, var(--pd-accent) 35%, transparent);
+    color: var(--pd-fg);
+  }
+
+  /* One focus treatment for every control, shown for keyboard focus only.
+     Components that draw their own (inputs, the chart) opt out explicitly. */
+  .polishd-root :focus-visible {
+    outline: 2px solid var(--pd-accent);
+    outline-offset: 2px;
+  }
+
+  .polishd-root .pd-bottle circle {
+    animation: pd-polish-shimmer 4.2s ease-in-out infinite;
+  }
+
+  /* Motion here is feedback, never content: honour the OS setting by
+     collapsing it rather than picking and choosing per component. The
+     bottle settles on a steady mid-tone rather than flashing to full. */
+  @media (prefers-reduced-motion: reduce) {
+    .polishd-root .pd-bottle circle {
+      animation: none;
+      opacity: 0.85;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .polishd-root *,
+    .polishd-root *::before,
+    .polishd-root *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   /*
@@ -92,6 +318,8 @@
   .polishd-root h3,
   .polishd-root h4,
   .polishd-root p,
+  .polishd-root label,
+  .polishd-root legend,
   .polishd-root figure,
   .polishd-root blockquote,
   .polishd-root dl,
@@ -100,6 +328,14 @@
     margin: 0;
     font-size: inherit;
     font-weight: inherit;
+  }
+
+  /* Titles speak in Nohemi, the landing site's display face. It sets tight,
+     so it gets a breath of tracking the way the site gives it. */
+  .polishd-root h1,
+  .polishd-root h2 {
+    font-family: var(--pd-font-display);
+    letter-spacing: 0.01em;
   }
 
   .polishd-root ol,
@@ -158,9 +394,7 @@
 
   .polishd-root code,
   .polishd-root pre {
-    font-family:
-      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-      "Courier New", monospace;
+    font-family: var(--pd-font-mono);
     font-size: 1em;
   }
 

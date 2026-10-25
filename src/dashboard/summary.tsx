@@ -30,15 +30,20 @@ import type {
   PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
+import { DismissedCard, IgnoreButton, useDismissal } from "./dismissable";
 import { FileBugButton } from "./file-bug-button";
 import {
+  ArrowRightIcon,
+  Badge,
+  Callout,
+  CheckIcon,
   GearIcon,
   RefreshIcon,
-  border,
+  SparkIcon,
   card,
+  cardHeader,
+  cardTitleCls,
   iconBtn,
-  labelCls,
-  microBtn,
   primaryBtn,
   relTime,
 } from "./ui";
@@ -56,6 +61,8 @@ export interface SummaryCardProps {
   onSummaryChange?: (summary: PolishdSummary) => void;
   /** Told when a loss is ignored, restored or filed, keyed by its evidence. */
   onLossChange?: (evidence: string, change: LossChange) => void;
+  /** Dismissals recorded elsewhere (a pasted verdict block), keyed by evidence. */
+  dismissed?: ReadonlyMap<string, PolishdIgnoredLoss>;
 }
 
 /** What can happen to a loss after it renders. */
@@ -70,6 +77,7 @@ export default function SummaryCard({
   sourceAvailable,
   onSummaryChange,
   onLossChange,
+  dismissed,
 }: SummaryCardProps) {
   const [summary, setSummary] = useState<PolishdSummary | null>(initialSummary);
   const [stale, setStale] = useState(initialStale);
@@ -99,16 +107,19 @@ export default function SummaryCard({
     // exist for polishd's own dashboard telemetry: clicks captured by the
     // emitter group under these names on the collecting side, so "how often
     // is the summary refreshed?" is answerable. Inert for host apps.
-    <section data-component="ai-summary" className={`mb-8 ${card} overflow-hidden`}>
+    <section data-component="ai-summary" className={`mb-10 ${card} overflow-hidden`}>
       {/* Header */}
-      <div
-        className={`flex items-center justify-between gap-3 border-b ${border} px-4 py-3 sm:px-5`}
-      >
-        <div className="flex items-center gap-2">
-          <span className={labelCls}>All you need to know</span>
+      <div className={cardHeader}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="text-accent">
+            <SparkIcon size={15} />
+          </span>
+          <span className={cardTitleCls}>All you need to know</span>
           {settings.hasApiKey && (
-            <span className="hidden rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-medium text-[#888] sm:inline">
-              {settings.provider} · {settings.model}
+            <span className="hidden min-w-0 sm:flex">
+              <Badge mono className="truncate">
+                {settings.provider} · {settings.model}
+              </Badge>
             </span>
           )}
         </div>
@@ -136,37 +147,39 @@ export default function SummaryCard({
       </div>
 
       {/* Body */}
-      <div className="px-4 py-4 sm:px-5 sm:py-5">
+      <div className="px-4 py-5 sm:px-5">
         {error && (
-          <div className="mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">
+          <Callout tone="bad" className="mb-4">
             {error}
-          </div>
+          </Callout>
         )}
 
         {hasSummary ? (
           <>
-            <p className="text-[14px] leading-relaxed text-[#e4e4e4]">{summary!.text}</p>
+            <p className="max-w-[72ch] text-[15px] leading-[1.7] text-fg">{summary!.text}</p>
             <WinsLosses
               wins={summary!.wins}
               losses={summary!.losses}
               githubConnected={settings.hasGithubToken && !!settings.githubRepo}
               onLossChange={onLossChange}
+              dismissed={dismissed}
             />
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#555]">
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>
-                Generated {relTime(summary!.generatedAt)} · {summary!.provider}/{summary!.model}
+                {/* Server and hydration can straddle a minute ("4m" vs "5m ago"),
+                    same as the snapshot strip's timestamp. */}
+                Generated <span suppressHydrationWarning>{relTime(summary!.generatedAt)}</span> ·{" "}
+                {summary!.provider}/{summary!.model}
                 {cadence !== "manual" && ` · refreshes ${cadence}`}
               </span>
               {stale && (
-                <span className="rounded-full bg-amber-950/50 px-2 py-0.5 text-amber-400">
-                  Something's changed since this summary — refresh to update
-                </span>
+                <Badge tone="warn">Something&apos;s changed since this summary — refresh to update</Badge>
               )}
             </div>
           </>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] leading-relaxed text-[#888]">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
               {settings.hasApiKey
                 ? "No summary yet — generate the story of how visitors are using this site from the signals below."
                 : "No model connected yet. Add a key in Settings and Polishd will read these numbers back to you in plain English."}
@@ -179,7 +192,12 @@ export default function SummaryCard({
                 disabled={pending}
                 className={primaryBtn}
               >
-                {pending ? "Thinking…" : "Generate summary"}
+                {pending ? "Thinking…" : (
+                  <>
+                    <SparkIcon size={13} />
+                    Generate summary
+                  </>
+                )}
               </button>
             ) : (
               <span data-component="ai-connect-model" className="contents">
@@ -235,15 +253,14 @@ function ProfileNudge({
   if (!message) return null;
 
   return (
-    <div
-      className={`flex flex-wrap items-center justify-between gap-2 border-t ${border} bg-[#080808] px-4 py-2.5 sm:px-5`}
-    >
-      <span className="text-[11px] text-[#666]">{message}</span>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-sunken px-4 py-2.5 sm:px-5">
+      <span className="text-[12px] text-fg-3">{message}</span>
       <TabLink
         tab="settings"
-        className="text-[11px] text-[#888] underline decoration-[#444] underline-offset-2 hover:text-white"
+        className="inline-flex items-center gap-1 text-[12px] font-medium text-fg-2 transition-colors hover:text-fg"
       >
-        {action} →
+        {action}
+        <ArrowRightIcon />
       </TabLink>
     </div>
   );
@@ -251,136 +268,74 @@ function ProfileNudge({
 
 // ── Wins & losses ────────────────────────────────────────────────────────────
 
-/** The verdict buttons on a loss share their style with the shared microBtn. */
-const microLink =
-  "text-[10px] text-[#666] underline decoration-[#333] underline-offset-2 transition-colors hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-40";
-
 /**
  * One loss, and the two things you can do with it: file it as a bug, or ignore
- * it. Ignoring takes one click and no explanation — a reason is offered
- * afterwards, because the fast path is "this isn't a problem, stop showing me
- * it" and typing shouldn't be the toll for that. A reason is worth giving
- * though: it's replayed to the model on every later summary, so "the second CTA
- * is deliberate" stops the same finding coming back in different words.
- *
- * The dismissal is stored server-side immediately; the card stays put, struck
- * through with an undo, and only disappears on the next render. Ignored losses
- * never reappear — not from the cached summary, and not from a regenerate.
+ * it (see dismissable.tsx). Ignored losses never reappear — not from the
+ * cached summary, and not from a regenerate.
  */
 function LossCard({
   loss,
   githubConnected,
   onChange,
+  adopted,
 }: {
   loss: PolishdLossItem;
   githubConnected: boolean;
   onChange?: (change: LossChange) => void;
+  adopted?: PolishdIgnoredLoss;
 }) {
-  const [ignored, setIgnored] = useState<PolishdIgnoredLoss | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startIgnore] = useTransition();
+  const dismissal = useDismissal({
+    dismiss: (reason) => ignoreLossAction({ issue: loss.issue, evidence: loss.evidence }, reason),
+    restore: () => unignoreLossAction(loss.evidence),
+    onChange: (ignored) => onChange?.({ ignored }),
+    adopted,
+  });
 
-  const ignore = (reason?: string) =>
-    startIgnore(async () => {
-      setError(null);
-      const res = await ignoreLossAction(
-        { issue: loss.issue, evidence: loss.evidence },
-        reason,
-      );
-      if (res.ok) {
-        setIgnored(res.ignored);
-        setEditing(false);
-        onChange?.({ ignored: true });
-      } else setError(res.message);
-    });
-
-  const undo = () =>
-    startIgnore(async () => {
-      setError(null);
-      const res = await unignoreLossAction(loss.evidence);
-      if (res.ok) {
-        setIgnored(null);
-        setEditing(false);
-        setDraft("");
-        onChange?.({ ignored: false });
-      } else setError(res.message);
-    });
-
-  if (ignored) {
+  if (dismissal.ignored) {
     return (
-      <li className={`${railCard} text-[#666]`}>
-        <div className="flex gap-2">
-          <span className="mt-px shrink-0 text-[#444]">✕</span>
-          <span className="line-through decoration-[#3a3a3a]">{loss.issue}</span>
-        </div>
-        <span className="mt-2 self-start rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#777]">
-          Ignored{ignored.reason ? ` — ${ignored.reason}` : ""}
-        </span>
-        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-          {editing ? (
-            <ReasonForm
-              draft={draft}
-              setDraft={setDraft}
-              pending={pending}
-              onSubmit={() => ignore(draft.trim() || undefined)}
-              onCancel={() => setEditing(false)}
-            />
-          ) : (
-            <>
-              <button
-                type="button"
-                data-component="loss-ignore-reason"
-                onClick={() => {
-                  setDraft(ignored.reason ?? "");
-                  setEditing(true);
-                }}
-                disabled={pending}
-                title="Tell the model why this isn't a problem — it reads this on every later summary"
-                className={microLink}
-              >
-                {ignored.reason ? "Edit reason" : "Add a reason"}
-              </button>
-              <button
-                type="button"
-                data-component="loss-ignore-undo"
-                onClick={undo}
-                disabled={pending}
-                title="Put this back — the model can report it again"
-                className={microLink}
-              >
-                {pending ? "Undoing…" : "Undo"}
-              </button>
-            </>
-          )}
-          {error && <span className="text-[10px] text-red-400">{error}</span>}
-        </div>
-      </li>
+      <DismissedCard
+        issue={loss.issue}
+        state={dismissal}
+        componentPrefix="loss"
+        readBy="summary"
+        noun="loss"
+      />
     );
   }
 
   return (
-    <li className={`${railCard} text-[#bbb]`}>
+    <li className={`${railCard} text-fg-2`}>
       <div className="flex gap-2">
-        <span className="mt-px shrink-0 text-red-400">✕</span>
-        <span>{loss.issue}</span>
+        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-bad" aria-hidden />
+        <span className="text-fg">{loss.issue}</span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <code className="break-all rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-[10px] text-[#888]">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <Badge mono className="break-all">
           {loss.evidence}
-        </code>
-        {loss.location ? (
-          <code className="break-all rounded bg-[#101c14] px-1.5 py-0.5 font-mono text-[10px] text-emerald-500">
-            {loss.location}
-          </code>
-        ) : (
-          <span
-            className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#666]"
-            title="The citation is real analytics data, but no matching file was found on disk (dynamic content, or source not available here)."
+        </Badge>
+        {loss.signal && loss.signal.count > 0 && (
+          <Badge
+            title={`From the captured analytics${loss.signal.pages.length ? `, on ${loss.signal.pages.join(", ")}` : ""}`}
           >
-            not matched to source
-          </span>
+            {loss.signal.count} {loss.signal.kind.replace(/_/g, " ")}
+            {loss.signal.count === 1 ? "" : "s"} · {loss.signal.sessions} session
+            {loss.signal.sessions === 1 ? "" : "s"}
+          </Badge>
+        )}
+        {loss.location ? (
+          <Badge tone="ok" mono className="break-all">
+            {loss.location}
+          </Badge>
+        ) : loss.candidates?.length ? (
+          <Badge
+            title={`Not verified — the citation could be in any of these, so none was picked:\n${loss.candidates.join("\n")}`}
+          >
+            {loss.candidates.length} possible file{loss.candidates.length === 1 ? "" : "s"}
+          </Badge>
+        ) : (
+          <Badge title="The citation is real analytics data, but nothing specific in it (a component name, page route, id or visible label) was found in the source — on disk, or in the connected GitHub repo where the source isn't on disk.">
+            <span className="text-fg-3">not matched to source</span>
+          </Badge>
         )}
       </div>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
@@ -398,63 +353,13 @@ function LossCard({
             }
           />
         )}
-        <button
-          type="button"
-          data-component="loss-ignore"
-          onClick={() => ignore()}
-          disabled={pending}
+        <IgnoreButton
+          state={dismissal}
+          dataComponent="loss-ignore"
           title="Not a problem — drop it from this summary and stop the model reporting it again"
-          className={microBtn}
-        >
-          {pending ? "Ignoring…" : "Ignore"}
-        </button>
-        {error && <span className="text-[10px] text-red-400">{error}</span>}
+        />
       </div>
     </li>
-  );
-}
-
-/** The optional half of ignoring: why it isn't a problem, in the owner's words. */
-function ReasonForm({
-  draft,
-  setDraft,
-  pending,
-  onSubmit,
-  onCancel,
-}: {
-  draft: string;
-  setDraft: (v: string) => void;
-  pending: boolean;
-  onSubmit: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit();
-      }}
-      className="flex w-full flex-wrap items-center gap-1.5"
-    >
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") onCancel();
-        }}
-        maxLength={240}
-        placeholder="Why isn't this a problem?"
-        aria-label="Reason for ignoring this loss"
-        className="w-full rounded border border-[#2e2e2e] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] text-[#ddd] placeholder:text-[#555] focus:border-[#555] focus:outline-none"
-      />
-      <button type="submit" disabled={pending} className={microBtn}>
-        {pending ? "Saving…" : "Save"}
-      </button>
-      <button type="button" onClick={onCancel} disabled={pending} className={microLink}>
-        Cancel
-      </button>
-    </form>
   );
 }
 
@@ -463,12 +368,14 @@ function WinsLosses({
   losses,
   githubConnected,
   onLossChange,
+  dismissed,
 }: {
   wins: PolishdSummary["wins"];
   losses: PolishdSummary["losses"];
   /** True when a GitHub repo + token are configured — enables "File bug". */
   githubConnected: boolean;
   onLossChange?: (evidence: string, change: LossChange) => void;
+  dismissed?: ReadonlyMap<string, PolishdIgnoredLoss>;
 }) {
   const hasWins = !!wins?.length;
   const hasLosses = !!losses?.length;
@@ -476,12 +383,17 @@ function WinsLosses({
   return (
     <>
       {hasWins && (
-        <div className="mt-4">
-          <div className={`${labelCls} mb-2 text-emerald-500`}>Wins</div>
-          <ul className="space-y-1.5">
+        <div className="mt-5">
+          <div className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
+            Wins
+          </div>
+          <ul className="space-y-2">
             {wins!.map((w, i) => (
-              <li key={i} className="flex gap-2 text-[13px] leading-snug text-[#bbb]">
-                <span className="mt-px shrink-0 text-emerald-500">✓</span>
+              <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-fg-2">
+                <span className="mt-px shrink-0 text-ok">
+                  <CheckIcon size={13} />
+                </span>
                 <span>{w}</span>
               </li>
             ))}
@@ -489,13 +401,14 @@ function WinsLosses({
         </div>
       )}
       {hasLosses && (
-        <CardRail label="Losses" tone="text-red-400" count={losses!.length}>
+        <CardRail label="Losses" tone="bg-bad" count={losses!.length}>
           {losses!.map((l, i) => (
             <LossCard
               key={l.evidence || i}
               loss={l}
               githubConnected={githubConnected}
               onChange={onLossChange && ((change) => onLossChange(l.evidence, change))}
+              adopted={dismissed?.get(l.evidence)}
             />
           ))}
         </CardRail>

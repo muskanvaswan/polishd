@@ -61,22 +61,20 @@ test("one-offs the Design tab badges never reach the kit", () => {
   );
 });
 
-test("padding gets the same one-off test, once there's enough to tell", () => {
-  const spacing = (px: number, count: number, pages = ["/", "/about"]): DesignSpacingUsage => ({
+test("padding one-offs stay out too; off-grid alone doesn't", () => {
+  const spacing = (px: number, count: number, outlier = false): DesignSpacingUsage => ({
     px,
     count,
-    pages,
+    pages: outlier ? ["/"] : ["/", "/about"],
     offGrid: px % 4 !== 0,
+    outlier,
   });
-  const many = buildBrandKit(data({ spacing: [spacing(8, 60), spacing(16, 40), spacing(7, 1, ["/"])] }));
+  const many = buildBrandKit(data({ spacing: [spacing(8, 60), spacing(16, 40), spacing(7, 1, true)] }));
   assert.deepEqual(many.spacing.map((s) => s.px), [8, 16]);
   assert.deepEqual(many.omitted, [{ kind: "spacing", label: "7px" }]);
-  // Off-grid but used everywhere is part of the system, not a one-off.
+  // Off-grid but not a one-off is part of the system.
   const systemic = buildBrandKit(data({ spacing: [spacing(8, 60), spacing(6, 40)] }));
   assert.deepEqual(systemic.spacing.map((s) => [s.token, s.px]), [["1", 6], ["2", 8]]);
-  // Too few tallies to call anything rare.
-  const small = buildBrandKit(data({ spacing: [spacing(8, 3), spacing(7, 1, ["/"])] }));
-  assert.equal(small.spacing.length, 2);
 });
 
 test("near-duplicate colors fold into the one used more", () => {
@@ -235,7 +233,7 @@ test("as CSS: one size per step, ranked aliases, and no comments when asked", ()
         { value: "8px (mixed)", count: 3, pages: ["/"], outlier: false },
         { value: "full", count: 9, pages: ["/"], outlier: false },
       ],
-      spacing: [{ px: 4, count: 10, pages: ["/"], offGrid: false }],
+      spacing: [{ px: 4, count: 10, pages: ["/"], offGrid: false, outlier: false }],
     }),
   );
   const css = brandKitCss(kit, "Acme");

@@ -15,7 +15,7 @@ export type PolishdEventType =
   | "page_view" // a route was viewed (initial load or soft navigation)
   | "click" // a normal click on an element
   | "rage_click" // 3+ rapid clicks on the same element (frustration; text-selection bursts excluded)
-  | "dead_click" // a click on a non-interactive, non-text element (confusion)
+  | "dead_click" // a click on a non-control, non-text element that drew no response within ~1s (confusion)
   | "scroll_depth" // max scroll reached on a page before leaving it (only pages tall enough to scroll)
   | "viewport" // device/viewport size sampled once at session start
   | "js_error" // an uncaught error or unhandled rejection
@@ -42,11 +42,18 @@ export interface PolishdEvent {
   ts: number;
   /** Pathname the event occurred on, e.g. "/posts/my-note". No query string. */
   path: string;
-  /** Best-effort CSS selector path to the target element. */
+  /**
+   * Best-effort CSS selector path to the target element: at most four
+   * levels, tag plus first plain class, stopping at an id. Stable — it depends
+   * only on the element's own markup — because element stats group by it.
+   */
   selector?: string;
   /** `data-component` hint, walked up from the target. Key to synthesis. */
   component?: string;
-  /** Short, truncated element text — labels only, never user-typed content. */
+  /**
+   * Short, truncated element text — labels only, never user-typed content.
+   * Digit runs are folded to `#` on click events ("Show # more").
+   */
   text?: string;
   /**
    * Numeric payload whose meaning depends on `type`:
@@ -55,7 +62,20 @@ export interface PolishdEvent {
    * - viewport: viewport width in CSS pixels
    */
   value?: number;
-  /** Small, typed extras keyed by event type (e.g. vital name, error message). */
+  /**
+   * Small, typed extras keyed by event type (e.g. vital name, error message).
+   * Every key is optional: events from older clients carry fewer of them.
+   * - dead_click: `near`, the label of the control the click landed next to
+   *   or inside, and `nearHandle`, that control's handle
+   * - dead_click, rage_click, js_error: `handle`, a greppable path to the
+   *   element (anchored at a `data-component` or id, distinctive classes) —
+   *   evidence only, it can vary between clicks, so nothing groups by it
+   * - js_error: `message`, `source`, `line`, `origin`, `kind`; plus `digest`
+   *   (Next's error digest), `frame` (top stack frame, `file:line:col`),
+   *   `after` (data-component, label or selector of the click ≤2s before it),
+   *   `afterMs` (how long before, rounded to 100ms) and `afterSelector`
+   * - install_state: `hasModel`, `provider`, `model`, `version`
+   */
   meta?: Record<string, string | number | boolean | null>;
 }
 
@@ -120,17 +140,25 @@ export const CLIENT_EVENT_TYPES: ReadonlySet<PolishdEventType> = new Set<Polishd
 // tally-based JSON string stored in `meta.payload` (tuples, not objects, to
 // keep one page under a few KB). Shared here so the client that writes it and
 // the server that aggregates it can never drift.
+//
+// The value tuples end in an optional declaration triple — distinct
+// declarations (class strings, or an unclassed element's tag path) that
+// rendered the value, how many of those hand-typed it as an arbitrary value,
+// and up to a few declaration ids, space-separated, `!`-prefixed when
+// hand-typed. Scans from before declarations were measured stop at the count.
 
-/** [family, sizePx, weight, count, sampleText, tagList] */
-export type DesignFontTuple = [string, number, number, number, string, string];
-/** [hex, count] */
-export type DesignColorTuple = [string, number];
+/** [declarations, handTyped, declarationIds] — see above. */
+export type DesignDeclTail = [declarations?: number, handTyped?: number, ids?: string];
+/** [family, sizePx, weight, count, sampleText, tagList, ...DesignDeclTail] */
+export type DesignFontTuple = [string, number, number, number, string, string, ...DesignDeclTail];
+/** [hex, count, ...DesignDeclTail] */
+export type DesignColorTuple = [string, number, ...DesignDeclTail];
 /** [fgHex, bgHex, count, minSizePx, boldAtMinSize(0|1)] */
 export type DesignPairTuple = [string, string, number, number, 0 | 1];
-/** [radiusValue, count] — e.g. ["8px", 14] or ["9999px", 3] */
-export type DesignRadiusTuple = [string, number];
-/** [paddingPx, count] */
-export type DesignPadTuple = [number, number];
+/** [radiusValue, count, ...DesignDeclTail] — e.g. ["8px", 14] or ["full", 3] */
+export type DesignRadiusTuple = [string, number, ...DesignDeclTail];
+/** [paddingPx, count, ...DesignDeclTail] */
+export type DesignPadTuple = [number, number, ...DesignDeclTail];
 
 export interface PolishdDesignScanPayload {
   /** Payload schema version. */
@@ -151,4 +179,8 @@ export interface PolishdDesignScanPayload {
   radii: DesignRadiusTuple[];
   /** Padding tallies (per side, boxy/interactive elements only). */
   pad: DesignPadTuple[];
+  /** [class strings carrying Tailwind utilities, class strings seen]. */
+  tw?: [number, number];
+  /** Root font size, px — the rem a framework's spacing scale is measured in. */
+  rem?: number;
 }
