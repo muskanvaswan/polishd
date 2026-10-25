@@ -9,7 +9,7 @@ const BEATS = [
   {
     k: "The rough edges",
     v: "Ship with it",
-    d: "The tap target that isn't, the dead end, the error nobody sees.",
+    d: "The tap target that isn't, the dead end, the fold nobody scrolls past.",
   },
   {
     k: "The feedback",

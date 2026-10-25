@@ -172,7 +172,6 @@ export default function OverviewPanel({
           pageViews: overview.pageViews,
           rageClicks: overview.rageClicks,
           deadClicks: overview.deadClicks,
-          jsErrors: overview.jsErrors,
           devices: devices.map((d) => ({ category: d.category, pct: d.pct })),
         }
       : null,

@@ -24,7 +24,7 @@
  * Clicks on text (reading, selecting) are neither and are not recorded.
  *
  * Every listener body is guarded: capture runs inside the host's pages, and a
- * throw from it would surface as the host's error — and be recorded as one.
+ * throw from it would surface as the host's error.
  */
 import {
   createClickJudge,
@@ -48,7 +48,6 @@ import {
   nearMissOf,
   selectorOf,
 } from "./dom";
-import type { InteractionLike } from "./error-context";
 import type { Point } from "./near-miss";
 import { hasReactClickHandler } from "./react-props";
 import { createRageTracker } from "./rage";
@@ -82,8 +81,6 @@ export interface ClickCaptureOptions {
 }
 
 export interface ClickCapture {
-  /** The most recent click captured, for attributing errors that follow it. */
-  lastInteraction(): InteractionLike | null;
   /**
    * Settle every click still being judged, emitting each as a click before
    * returning. Call as the page hides or unloads, then flush.
@@ -218,7 +215,7 @@ const guarded =
     try {
       fn(ev);
     } catch {
-      /* drop this event rather than break the page or record our own error */
+      /* drop this event rather than break the page */
     }
   };
 
@@ -228,15 +225,6 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
   const judge = createClickJudge(browserJudgeEnv(), { holdMs: DEAD_CLICK_HOLD_MS });
   const rage = createRageTracker(opts.rageCount, opts.rageWindowMs);
   const active = opts.active ?? (() => true);
-  // The last click's element is held weakly: it's only needed if an error
-  // follows, and a detached element must not stay alive waiting for one.
-  let last: {
-    ts: number;
-    component?: string;
-    label?: string;
-    selector?: string;
-    el: WeakRef<Element> | null;
-  } | null = null;
   const listen = { capture: true, passive: true } as const;
 
   // Watch from the press, so a widget that acts on pointerdown still counts.
@@ -284,13 +272,6 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
       const text = labelOf(target);
       const now = Date.now();
       const path = opts.path();
-      last = {
-        ts: now,
-        component,
-        label: text,
-        selector,
-        el: typeof WeakRef === "function" ? new WeakRef(target) : null,
-      };
 
       // Rage is decided here and now, never held: the burst is the signal. It
       // counts hits on the control — so a like button gaining `liked`, or an
@@ -369,11 +350,6 @@ export function startClickCapture(opts: ClickCaptureOptions): ClickCapture {
   );
 
   return {
-    lastInteraction() {
-      if (!last) return null;
-      const { el, ...click } = last;
-      return { ...click, handle: () => handleOf(el?.deref() ?? null) };
-    },
     settle: () => judge.settleAll(),
   };
 }

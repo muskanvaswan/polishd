@@ -22,7 +22,7 @@ export const STAGES: Stage[] = [
     name: "Track",
     status: "live",
     lead: "Watch what people actually do.",
-    body: "Rage clicks, dead clicks, scroll depth, JS errors, web vitals — captured from real sessions, into your own database. Anonymous by design.",
+    body: "Rage clicks, dead clicks, scroll depth, web vitals — captured from real sessions, into your own database. Anonymous by design.",
     tags: ["rage click", "dead click", "scroll depth", "web vitals"],
   },
   {

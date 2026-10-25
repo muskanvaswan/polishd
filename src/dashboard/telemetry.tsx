@@ -27,9 +27,8 @@
  *
  * What is captured: page views (tab switches), clicks (with the same
  * rage/dead classification as the host capture layer, via the shared click
- * capture), scroll depth of the dashboard's own scroll container, JS errors
- * raised while the dashboard is up, one design scan of the dashboard per tab
- * per session, one viewport sample and one install-state snapshot (model
+ * capture), scroll depth of the dashboard's own scroll container, one design
+ * scan of the dashboard per tab per session, one viewport sample and one install-state snapshot (model
  * connected, provider/model, package version) per session, and session end.
  * Everything the full dashboard experience needs on the collecting side — and never
  * anything from the host site's own pages: capture suspends the moment the
@@ -38,14 +37,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
-import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent } from "../shared/types";
 import { POLISHD_VERSION } from "../version";
 import { startClickCapture } from "../client/click-capture";
-import { deviceCategory, handleOf } from "../client/dom";
+import { deviceCategory } from "../client/dom";
 import { scheduleDesignScan } from "../client/design-scan";
-import { errorContextMeta } from "../client/error-context";
-import { errorOrigin, startScriptProvenance } from "../client/script-provenance";
 import type { PolishdTelemetryInstallState } from "../server/telemetry";
 import { denyPolishdTelemetry, grantPolishdTelemetry } from "./telemetry-consent";
 import { ghostBtn, primaryBtn } from "./ui";
@@ -172,57 +168,6 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
     maxScrollPct = 0;
   };
 
-  // ---- errors ---------------------------------------------------------------
-
-  // Extension throws reach `window` here too — and the dashboard is a page the
-  // owner keeps open, so its tab collects them for as long as it's up. Same
-  // provenance test as first-party capture.
-  startScriptProvenance();
-
-  addEventListener(
-    "error",
-    (ev) => {
-      if (!onDashboard()) return;
-      const message = String(ev.message);
-      const source = ev.filename || "";
-      const line = ev.lineno || 0;
-      const origin = errorOrigin(source, ev.error?.stack);
-      if (origin === "extension" || isIgnorableError({ message, source })) return;
-      push({
-        type: "js_error",
-        meta: {
-          message: message.slice(0, 300),
-          source,
-          line,
-          ...(origin === "site" ? {} : { origin }),
-          ...errorContextMeta(ev.error, clicks.lastInteraction(), Date.now(), {
-            source,
-            line,
-            col: ev.colno || 0,
-            handle: handleOf(ev.target),
-          }),
-        },
-      });
-    },
-    true,
-  );
-  addEventListener("unhandledrejection", (ev) => {
-    if (!onDashboard()) return;
-    const reason = ev.reason;
-    const message = String(reason?.message ?? reason);
-    const origin = errorOrigin(undefined, reason?.stack);
-    if (origin === "extension" || isIgnorableError({ message })) return;
-    push({
-      type: "js_error",
-      meta: {
-        message: message.slice(0, 300),
-        kind: "unhandledrejection",
-        ...(origin === "site" ? {} : { origin }),
-        ...errorContextMeta(reason, clicks.lastInteraction(), Date.now()),
-      },
-    });
-  });
-
   // ---- design scan (the dashboard's own rendered design) --------------------
 
   // One scan per tab per session and version, labeled with the telemetry
@@ -295,8 +240,8 @@ function start(endpoint: string, installState: PolishdTelemetryInstallState | nu
   // which provider/model — the product questions ("how many installs actually
   // configure AI?") that click events can't answer. Server-resolved, no key.
   // It also names the package version, which is what places this session's
-  // errors in a release; an upgrade mid-session (same tab, reloaded) reports
-  // again so they aren't pinned on the old one.
+  // friction in a release; an upgrade mid-session (same tab, reloaded) reports
+  // again so it isn't pinned on the old one.
   if (installState) {
     const STATE_KEY = "polishd_telemetry_state";
     let sent = false;

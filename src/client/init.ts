@@ -9,14 +9,11 @@
  */
 import { defaultPolishdConfig, isDashboardPath, type PolishdConfig } from "../config";
 import { sanitizeBuild } from "../shared/build";
-import { isIgnorableError } from "../shared/error-noise";
 import type { PolishdEvent, PolishdIngestBody } from "../shared/types";
 import { detectClientBuild } from "./build";
 import { startClickCapture } from "./click-capture";
 import { scheduleDesignScan } from "./design-scan";
-import { componentOf, deviceCategory, handleOf } from "./dom";
-import { errorContextMeta } from "./error-context";
-import { errorOrigin, startScriptProvenance } from "./script-provenance";
+import { deviceCategory } from "./dom";
 
 type InitOptions = Partial<PolishdConfig>;
 
@@ -36,10 +33,6 @@ export function initPolishd(options: InitOptions = {}): void {
   // Per-session sampling decision, stable for the page's lifetime.
   if (cfg.sampleRate < 1 && Math.random() > cfg.sampleRate) return;
   started = true;
-
-  // Start before anything else can throw: this is what lets an error name the
-  // script it came from, and it has to be listening first.
-  startScriptProvenance();
 
   // The build this bundle was made from, sent once per batch and stamped on
   // every event in it. The host's own label first, then what the build
@@ -214,75 +207,6 @@ export function initPolishd(options: InitOptions = {}): void {
     if (pct > maxScrollPct) maxScrollPct = Math.min(100, pct);
   };
 
-  // ---- errors --------------------------------------------------------------
-
-  // `window` hears every throw in the tab, including the ones from extensions
-  // injected into the page. Those are not the site's bugs and nothing here can
-  // fix them, so they never become events.
-  //
-  // Provenance decides first and decides most: the scripts this document
-  // fetched are known (see `script-provenance.ts`), so code from anywhere else
-  // is identifiable without knowing what it's called. The message rules in
-  // `shared/error-noise.ts` only mop up what has no attributable frame at all —
-  // extension plumbing that throws with the page as its only stack entry.
-  //
-  // Errors that aren't the site's but aren't confidently an extension's are
-  // kept and labeled with `meta.origin`, never silently dropped.
-  const captureError = (
-    message: string,
-    origin: ReturnType<typeof errorOrigin>,
-    extra: Partial<PolishdEvent> & { meta: NonNullable<PolishdEvent["meta"]> },
-  ) => {
-    if (origin === "extension") return;
-    if (isIgnorableError({ message, source: String(extra.meta.source ?? ""), ignore: cfg.ignoreErrors })) {
-      return;
-    }
-    push({
-      type: "js_error",
-      ...extra,
-      meta: {
-        ...extra.meta,
-        message: message.slice(0, 300),
-        // Absent means "site" — the common case shouldn't pay for the label.
-        ...(origin === "site" ? {} : { origin }),
-      },
-    });
-  };
-
-  // Each error also carries Next's digest, its top stack frame and the click
-  // just before it, when there are any (see error-context.ts).
-  const onError = (ev: ErrorEvent) => {
-    const source = ev.filename || "";
-    const line = ev.lineno || 0;
-    captureError(String(ev.message), errorOrigin(source, ev.error?.stack), {
-      // `window` for a runtime throw (no component); the failing element for a
-      // resource load.
-      component: componentOf(ev.target),
-      meta: {
-        source,
-        line,
-        ...errorContextMeta(ev.error, clicks.lastInteraction(), Date.now(), {
-          source,
-          line,
-          col: ev.colno || 0,
-          handle: handleOf(ev.target),
-        }),
-      },
-    });
-  };
-
-  const onRejection = (ev: PromiseRejectionEvent) => {
-    const reason = ev.reason;
-    // A rejection carries no filename, so the stack is the only thing that can
-    // place the code that threw it.
-    captureError(String(reason?.message ?? reason), errorOrigin(undefined, reason?.stack), {
-      meta: {
-        kind: "unhandledrejection",
-        ...errorContextMeta(reason, clicks.lastInteraction(), Date.now()),
-      },
-    });
-  };
-
   // ---- web vitals (LCP, CLS) ----------------------------------------------
 
   const observeVitals = () => {
@@ -321,8 +245,6 @@ export function initPolishd(options: InitOptions = {}): void {
   // ---- lifecycle -----------------------------------------------------------
 
   addEventListener("scroll", onScroll, { passive: true });
-  addEventListener("error", onError, true);
-  addEventListener("unhandledrejection", onRejection);
   wrapHistory("pushState");
   wrapHistory("replaceState");
   addEventListener("popstate", () => {

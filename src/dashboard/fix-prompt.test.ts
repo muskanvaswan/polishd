@@ -69,7 +69,6 @@ const input: FixPromptInput = {
     pageViews: 4800,
     rageClicks: 31,
     deadClicks: 88,
-    jsErrors: 4,
     devices: [
       { category: "mobile", pct: 35 },
       { category: "desktop", pct: 62 },
@@ -88,7 +87,7 @@ test("the full prompt carries both halves, every finding, and the site context",
   assert.match(prompt, /Audience: Operations leads/);
   assert.match(prompt, /1,200 sessions · 4,800 page views \(4\.0 per session\)/);
   assert.match(prompt, /Devices: 62% desktop · 35% mobile · 3% tablet/);
-  assert.match(prompt, /31 rage clicks · 88 dead clicks · 4 JS errors/);
+  assert.match(prompt, /31 rage clicks · 88 dead clicks\n/);
 
   assert.match(prompt, /\*\*A1\.\*\* The annual\/monthly toggle draws rage clicks\./);
   assert.match(prompt, /Evidence: `button\.plan-toggle`/);
@@ -248,7 +247,7 @@ test("signal kinds read as words, and an unfamiliar one is shown as written", ()
       },
       "analytics",
     )!;
-  assert.match(withKinds("js_error", 4), /Volume: 4 JS errors across 2 sessions\n/);
+  assert.match(withKinds("rage_click", 4), /Volume: 4 rage clicks across 2 sessions\n/);
   assert.match(withKinds("component_view", 1), /Volume: 1 component view across 2 sessions\n/);
   assert.match(withKinds("page_view", 900), /Volume: 900 page views across 2 sessions\n/);
   // Not "focu": a kind outside the map isn't stemmed.
@@ -314,7 +313,7 @@ test("each kind of finding present gets one line on how it was detected and its 
   // A1's text says rage clicks; A2 carries no signal and names no kind.
   assert.match(section, /\*\*Rage click\*\* — the same element clicked several times/);
   assert.match(section, /\*\*Design measurement\*\* — .*Blind spot: a value can come from a theme token/);
-  assert.doesNotMatch(section, /\*\*Dead click\*\*|\*\*JS error\*\*/);
+  assert.doesNotMatch(section, /\*\*Dead click\*\*/);
 
   const dead = buildFixPrompt(
     {

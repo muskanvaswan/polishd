@@ -6,7 +6,7 @@ import { Eyebrow, Heading, Sub, Wrap } from "@/components/ui";
 
 /**
  * The shipped half of the loop, as the Analytics tab's own components: the
- * six stat tiles with the shape of each count over time, the device split
+ * five stat tiles with the shape of each count over time, the device split
  * that explains most of the story, and the summary card — the model's
  * paragraph and its wins. The losses aren't on the card any more: it ends
  * with how many are waiting on the Actionables tab, and on this page that
@@ -26,7 +26,6 @@ const STATS = [
   { label: "Page views", value: 4850, tone: "accent", spark: [140, 190, 175, 230, 220, 280, 265, 330, 300, 370, 410, 380, 460, 505] },
   { label: "Rage clicks", value: 53, tone: "bad", spark: [2, 5, 3, 6, 4, 7, 3, 5, 4, 8, 6, 5, 9, 7] },
   { label: "Dead clicks", value: 1025, tone: "warn", spark: [40, 66, 58, 81, 74, 92, 70, 88, 79, 101, 96, 84, 112, 105] },
-  { label: "JS errors", value: 4, tone: "bad", spark: [0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0] },
   { label: "Events", value: 19541, tone: "accent", spark: [900, 1300, 1150, 1500, 1420, 1750, 1600, 1900, 1800, 2100, 2200, 2050, 2450, 2600] },
 ] as const;
 
@@ -60,7 +59,7 @@ export default function Proof() {
           <code className="font-mono text-fg-2">/polishd</code>.
         </Sub>
 
-        <div className="mt-[34px] grid grid-cols-2 gap-2.5 min-[460px]:grid-cols-3 lg:grid-cols-6">
+        <div className="mt-[34px] grid grid-cols-2 gap-2.5 min-[460px]:grid-cols-3 lg:grid-cols-5">
           {STATS.map((s, i) => (
             <div key={s.label} className="r font-chart text-fg" style={delay(i * 60)}>
               <StatTile label={s.label} value={s.value} tone={s.tone} spark={[...s.spark]} />
