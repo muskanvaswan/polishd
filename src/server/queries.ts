@@ -1156,20 +1156,24 @@ export async function getRecentErrors(limit = 10): Promise<RecentError[]> {
   // A message can span many SQL groups — one per page and throw site — so
   // fetch well past `limit`. The cap only bounds history: an error whose
   // older variants fall past it reads a little low, never wrong in kind.
+  // `->>` is text on Postgres but keeps a JSON number a number on SQLite, so
+  // `line: 12` and `line: "12"` would group apart on one engine only. The cast
+  // makes both engines group, and return, the same text.
+  const field = (key: string) => `CAST(meta ->> '${key}' AS TEXT)`;
   const stable = [
     "path",
     "component",
-    "meta ->> 'message'",
-    "meta ->> 'source'",
-    "meta ->> 'frame'",
-    "meta ->> 'line'",
-    "meta ->> 'origin'",
+    field("message"),
+    field("source"),
+    field("frame"),
+    field("line"),
+    field("origin"),
   ];
   const rows = await query(
     `SELECT path, component,
-            meta ->> 'message' AS message,
-            meta ->> 'source'  AS source,
-            meta ->> 'origin'  AS origin,
+            ${field("message")} AS message,
+            ${field("source")}  AS source,
+            ${field("origin")}  AS origin,
             COUNT(*) AS n, MAX(ts) AS last_ts, MAX(id) AS last_id
      FROM ${polishdEventsSource()} WHERE type = 'js_error'
      GROUP BY ${stable.join(", ")}
