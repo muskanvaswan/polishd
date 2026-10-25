@@ -286,28 +286,26 @@ export default function ActionablesView({
         title="Actionables"
         description={
           total > 0
-            ? "What still needs a decision first, then what's already in the tracker — open before closed. Click one for everything behind it."
+            ? "What still needs a decision first, then what's open in the tracker. Closed issues, and ones GitHub no longer returns, are listed separately under Closed, below. Click one for everything behind it."
             : undefined
         }
       >
-        <div className={`${card} overflow-hidden`}>
-          <ActionableList
-            losses={losses}
-            designIssues={designIssues}
-            filed={filed}
-            repo={repo}
-            githubConnected={connected}
-            suggestions={suggestions}
-            canSuggest={settings.hasApiKey}
-            fix={fix}
-            runs={runs}
-            threads={threads}
-            threadError={threadError}
-            empty={
-              <Empty hasApiKey={settings.hasApiKey} hasSummary={summary !== null} hasReview={review !== null} />
-            }
-          />
-        </div>
+        <ActionableList
+          losses={losses}
+          designIssues={designIssues}
+          filed={filed}
+          repo={repo}
+          githubConnected={connected}
+          suggestions={suggestions}
+          canSuggest={settings.hasApiKey}
+          fix={fix}
+          runs={runs}
+          threads={threads}
+          threadError={threadError}
+          empty={
+            <Empty hasApiKey={settings.hasApiKey} hasSummary={summary !== null} hasReview={review !== null} />
+          }
+        />
       </Section>
     </main>
   );
