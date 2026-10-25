@@ -35,6 +35,7 @@ import { fixPulls } from "../ai/fix-status";
 import ActionableList, { type FixContext } from "./actionable-list";
 import { groupActionables } from "./actionable-model";
 import { TabLink } from "./chrome";
+import DismissableNote from "./dismissable-note";
 import {
   ArrowUpRightIcon,
   Callout,
@@ -129,11 +130,11 @@ function FixNote({ fix, repo }: { fix: FixContext; repo?: string }) {
   }
   if (fix.trigger === "separate") {
     return (
-      <Callout tone="neutral" className="mb-8">
+      <DismissableNote id="fix-separate" tone="neutral" className="mb-8">
         Filing never starts {fix.agentName ?? "the agent"} on its own. <strong className="font-medium text-fg">Create fix</strong>{" "}
         on a filed issue asks it to scope the issue, confirm it&apos;s real and fixable, and open a pull request
         linked to it — the row follows it from there, whoever ends up opening the pull request.
-      </Callout>
+      </DismissableNote>
     );
   }
   if (fix.trigger === "on-filing") {

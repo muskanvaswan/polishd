@@ -59,6 +59,7 @@ import {
   createIssueFromLossAction,
   dispatchFixAction,
   ignoreDesignIssueAction,
+  closeFixedIssueAction,
   ignoreLossAction,
   createFixPullAction,
   readFixesAction,
@@ -2018,6 +2019,17 @@ export default function ActionableList({
       if (res.ok) {
         setIgnored((prev) => new Map(prev).set(a.id, res.ignored));
         notify(a, { ignored: true });
+        // Fixed means the issue filed for it is done too.
+        const n = links.get(a.id)?.number ?? a.link?.number ?? 0;
+        if (fixed && githubConnected && n > 0 && a.filed?.detail?.state !== "closed") {
+          try {
+            const closed = await closeFixedIssueAction(n);
+            if (!closed.ok)
+              setErrors((prev) => new Map(prev).set(a.id, `Marked fixed, but issue #${n} wasn't closed: ${closed.message}`));
+          } catch {
+            setErrors((prev) => new Map(prev).set(a.id, `Marked fixed, but issue #${n} wasn't closed: ${UNREACHABLE}`));
+          }
+        }
         return true;
       }
       setErrors((prev) => new Map(prev).set(a.id, res.message));
