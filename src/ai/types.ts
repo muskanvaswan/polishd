@@ -302,6 +302,57 @@ export interface PolishdDesignIssue {
   /** GitHub issue filed for this problem, attached when the tab loads. */
   issueUrl?: string;
   issueNumber?: number;
+  /**
+   * Where the values the issue cites render: how much of the UI each covers,
+   * on which pages, how it was declared, and a picture of it in place when a
+   * site snapshot took one. Attached when the review is read, never stored —
+   * the measurements and the snapshots both move under a cached review.
+   */
+  usages?: PolishdDesignUsage[];
+}
+
+/**
+ * A cropped picture of a design value in place — the element carrying it,
+ * ringed, with the component around it — from the newest site snapshot that
+ * pictured it. `publicUrl` is set when the image sits where anyone can open
+ * it (a public Blob store), which is what lets a filed issue embed it.
+ */
+export interface PolishdDesignUsagePreview {
+  snapshotId: string;
+  /** Image filename inside the snapshot's `previews/` directory. */
+  file: string;
+  route: string;
+  device: string;
+  theme: string;
+  capturedAt: number;
+  publicUrl?: string;
+}
+
+/**
+ * One measured design value a finding cites, and everything the Design tab
+ * knows about where it renders. The facts come from the design scan; the
+ * picture from the snapshots. Both describe the site as it is now, which is
+ * why they're attached on read rather than written into the review.
+ */
+export interface PolishdDesignUsage {
+  /** `designValueKey` of the value — what a snapshot's pictures are filed under. */
+  key: string;
+  kind: "font" | "color" | "radius" | "spacing";
+  /** The value as the Design tab names it: "#fafafa", "Inter 17px / 500", "6px radius", "13px padding". */
+  label: string;
+  /** Elements rendering it, site-wide. */
+  count: number;
+  pages: string[];
+  /** Colors: the roles it plays. */
+  roles?: ("text" | "background" | "border")[];
+  /** Fonts: the tags seen carrying it. */
+  tags?: string[];
+  /** Distinct declarations choosing it, and how many hand-typed it. Absent on older scans. */
+  declarations?: number;
+  handTyped?: number;
+  /** Flagged by the deterministic review: a one-off, or off-grid padding. */
+  flagged: boolean;
+  preview?: PolishdDesignUsagePreview;
 }
 
 /**

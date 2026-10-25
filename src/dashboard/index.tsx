@@ -61,15 +61,14 @@ import {
 import { unlockPolishdDashboard } from "./unlock";
 import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
-import { loadDesignReviewState } from "../ai/design";
+import { loadDesignReview, loadDesignReviewState } from "../ai/design";
 import { loadOverviewState } from "../ai/overview";
 import { loadDispatchState } from "../ai/dispatch";
 import { isDispatchReady } from "../ai/dispatch-readiness";
 import { listFixSuggestions } from "../ai/fix";
-import { isGithubConnected } from "../ai/github";
 import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
-import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/summary";
+import { generateSummary, getAISettingsPublic, loadSummary, loadSummaryState } from "../ai/summary";
 import { getDesignData } from "../server/design";
 import { resolveSiteOrigin } from "../server/site-origin";
 import { listSnapshots, snapshotAvailability } from "../server/snapshots";
@@ -81,9 +80,9 @@ import type {
 } from "../ai/types";
 import DashboardChrome, { TabSkeleton, type PolishdDashboardTab } from "./chrome";
 import { POLISHD_THEME_COOKIE, themeFrom, type PolishdTheme } from "./theme";
+import ActionablesView from "./actionables";
 import { DesignPanel } from "./design";
 import InstallsView from "./installs";
-import IssuesView from "./issues";
 import OverviewPanel from "./overview";
 import ElementsTable from "./elements";
 import TopFeaturesTable from "./features";
@@ -605,17 +604,19 @@ export function PolishdDashboard({
   data,
   ai,
   showInstalls = false,
-  showIssues = false,
 }: {
   data: PolishdDashboardData;
   ai: PolishdAIBundle;
   /** Forwarded to the chrome: whether this install collects telemetry. */
   showInstalls?: boolean;
-  /** Forwarded to the chrome: whether a GitHub repo is connected. */
+  /**
+   * @deprecated The Actionables tab (formerly Issues) is always shown; it lists
+   * both reviews' findings whether or not a GitHub repo is connected.
+   */
   showIssues?: boolean;
 }) {
   return (
-    <DashboardChrome active="analytics" showInstalls={showInstalls} showIssues={showIssues}>
+    <DashboardChrome active="analytics" showInstalls={showInstalls}>
     <main className="text-fg">
       <AnalyticsHeader pill={<CaptureStatusPill ready={data.overview.ready} />} />
       <StatusBanners overview={data.overview} health={data.health} />
@@ -954,22 +955,30 @@ async function DesignTabData() {
   );
 }
 
-async function IssuesTabData({ connected }: { connected: boolean }) {
-  // Reachable by URL with nothing connected, in which case the listing is
-  // empty and the view says how to fix that.
-  const [issues, settings, suggestions, dispatch] = await Promise.all([
-    listFiledIssues(),
+async function ActionablesTabData() {
+  // Both reviews as cached (dismissals already filtered, GitHub links and
+  // where-it-renders attached), joined to every issue polishd has filed.
+  // Neither review's staleness matters here, so the heavy analytics dataset
+  // isn't loaded; the design data is, since the review's dismissal check and
+  // its usages read it. `listFiledIssues` is [] without a GitHub connection.
+  // The dispatch state only decides whether the tab points at the Fix
+  // dispatch card.
+  const [summary, design, settings, filed, suggestions, dispatch] = await Promise.all([
+    loadSummary(),
+    getDesignData(),
     getAISettingsPublic(),
+    listFiledIssues(),
     listFixSuggestions(),
     loadDispatchState(),
   ]);
+  const review = await loadDesignReview(design);
   return (
-    <IssuesView
-      issues={issues}
-      repo={settings.githubRepo}
-      connected={connected}
+    <ActionablesView
+      summary={summary}
+      review={review}
+      filed={filed}
+      settings={settings}
       suggestions={suggestions}
-      canSuggest={settings.hasApiKey}
       dispatchReady={isDispatchReady(dispatch.readiness?.status)}
     />
   );
@@ -1331,12 +1340,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     // Dogfood telemetry — decided per render, after auth, so the consent
     // prompt and the emitter are only ever served to the dashboard's owner.
     // `showInstalls` is the collector-side counterpart: whether any tagged
-    // telemetry has landed here, which is what earns the Installs tab, and
-    // `showIssues` is the same idea for the tracker the Issues tab reads.
-    const [telemetry, showInstalls, showIssues] = await Promise.all([
+    // telemetry has landed here, which is what earns the Installs tab.
+    const [telemetry, showInstalls] = await Promise.all([
       loadPolishdTelemetryState(),
       hasTelemetryInstalls(),
-      isGithubConnected(),
     ]);
     const telemetryUi = (
       <>
@@ -1351,16 +1358,19 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     );
 
     // Which tab to render, from the `?tab=` query the sidebar links carry.
-    // No (or an unknown) tab lands on the Overview.
+    // No (or an unknown) tab lands on the Overview. `issues` is the
+    // Actionables tab's old name, kept so a bookmark still lands.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
     const tab: PolishdDashboardTab =
       rawTab === "analytics" ||
       rawTab === "design" ||
-      rawTab === "issues" ||
+      rawTab === "actionables" ||
       rawTab === "installs" ||
       rawTab === "settings"
         ? rawTab
-        : "overview";
+        : rawTab === "issues"
+          ? "actionables"
+          : "overview";
 
     // Every tab streams: the chrome and rail go out immediately, and the
     // tab's data loads behind a Suspense boundary showing the same skeleton
@@ -1375,9 +1385,9 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         <Suspense fallback={<TabSkeleton name="Design" />}>
           <DesignTabData />
         </Suspense>
-      ) : tab === "issues" ? (
-        <Suspense fallback={<TabSkeleton name="Issues" />}>
-          <IssuesTabData connected={showIssues} />
+      ) : tab === "actionables" ? (
+        <Suspense fallback={<TabSkeleton name="Actionables" />}>
+          <ActionablesTabData />
         </Suspense>
       ) : tab === "installs" ? (
         <Suspense fallback={<TabSkeleton name="Installs" />}>
@@ -1397,12 +1407,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     return wrap(
       theme,
       <>
-        <DashboardChrome
-          active={tab}
-          showInstalls={showInstalls}
-          showIssues={showIssues}
-          theme={theme}
-        >
+        <DashboardChrome active={tab} showInstalls={showInstalls} theme={theme}>
           {body}
         </DashboardChrome>
         {telemetryUi}

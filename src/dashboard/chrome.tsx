@@ -57,7 +57,7 @@ export type PolishdDashboardTab =
   | "overview"
   | "analytics"
   | "design"
-  | "issues"
+  | "actionables"
   | "installs"
   | "settings";
 
@@ -66,9 +66,10 @@ const TABS: { id: PolishdDashboardTab; name: string; icon: ReactNode }[] = [
   { id: "overview", name: "Overview", icon: <GridIcon size={15} /> },
   { id: "analytics", name: "Analytics", icon: <ChartIcon size={15} /> },
   { id: "design", name: "Design", icon: <DropletIcon size={15} /> },
-  // Shown only once a GitHub repo is connected — the tab has nothing to list,
-  // and no way to list it, until there's a tracker to read.
-  { id: "issues", name: "Issues", icon: <IssueIcon size={15} /> },
+  // Every problem both reviews found, and the GitHub issue filed for each.
+  // Formerly "Issues", which listed only the filed ones and only once a repo
+  // was connected; `?tab=issues` still lands here.
+  { id: "actionables", name: "Actionables", icon: <IssueIcon size={15} /> },
   // Shown only on installations that collect cross-install telemetry — for
   // everyone else (the senders) it would be a permanently empty screen.
   { id: "installs", name: "Installs", icon: <GlobeIcon size={15} /> },
@@ -146,7 +147,6 @@ function scrollTopFrom(node: HTMLElement | null): void {
 export default function DashboardChrome({
   active,
   showInstalls = false,
-  showIssues = false,
   theme = "dark",
   children,
 }: {
@@ -155,8 +155,6 @@ export default function DashboardChrome({
   theme?: PolishdTheme;
   /** Render the Installs tab (only collectors of telemetry pass true). */
   showInstalls?: boolean;
-  /** Render the Issues tab (only installs with GitHub connected pass true). */
-  showIssues?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -178,7 +176,6 @@ export default function DashboardChrome({
   // The tabs that only exist on some installations. Anything absent here is
   // always shown.
   const earned: Partial<Record<PolishdDashboardTab, boolean>> = {
-    issues: showIssues,
     installs: showInstalls,
   };
 

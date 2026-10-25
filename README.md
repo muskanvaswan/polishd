@@ -312,8 +312,9 @@ The dashboard opens on the **Overview**, laid out as a board of the site:
   protect, saying nothing the two reviews don't. It's cached, goes stale when
   either review changes, and is rewritten when the Overview opens on a
   missing or stale paragraph; one refresh regenerates both reviews and then
-  the paragraph. The problems each review found stay on its own tab, with the
-  ignore and file-bug controls that act on them.
+  the paragraph. The problems both reviews found are on the
+  [Actionables tab](#the-actionables-tab), with the file-bug and ignore
+  controls that act on them.
 - **Visitors** — sessions, page views and the share on mobile, stacked in a
   narrow column beside the paragraph, each tile opening its chart over time.
 
@@ -366,7 +367,9 @@ the reason as a note about the site, never as an instruction.
 
 The Analytics tab's top card (also on the Overview) turns the captured signals into a plain-English story
 of how people are actually using your site, followed by a **wins** list (what's
-working) and a **losses** list (specific problems). Losses are held to a higher
+working). Its **losses** (specific problems) are actionables: they're listed on
+the [Actionables tab](#the-actionables-tab) alongside the design review's
+issues, and the card ends with how many are waiting there. Losses are held to a higher
 bar: each must cite the exact page, selector, or component from the data —
 citations that don't appear in the analytics are discarded as hallucinations,
 and the rest are matched to your source files so every loss shows the file it
@@ -442,18 +445,26 @@ authoritative context, so:
 > provide. Your source is read only during an explicit scan (or a targeted
 > gap-fill), and always under strict size budgets.
 
-### Two verdicts on a loss: file it, or ignore it
+### Two verdicts on an actionable: file it, or ignore it
 
-Every loss carries both answers, side by side.
+Every actionable — a loss from the summary, an issue from the design review —
+carries both answers, on its row and in its drawer.
 
 **File bug** (with GitHub connected) verifies the report against your repo's
 source before anything is filed: confirmed reports become an issue with the
 technical analysis and suggested fixes, and a report the code disproves comes
 back as *"checked the source — not an actual bug"* with the reasoning, filing
-nothing.
+nothing. The issue is linked on the actionable from the moment it's filed, and
+on the next load the row shows the state your tracker gives it.
 
-Design review issues carry the same two buttons, and ignoring one works the
-same way against the design review.
+A design issue filed this way carries **where it renders**: for each value it
+cites, how much of the UI the value covers, on which pages, how it was declared
+(and whether it was hand-typed as a Tailwind arbitrary value), and — once a
+[site snapshot](#site-snapshots) has pictured the flagged value — the picture of
+the element carrying it, embedded in the issue body when the image lives in a
+public Vercel Blob store that GitHub can fetch. A picture in a private store or
+on local disk is named in the body rather than embedded. The dashboard shows
+the same pictures on the actionable itself.
 
 **Ignore** is the other answer: this isn't a problem, stop showing it to me. It
 takes one click and no explanation. The loss drops out of the card and out of
@@ -472,22 +483,33 @@ again.
 Ignoring a loss marks the summary stale, exactly like new analytics does, so
 the next refresh actually re-asks the model with the dismissal in hand.
 
-### The Issues tab
+### The Actionables tab
 
-Filing a bug is easy to lose track of — it happens inside one loss, on one
-summary, and then the summary regenerates. The **Issues** tab is the standing
-list: every issue polishd has filed in the connected repo, newest first,
-whether you clicked **File bug** yourself or auto-filing did it for you. The
-tab only appears once a GitHub repository is connected.
+The **Actionables** tab is the one list of everything worth fixing: the
+summary's losses, the design review's issues, and every issue polishd has
+filed for any of them, whether you clicked **File bug** yourself or auto-filing
+did it for you. What still needs a decision comes first — losses, then design
+issues, each in its review's order — then what's already in the tracker, open
+before closed, newest first. A filed issue whose finding is no longer in the
+current summary or review (fixed, dismissed, or re-worded away) stays listed on
+its own, so filing is never the last you hear of it. The tab is always there;
+without a GitHub connection it lists the findings and lets them be ignored, and
+says that filing needs a repository.
 
-Each row joins what polishd knows to what GitHub knows. The **evidence** — the
-selector, component or path the analytics cited — and whether the source
-verification confirmed the report are polishd's own record, kept at filing
-time. The title, state, labels, assignees and comment count are read live from
-GitHub on every render, so a bug someone closed an hour ago reads as closed
-here, and the issue body is one click away without leaving the dashboard. An
-issue that can no longer be read — deleted, transferred, or beyond what the
-token now covers — keeps its row and says exactly that.
+Each row is the finding, the icon of the tab it came from, and one status tag
+— *fix suggested*, *verifying…*, *filed*, *in progress*, *closed*, *not
+planned*, *not a bug*, *unreadable* — with the issue it's tracked in linked
+beneath. Hovering a row brings up **File bug** and **Ignore**; Ignore asks
+once, with an optional reason. Everything else is in the drawer a click opens:
+the **evidence** — the selector, component or path the analytics cited, or the
+color, size or page the design review cited — the volume behind it, the source
+file it was matched to, the suggested fix, the pictures of where a design value
+renders, and for a filed issue the title, state, labels, assignees and comment
+count read live from GitHub on every render (so a bug someone closed an hour
+ago reads as closed here), the issue body rendered as the markdown it is, and
+**Suggest a fix**. An issue that can no longer be read — deleted, transferred, or
+beyond what the token now covers — keeps its row and says exactly that.
+`?tab=issues`, the tab's old name, still lands here.
 
 Opening the tab costs a single GitHub API call in the ordinary case, not one
 per issue: the repo's issue list hands back a hundred whole issues at a time,
@@ -552,7 +574,7 @@ were granted Contents (write) and Workflows (write); it doesn't today.
 settings and stored for the loop to come: send fixes automatically (off by
 default), the label put on dispatched issues (`polishd-fix`), a daily cap
 (5), and a pause switch. Nothing acts on them yet. Until the card says Ready,
-the Issues tab carries a one-line pointer to it.
+the Actionables tab carries a one-line pointer to it.
 
 ## Design review
 
@@ -622,7 +644,12 @@ one that replaces the value with a different one of the same kind
 that only changes something about a praised value (its color, its
 line-height, a token in place of the literal) is left alone, and nothing
 else is withheld. Any value a fix introduces that the site doesn't render yet
-is labelled new. Issues can be ignored like the summary's losses, with a
+is labelled new. Each issue is an actionable, listed with the summary's losses
+on the [Actionables tab](#the-actionables-tab): it shows where its cited
+values render — how much of the UI each covers, on which pages, how it was
+declared — and, once a site snapshot has pictured the flagged value, the
+picture of the element in place; filing it puts the same into the GitHub
+issue. Issues can be ignored like the summary's losses, with a
 reason the model reads on every later review. The dismissal holds when a
 regenerate rewords the issue, as long as it's the same kind (a contrast pair,
 a color, or a type size, radius or padding: named outright, or read from the
@@ -895,6 +922,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_AI_REFRESH_CADENCE` | AI (optional) | `manual` \| `daily` \| `weekly` — summary auto-refresh cadence |
 | `POLISHD_GITHUB_REPO` | GitHub (optional) | Repository as `owner/repo` — enables filing bugs from AI-found losses |
 | `POLISHD_GITHUB_TOKEN` | GitHub (optional) | Fine-grained PAT: Contents (read), Issues & Pull requests (write) |
+| `POLISHD_GITHUB_API` | GitHub (optional) | REST base for a GitHub Enterprise Server, e.g. `https://ghe.example.com/api/v3`; defaults to `https://api.github.com` |
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 | `POLISHD_SNAPSHOT_SERVICE` | optional | `off` — never call Polishd's screenshot service: [site snapshots](#site-snapshots) are then only taken in local development, and the section is off on a public deployment. Or a URL, to use your own deployment of [`service/`](./service) (also in development, for testing it) |
 | `POLISHD_SNAPSHOT_DIR` | optional | Where disk-stored snapshot images go (default `.polishd/snapshots`) |

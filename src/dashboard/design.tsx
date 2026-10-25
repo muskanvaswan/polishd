@@ -698,7 +698,6 @@ export function DesignPanel({
           provider={settings.provider}
           model={settings.model}
           scannedPages={data.pages.length}
-          githubConnected={settings.hasGithubToken && !!settings.githubRepo}
         />
 
         {hasScans && (

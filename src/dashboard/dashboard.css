@@ -69,6 +69,7 @@
   --color-bad: var(--pd-bad);
   --color-info: var(--pd-info);
   --color-violet: var(--pd-violet);
+  --color-blue: var(--pd-blue);
 
   --shadow-card: var(--pd-shadow-card);
   --shadow-pop: var(--pd-shadow-pop);
@@ -207,6 +208,9 @@
        "violet" (closed issues, hover events) is a warm tan. */
     --pd-info: #d4d4d4;
     --pd-violet: #c9b08f;
+    /* The one blue: the Design source mark on an actionable, paired with
+       `bad` red for Analytics. Not a status colour. */
+    --pd-blue: #60a5fa;
     --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --pd-shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.75);
 
@@ -250,6 +254,7 @@
     --pd-bad: #b91c1c;
     --pd-info: #404040;
     --pd-violet: #7d5f3e;
+    --pd-blue: #2563eb;
     --pd-shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
     --pd-shadow-pop: 0 0 0 1px rgb(0 0 0 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.18);
     color-scheme: light;

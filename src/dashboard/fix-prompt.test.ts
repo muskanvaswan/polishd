@@ -369,6 +369,44 @@ test("a design finding names its values to search for, and flags new or withheld
   assert.match(prompt, /Don't remove or change a value listed under "Working — don't regress these"/);
 });
 
+test("a design finding says where its values render, when the review was read with the measurements", () => {
+  const pictured: FixPromptInput = {
+    ...input,
+    review: {
+      ...review,
+      issues: [
+        {
+          issue: "A stray near-white background on the pricing cards.",
+          evidence: "#fafafa",
+          suggestion: "Use the #f5f5f5 surface the rest of the site does.",
+          usages: [
+            {
+              key: "color:#fafafa",
+              kind: "color",
+              label: "#fafafa",
+              count: 12,
+              pages: ["/pricing"],
+              roles: ["background"],
+              declarations: 1,
+              handTyped: 1,
+              flagged: true,
+              preview: { snapshotId: "s1", file: "p.webp", route: "/pricing", device: "desktop", theme: "light", capturedAt: 1 },
+            },
+            { key: "color:#f5f5f5", kind: "color", label: "#f5f5f5", count: 300, pages: ["/", "/pricing"], roles: ["background"], flagged: false },
+          ],
+        },
+      ],
+    },
+  };
+  const prompt = buildFixPrompt(pictured, "design")!;
+  assert.match(
+    prompt,
+    /  - Where it renders: `#fafafa` — 12 uses as background on \/pricing · 1 declaration, hand-typed · one-off \(pictured on \/pricing \(desktop, light\) in the dashboard\)\n  - Where it renders: `#f5f5f5` — 300 uses as background on 2 pages \(\/, \/pricing\)\n  - Suggested fix:/,
+  );
+  // Without usages (an older review, or values the scan doesn't hold) the line is simply absent.
+  assert.doesNotMatch(buildFixPrompt(input, "design")!, /Where it renders/);
+});
+
 test("the prompt ends by asking for a verdict block Polishd can read back", () => {
   const prompt = buildFixPrompt(input, "all")!;
   assert.match(prompt, /```json\n   \[\n     \{ "id": "A1", "verdict": "fixed", "reason": "[^"]+", "files": \["[^"]+"\] \}\n   \]\n   ```/);
