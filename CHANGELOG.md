@@ -40,6 +40,21 @@
   the last 300 scans, so one busy page can no longer push the others out of
   the tab.
 
+### Snapshots spend fewer shots
+
+- **One page per dynamic route.** Pages that read as instances of one route —
+  `/posts/hello-world`, `/posts/launch-week`, `/tags/react` — are shot once,
+  as the most visited of them, in gallery and review captures alike. A slug is
+  read from the URL: a number, UUID or `@handle` anywhere; below the top level,
+  hyphenated words or a token with digits; anything under a collection such as
+  `/blog`, `/tags` or `/products`. Top-level pages (`/privacy-policy`) keep
+  their names.
+- **The landing page's phone view goes first, light then dark.** When the two
+  render the same, the site has one look, and the rest of the run skips every
+  dark rendering instead of shooting pictures the finish would throw away —
+  13 shots instead of 24 for six pages with no dark mode. The gallery
+  also leads with `/`, so the route cap never cuts it.
+
 ### A Fix dispatch card on the Settings tab
 
 polishd is building toward handing the issues it verifies to a coding agent
@@ -103,6 +118,11 @@ one list now.
   the tracker, open before closed — with **File bug** and **Ignore** on each
   row. It's always shown; without GitHub it lists the findings and says that
   filing needs a repository. `?tab=issues` still lands on it.
+- **Mark fixed** is a third verdict beside File bug and Ignore. It works like
+  Ignore — the finding leaves every later review, with an optional note — but
+  the model is told it was fixed, and on which day, so data from before the
+  fix doesn't bring it back. A fixed row shows a check where an ignored one
+  shows its source mark.
 - **The review cards are the story and what's working.** The *Losses* and
   *Breaking the system* rails are gone from the summary and design review
   cards; each card ends with how many of its findings are waiting on the
@@ -135,15 +155,23 @@ renders with, then one column of the story and the numbers.
   strip: the homepage hero largest, the homepage on a phone beside it, and
   the heroes of the two most visited other pages under them — four pictures,
   with no heading over them and no device or theme toggles in front. Pages
-  are ranked by the traffic the analytics saw. A click still opens the
-  full-height shot; the rest of the capture is one link away on the Design
-  tab. In the lightbox, phone shots now open at phone width instead of being
+  are ranked by the traffic the analytics saw, and a site with fewer pages
+  lends their other renderings to the remaining tiles. A click still opens
+  the full-height shot; the rest of the capture is one link away on the
+  Design tab. In the lightbox, phone shots now open at phone width instead of being
   blown up to desktop width, and Escape closes it.
 - **The brand** sits in the same card, beside the snapshots: the system the
   pages actually ship, curated the way the brand kit is (one-offs left out),
-  as two hierarchies and no labels. The palette: Primary largest, Secondary
-  and Accent beside it, the neutrals as one scale from light to dark — not
-  every color the site paints. The type: the words "Title", "Subtitle",
+  as two hierarchies and no labels. The palette: the color the site paints
+  its buttons and calls to action in as Primary — a white site's white, a
+  blue site's blue, never a status red — the page itself as Secondary, the
+  next distinct color as Accent, then the next six most used as one scale
+  from light to dark; not every color the site paints. To know the action
+  color, the design scan now tallies the backgrounds painted on controls
+  (buttons, links styled as them, inputs) on their own, and the kit carries
+  that through; on an existing install the ranking sharpens as visitors
+  browse, and until then the leading brand color stands in. The
+  type: the words "Title", "Subtitle",
   "Body" and "Caption", each set in its own face at the size the site really
   uses that style.
 - **The paragraph**, captioned Overview, is written by the model. The analytics summary

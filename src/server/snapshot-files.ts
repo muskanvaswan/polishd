@@ -109,6 +109,47 @@ export function darkModeVerdict(
   return pairs > 0 ? { noDarkMode: true, redundant } : { noDarkMode: false, redundant: [] };
 }
 
+/** A capture's cells in the order they're shot — see `captureOrder`. */
+export interface CaptureOrder {
+  /** Shot first: the landing page in both themes, which settles dark mode. */
+  probe: ShotSlot[];
+  /** Everything else. A site the probe finds has one look skips the dark ones. */
+  rest: ShotSlot[];
+}
+
+/**
+ * The order a capture shoots its cells in. The landing page's phone view,
+ * light and dark, goes first: it's the pair that says whether the site has a
+ * dark mode at all (`darkModeVerdict`), so a site that renders the same either
+ * way never has another page's dark rendering shot. The rest follow
+ * rendering-major — every page's default view first, so the gallery's first
+ * screen fills in first, and the cells in flight together are usually
+ * different pages.
+ *
+ * The landing page is `/` when it's planned, the first route otherwise. A
+ * plan without phone renderings (the design review's) probes the first device
+ * it shoots in both themes; a plan with one theme has nothing to probe.
+ */
+export function captureOrder(
+  routes: string[],
+  renderings: { device: SnapshotDevice; theme: SnapshotTheme }[],
+): CaptureOrder {
+  const shoots = (device: SnapshotDevice, theme: SnapshotTheme) =>
+    renderings.some((r) => r.device === device && r.theme === theme);
+  const device = (["phone", ...renderings.map((r) => r.device)] as SnapshotDevice[]).find(
+    (d) => shoots(d, "light") && shoots(d, "dark"),
+  );
+  const landing = routes.includes("/") ? "/" : routes[0];
+  const probe: ShotSlot[] =
+    device && landing !== undefined
+      ? (["light", "dark"] as const).map((theme) => ({ route: landing, device, theme }))
+      : [];
+  const rest = renderings
+    .flatMap((r) => routes.map((route) => ({ route, device: r.device, theme: r.theme })))
+    .filter((s) => !probe.some((p) => p.route === s.route && p.device === s.device && p.theme === s.theme));
+  return { probe, rest };
+}
+
 /** Values looked for somewhere and pictured nowhere, each once. */
 export function previewMisses(looked: string[], found: string[]): string[] {
   const pictured = new Set(found);

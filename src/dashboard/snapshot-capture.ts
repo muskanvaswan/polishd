@@ -9,6 +9,11 @@
  * server issues, or streamed to the server's disk in chunks. Each cell is
  * recorded with the server once its images are stored.
  *
+ * The landing page's phone view is shot first, light and dark. When the two
+ * render the same, the site has one look — no dark mode, or nothing but one —
+ * and the rest of the run skips every dark rendering rather than spend shots
+ * on pictures the finish would throw away.
+ *
  * In local development (or on a local address) the same loop has the server
  * shoot each cell with this machine's own browser instead, and nothing leaves
  * it. In production there's no such fallback: when the service can't be used
@@ -32,7 +37,7 @@ import {
   type SnapshotTheme,
 } from "../capture/protocol";
 import type { BlobAccess } from "../server/snapshot-blob";
-import type { ShotSlot } from "../server/snapshot-files";
+import { captureOrder, darkModeVerdict, type ShotSlot } from "../server/snapshot-files";
 import type {
   PolishdSnapshot,
   ShotRecord,
@@ -286,14 +291,14 @@ export async function runSnapshotCapture(
   const engine = plan.engine;
   const serviceOrigin = engine.kind === "service" ? new URL(engine.url).origin : "";
 
-  // Rendering-major: every page's default view (desktop, light) first, so
-  // the gallery's first screen fills in first, and the cells in flight
-  // together are usually different pages.
-  const units: ShotSlot[] = plan.renderings.flatMap((r) =>
-    plan.routes.map((route) => ({ route, device: r.device, theme: r.theme })),
-  );
-  const total = units.length;
+  // The landing page's phone view in both themes first; then every page's
+  // default view, and on through the renderings.
+  const { probe, rest } = captureOrder(plan.routes, plan.renderings);
+  let total = probe.length + rest.length;
   let done = 0;
+  /** Pixel hashes of the recorded cells, by slot — the probe's settle dark mode. */
+  const hashes = new Map<string, string>();
+  const slotKey = (s: ShotSlot) => `${s.route}|${s.device}|${s.theme}`;
   /** What ended the run early, if anything; cells already stored are still recorded. */
   let block: CaptureBlock | null = null;
   let error: string | null = null;
@@ -340,6 +345,7 @@ export async function runSnapshotCapture(
     }
     for (const p of res.shot.previews) found.add(p.key);
     noteLooked(res.shot.looked);
+    if (res.shot.hash) hashes.set(slotKey(slot), res.shot.hash);
     cb.onShot({
       ...slot,
       src: res.shot.image ? dataUrl(res.shot.image) : null,
@@ -401,6 +407,7 @@ export async function runSnapshotCapture(
       }
       for (const p of shot.previews) found.add(p.key);
       noteLooked(shot.looked);
+      if (shot.hash) hashes.set(slotKey(slot), shot.hash);
     } catch (err) {
       error ??= err instanceof StoreError ? err.message : "Couldn't store the screenshots.";
     }
@@ -416,25 +423,45 @@ export async function runSnapshotCapture(
     }
   };
 
-  let cursor = 0;
-  const worker = async () => {
-    for (;;) {
-      if (stopped()) return;
-      const slot = units[cursor++];
-      if (!slot) return;
-      try {
-        if (engine.kind === "service") await shootRemote(engine.url, slot);
-        else await shootLocal(slot);
-      } catch {
-        error ??= "The capture failed before a result came back — the server's logs will name the failure.";
+  const shootAll = async (units: ShotSlot[]) => {
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        if (stopped()) return;
+        const slot = units[cursor++];
+        if (!slot) return;
+        try {
+          if (engine.kind === "service") await shootRemote(engine.url, slot);
+          else await shootLocal(slot);
+        } catch {
+          error ??= "The capture failed before a result came back — the server's logs will name the failure.";
+        }
+        done++;
+        cb.onProgress(done, total);
       }
-      done++;
-      cb.onProgress(done, total);
-    }
+    };
+    await Promise.all(
+      Array.from({ length: engine.kind === "service" ? SERVICE_CONCURRENCY : 1 }, () => worker()),
+    );
   };
-  await Promise.all(
-    Array.from({ length: engine.kind === "service" ? SERVICE_CONCURRENCY : 1 }, () => worker()),
-  );
+
+  await shootAll(probe);
+  // The landing page rendered the same in light and dark: the site has one
+  // look, whichever theme it is, so no other page's dark rendering is shot —
+  // the finish keeps the light shots and drops the probe's dark one. A probe
+  // that didn't come back whole settles nothing, and every cell is shot.
+  const oneLook = darkModeVerdict(
+    probe.map((s) => {
+      const hash = hashes.get(slotKey(s));
+      return hash ? { ...s, hash } : s;
+    }),
+  ).noDarkMode;
+  const remaining = oneLook ? rest.filter((s) => s.theme !== "dark") : rest;
+  if (remaining.length < rest.length) {
+    total -= rest.length - remaining.length;
+    cb.onProgress(done, total);
+  }
+  await shootAll(remaining);
   await queue;
 
   const fin = await finishSnapshotCaptureAction(plan.id);

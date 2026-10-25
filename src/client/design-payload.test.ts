@@ -39,6 +39,7 @@ function worstCase(): PolishdDesignScanPayload {
     text: Array.from({ length: 48 }, (_, i) => [hex(i), 99_999 - i, 999, 999, IDS]),
     bg: Array.from({ length: 48 }, (_, i) => [hex(i + 100), 99_999 - i, 999, 999, IDS]),
     border: Array.from({ length: 48 }, (_, i) => [hex(i + 200), 99_999 - i, 999, 999, IDS]),
+    ctl: Array.from({ length: 12 }, (_, i) => [hex(i + 100), 99_999 - i, 999, 999, IDS]),
     pairs: Array.from({ length: 60 }, (_, i) => [hex(i), hex(i + 1), 99_999 - i, 10.5, 1]),
     radii: Array.from({ length: 24 }, (_, i) => [`${100 + i}px (mixed)`, 99_999 - i, 999, 999, IDS]),
     pad: Array.from({ length: 40 }, (_, i) => [100 + i, 99_999 - i, 999, 999, IDS]),

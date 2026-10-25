@@ -138,10 +138,16 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       decls: DeclarationPart[];
     }
   >();
-  // colors: hex → role tallies
+  // colors: hex → role tallies, plus how often it painted a control
   const colors = new Map<
     string,
-    { count: number; roles: Record<DesignColorRole, number>; pages: Set<string>; decls: DeclarationPart[] }
+    {
+      count: number;
+      roles: Record<DesignColorRole, number>;
+      controls: number;
+      pages: Set<string>;
+      decls: DeclarationPart[];
+    }
   >();
   const pairs = new Map<
     string,
@@ -158,7 +164,10 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
     // visually apart — keep them distinct only when fully opaque differs.
     let c = colors.get(hex);
     if (!c) {
-      colors.set(hex, (c = { count: 0, roles: { text: 0, background: 0, border: 0 }, pages: new Set(), decls: [] }));
+      colors.set(
+        hex,
+        (c = { count: 0, roles: { text: 0, background: 0, border: 0 }, controls: 0, pages: new Set(), decls: [] }),
+      );
     }
     c.count += count;
     c.roles[role] += count;
@@ -199,6 +208,15 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
         if (typeof hex !== "string" || !hex.startsWith("#")) continue;
         addColor(hex.toLowerCase(), role, toNum(count), page, declPart(tail, count));
       }
+    }
+    // Backgrounds painted on controls — buttons, links styled as them, inputs.
+    // Already tallied as backgrounds above; this is how much of each color is
+    // the site's action color. A control color the capped background list
+    // dropped doesn't conjure a color of its own.
+    for (const [hex, count] of rows<DesignColorTuple>(p.ctl)) {
+      if (typeof hex !== "string" || !hex.startsWith("#")) continue;
+      const c = colors.get(hex.toLowerCase());
+      if (c) c.controls += toNum(count);
     }
 
     for (const [fg, bg, count, minSizePx] of rows<DesignPairTuple>(p.pairs)) {
@@ -289,6 +307,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       handTyped: c.handTyped,
       legacyUses: c.legacyUses,
       roles: c.roles,
+      controls: c.controls,
       pages: c.pages,
       pct: colorTotals.count > 0 ? Math.round((c.count / colorTotals.count) * 1000) / 10 : 0,
       outlier: isOneOff(c, colorTotals, ONE_OFF_RULES.color),
