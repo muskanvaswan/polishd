@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### JavaScript errors are no longer tracked
+
+An error reached the dashboard as a message and a position in a minified
+bundle, with no stack to place it, so there was rarely anything to act on.
+Polishd no longer captures errors at all.
+
+- **Capture.** No `error` or `unhandledrejection` listeners, in the host's
+  capture layer or the dashboard's telemetry emitter. The script-provenance
+  observer and the extension-noise filter, which existed only to attribute
+  errors, are gone. Ingest no longer accepts `js_error`, so a bundle cached
+  from before the upgrade has its errors dropped at the door.
+- **Dashboard.** The JS errors tile, the Recent errors list and the Errors
+  columns on Top pages and Builds are gone, and journeys no longer show error
+  steps. Page and session scores drop their error term.
+- **AI.** The digest has no error totals and no RECENT ERRORS section, and a
+  loss's signal is never `js_error`. Since the digest changed, the current
+  analytics summary reads stale until it's regenerated.
+- **API (breaking).** `getRecentErrors` and `RecentError` are removed.
+  `jsErrors` is gone from `OverviewStats`, `PageStat`, `TopPage`,
+  `MetricPoint`, `BuildStat` and `SessionJourney`; `"jsErrors"` from
+  `MetricKey`; `errors` from `PolishdDashboardData` and `FrictionIndex`;
+  `detail` from `JourneyStep`; `"js_error"` from `PolishdEventType`.
+  `ignoreErrors` is still accepted in config, deprecated and ignored, so an
+  existing config keeps type-checking.
+- **Stored errors stay.** `js_error` rows already in the database aren't
+  deleted, since polishd never deletes the owner's data, and they count only
+  toward raw event totals. To remove them:
+  `DELETE FROM events WHERE type = 'js_error';`
+
 ### Create PR no longer asks to link a pull request it just linked
 
 GitHub records a pull request's `Fixes #N` link a few seconds after the pull

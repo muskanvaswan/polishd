@@ -26,8 +26,7 @@ for (const key of [
 process.env.POLISHD_DB_PATH = join(mkdtempSync(join(tmpdir(), "polishd-queries-")), "test.db");
 
 const { insertEvents } = await import("./store.ts");
-const { getBuilds, getCurrentBuild, getElementStats, getOverview, getRecentErrors, getSessionJourneys } =
-  await import("./queries.ts");
+const { getBuilds, getCurrentBuild, getElementStats, getOverview, getSessionJourneys } = await import("./queries.ts");
 const { ingest } = await import("./ingest.ts");
 const { getDesignData } = await import("./design.ts");
 
@@ -35,48 +34,6 @@ const event = (e: Partial<PolishdEvent> & Pick<PolishdEvent, "type">): PolishdEv
   ts: 1_000,
   path: "/",
   ...e,
-});
-
-test("a frequent error with per-occurrence context doesn't push the others out", async () => {
-  // An older, rarer error first…
-  await insertEvents("errors-a", [
-    event({ type: "js_error", path: "/settings", meta: { message: "Rare failure", source: "https://x/r.js", line: 9 } }),
-  ]);
-  // …then 250 throws of one error, each after a different click and delay —
-  // under the old grouping by whole `meta`, each was its own group and the
-  // window (limit × 20) held nothing else.
-  const frequent = Array.from({ length: 250 }, (_, i) =>
-    event({
-      type: "js_error",
-      ts: 2_000 + i,
-      path: "/design",
-      meta: {
-        message: "An error occurred in the Server Components render.",
-        source: "https://x/b.js",
-        line: 1,
-        frame: "/_next/static/chunks/b.js:1:777",
-        digest: `digest-${i % 3}`,
-        after: i % 2 ? "Save # items" : "Load",
-        afterMs: (i % 20) * 100,
-        afterSelector: i % 2 ? "button.save" : "button.load",
-      },
-    }),
-  );
-  await insertEvents("errors-b", frequent);
-
-  const errors = await getRecentErrors(10);
-  const byMessage = new Map(errors.map((e) => [e.message, e]));
-  assert.ok(byMessage.has("Rare failure"), "the rare error is still listed");
-  const frequentError = byMessage.get("An error occurred in the Server Components render.");
-  assert.equal(frequentError?.count, 250);
-
-  // Context comes from the newest occurrence (i = 249).
-  assert.equal(frequentError?.digest, "digest-0");
-  assert.equal(frequentError?.frame, "/_next/static/chunks/b.js:1:777");
-  assert.equal(frequentError?.after, "Save # items");
-  assert.equal(frequentError?.afterMs, 900);
-  assert.equal(frequentError?.afterSelector, "button.save");
-  assert.equal(byMessage.get("Rare failure")?.after, undefined, "older rows have no context, and that's fine");
 });
 
 test("journeys order by when things happened, not when they arrived", async () => {
@@ -248,4 +205,29 @@ test("the Design tab merges the newest build's scans once they cover every page 
     data.pages.filter((p) => p.path.startsWith("/d/")).map((p) => p.path).sort(),
     ["/d/about", "/d/home"],
   );
+});
+
+test("errors aren't captured: ingest drops them, and stored ones never become journey steps", async () => {
+  // A bundle cached from before error capture was removed still sends them.
+  const stale = await ingest(
+    {
+      events: [
+        { type: "js_error", ts: 1, path: "/stale", meta: { message: "boom" } },
+        { type: "page_view", ts: 2, path: "/stale" },
+      ],
+    },
+    "session-stale-bundle",
+  );
+  assert.equal(stale.stored, 1);
+
+  // Rows stored before then stay in the table — the owner's data is never
+  // deleted — and count only toward raw event totals.
+  const legacy = "js_error" as string as PolishdEvent["type"];
+  await insertEvents("errors-legacy", [
+    event({ type: "page_view", ts: 30_000, path: "/legacy" }),
+    event({ type: legacy, ts: 30_100, path: "/legacy", meta: { message: "boom" } }),
+    event({ type: "click", ts: 30_200, path: "/legacy", selector: "a.next", text: "Legacy next" }),
+  ]);
+  const journey = (await getSessionJourneys(50)).find((j) => j.steps.some((s) => s.label === "Legacy next"));
+  assert.deepEqual(journey?.steps.map((s) => s.type), ["page_view", "click"]);
 });

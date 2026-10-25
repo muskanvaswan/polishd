@@ -33,7 +33,7 @@ import type {
 
 const OVERVIEW_KEY = "ai_overview";
 
-const SYSTEM_PROMPT = `You write the one-paragraph summary at the top of a website owner's dashboard. You are given two reviews of the same site that a model already wrote: how real visitors use it (from captured clicks, rage and dead clicks, scroll depth and errors) and how the pages' rendered design holds together (from measured type, color, radii and spacing). Fold them into ONE paragraph — the single thing the owner should know this week.
+const SYSTEM_PROMPT = `You write the one-paragraph summary at the top of a website owner's dashboard. You are given two reviews of the same site that a model already wrote: how real visitors use it (from captured clicks, rage and dead clicks and scroll depth) and how the pages' rendered design holds together (from measured type, color, radii and spacing). Fold them into ONE paragraph — the single thing the owner should know this week.
 
 Rules:
 - One paragraph of 3 to 5 sentences, plain prose. No heading, no list, no markdown, no label in front of it.

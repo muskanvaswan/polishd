@@ -13,7 +13,6 @@ import {
 } from "../config";
 import { sanitizeBuild } from "../shared/build";
 import { foldNoSessionDrop, parseNoSessionRecord } from "../shared/capture-status";
-import { isIgnorableError } from "../shared/error-noise";
 import { normalizeLabel, reclassifiedClickType } from "../shared/text-signals";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { resolveServerBuild } from "./build";
@@ -84,24 +83,6 @@ async function recordNoSession(): Promise<void> {
     // Diagnostics must never take ingest down with them. A store that can't
     // record the rejection still returns a clean result to the beacon.
   }
-}
-
-/**
- * True for a `js_error` the client should already have dropped: an extension's
- * throw, not the site's. The client filters these at capture, but a cached
- * bundle can predate that filter by a full session — and the endpoint is a
- * public POST — so the rule that actually holds lives here too, the same way
- * the dashboard-path exclusion does.
- *
- * Only `message` and `source` survive into the event; the stack the client
- * inspects is not sent, so this catches less than the client does. That's the
- * intended split: the client is the precise filter, this is the backstop.
- */
-function isNoisyError(e: PolishdEvent, ignore: readonly (string | RegExp)[]): boolean {
-  if (e.type !== "js_error") return false;
-  const message = typeof e.meta?.message === "string" ? e.meta.message : "";
-  const source = typeof e.meta?.source === "string" ? e.meta.source : "";
-  return isIgnorableError({ message, source, ignore });
 }
 
 export interface IngestResult {
@@ -201,10 +182,7 @@ export async function ingest(
   const events = rawEvents
     .slice(0, MAX_EVENTS_PER_BATCH)
     .map(sanitize)
-    .filter(
-      (e): e is PolishdEvent =>
-        e !== null && !isDashboardPath(e.path, dashboardRoute) && !isNoisyError(e, cfg.ignoreErrors),
-    );
+    .filter((e): e is PolishdEvent => e !== null && !isDashboardPath(e.path, dashboardRoute));
 
   // The build the page was served from, as the client reports it — it knows
   // which bundle it is, where the server can only say which one it deploys.
@@ -297,7 +275,7 @@ export async function ingestTelemetry(
   const events = rawEvents
     .slice(0, MAX_EVENTS_PER_BATCH)
     .map(sanitize)
-    .filter((e): e is PolishdEvent => e !== null && !isNoisyError(e, cfg.ignoreErrors));
+    .filter((e): e is PolishdEvent => e !== null);
 
   // A remote dashboard's "build" is the polishd version it runs (the emitter
   // sends its package version). The collecting server's own build means

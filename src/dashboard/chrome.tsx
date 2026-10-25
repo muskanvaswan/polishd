@@ -361,8 +361,8 @@ export function TabSkeleton({ name }: { name: string }) {
         </div>
       </div>
 
-      <div className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {Array.from({ length: 6 }, (_, i) => (
+      <div className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => (
           <div key={i} className={`${card} px-4 py-4`}>
             <div className={`h-3 w-16 ${bar} opacity-60`} />
             <div className={`mt-3 h-6 w-14 ${bar}`} />

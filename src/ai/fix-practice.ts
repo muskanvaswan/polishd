@@ -13,7 +13,7 @@ export type BugClass = "interaction" | "design";
 export const BUG_CLASSES: Record<BugClass, { what: string; practice: string }> = {
   interaction: {
     what:
-      "something users DO fails or frustrates — rage/dead clicks, broken or missing handlers, unresponsive or inaccessible controls, confusing flows, runtime errors",
+      "something users DO fails or frustrates — rage/dead clicks, broken or missing handlers, unresponsive or inaccessible controls, confusing flows",
     practice:
       "Nielsen Norman's usability heuristics (visibility of system status, error prevention and recovery), the WAI-ARIA Authoring Practices for correct interactive semantics and keyboard support, and touch-target guidance (WCAG 2.5.8 / the 44px platform minimums)",
   },

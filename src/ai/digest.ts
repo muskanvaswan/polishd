@@ -20,7 +20,7 @@
  */
 import { createHash } from "node:crypto";
 
-import type { ClickFriction, ErrorFriction, FrictionIndex } from "../server/friction";
+import type { ClickFriction, FrictionIndex } from "../server/friction";
 import type { PolishdDashboardData } from "../server/queries";
 import type { PolishdLossSignal } from "./types";
 
@@ -66,30 +66,10 @@ const shownHandle = (h: string | undefined): string => clip(h, 120);
 const handleClause = (h: string | undefined): string =>
   h ? `; handle ${shownHandle(h)}` : "";
 
-/** What capture recorded around an error, in one clause each. */
-function errorContext(f: ErrorFriction | undefined): string {
-  if (!f) return "";
-  const parts: string[] = [];
-  if (f.tally.count > 1 || f.tally.sessions > 1) {
-    parts.push(`${f.tally.count}×${sessionsClause(f.tally.sessions)}`);
-  }
-  if (f.after) {
-    const gap = f.after.medianMs !== undefined ? ` (~${f.after.medianMs}ms before)` : "";
-    parts.push(`after "${clip(f.after.label)}"${gap}`);
-  }
-  if (f.frame) {
-    const frame = clip(f.frame, 100);
-    parts.push(/^at\s/.test(frame) ? frame : `at ${frame}`); // V8 frames already say "at"
-  }
-  if (f.digest) parts.push(`digest ${clip(f.digest, 24)}`);
-  if (f.handle) parts.push(`handle ${shownHandle(f.handle)}`);
-  return parts.length ? ` — ${parts.join("; ")}` : "";
-}
-
 // ── What a loss can cite ─────────────────────────────────────────────────────
 
 /** Event kinds a signal can count. */
-export type SignalKind = "dead_click" | "rage_click" | "js_error" | "page_view" | "component_view";
+export type SignalKind = "dead_click" | "rage_click" | "page_view" | "component_view";
 
 /**
  * One digest line a loss can cite: the strings it printed that identify it,
@@ -97,7 +77,7 @@ export type SignalKind = "dead_click" | "rage_click" | "js_error" | "page_view" 
  * and pages come from the friction index, so a kind without one is absent.
  */
 export interface DigestTarget {
-  section: "page" | "element" | "component" | "error";
+  section: "page" | "element" | "component";
   /** Exactly what the digest printed that a citation could copy. */
   names: string[];
   volume: Partial<Record<SignalKind, PolishdLossSignal>>;
@@ -114,7 +94,7 @@ const tallied = (
     ? { [kind]: { kind, count, sessions: t.sessions, pages: [...t.pages] } }
     : {};
 
-/** The pages the digest ranks, worst first (rage/dead/errors/shallow scroll). */
+/** The pages the digest ranks, worst first (rage/dead/shallow scroll). */
 function worstPages(pages: PolishdDashboardData["pages"]) {
   return [...pages]
     .map((p) => ({
@@ -122,7 +102,6 @@ function worstPages(pages: PolishdDashboardData["pages"]) {
       score:
         p.rageClicks * 3 +
         p.deadClicks * 2 +
-        p.jsErrors * 2.5 +
         (p.avgScrollDepth !== null && p.avgScrollDepth < 50 ? (50 - p.avgScrollDepth) / 25 : 0),
     }))
     .filter((p) => p.score > 0)
@@ -130,24 +109,11 @@ function worstPages(pages: PolishdDashboardData["pages"]) {
     .slice(0, 6);
 }
 
-/** Distinct messages, most recent first, so one recurring error can't fill the section. */
-function shownErrors(errors: PolishdDashboardData["errors"]) {
-  const seen = new Set<string>();
-  const uniq: typeof errors = [];
-  for (const e of errors) {
-    if (seen.has(e.message)) continue;
-    seen.add(e.message);
-    uniq.push(e);
-    if (uniq.length >= 5) break;
-  }
-  return uniq;
-}
-
 /**
  * The digest's lines and the targets a loss can cite, in one pass.
  *
  * `friction` is optional context: sessions behind each count, where dead
- * clicks landed, what preceded an error, components users struggle with.
+ * clicks landed, components users struggle with.
  * Without it the digest reads exactly as the base digest — which is what
  * the staleness fingerprint is taken from, so a dashboard render never has
  * to load it.
@@ -157,7 +123,7 @@ export function digestParts(
   context?: string,
   friction?: FrictionIndex,
 ): { lines: string[]; targets: DigestTarget[] } {
-  const { overview, pages, elements, devices, topUsed, errors, monitored } = data;
+  const { overview, pages, elements, devices, topUsed, monitored } = data;
   const clicks = friction?.clicks ?? [];
   const clickBy = (by: ClickFriction["by"], key: string) =>
     clicks.find((c) => c.by === by && c.key === key);
@@ -170,8 +136,8 @@ export function digestParts(
 
   lines.push(
     `TOTALS: ${overview.sessions} sessions, ${overview.pageViews} page views, ` +
-      `${overview.rageClicks} rage clicks, ${overview.deadClicks} dead clicks, ` +
-      `${overview.jsErrors} JS errors (${overview.totalEvents} events total).`,
+      `${overview.rageClicks} rage clicks, ${overview.deadClicks} dead clicks ` +
+      `(${overview.totalEvents} events total).`,
   );
 
   if (devices.length) {
@@ -199,7 +165,7 @@ export function digestParts(
       const scroll = p.avgScrollDepth === null ? "" : `, scroll ${r(p.avgScrollDepth)}%`;
       lines.push(
         `  - ${p.path}: ${p.sessions} sessions, ${p.rageClicks} rage, ` +
-          `${p.deadClicks} dead, ${p.jsErrors} err${scroll}`,
+          `${p.deadClicks} dead${scroll}`,
       );
     }
   }
@@ -213,7 +179,6 @@ export function digestParts(
       volume: {
         ...tallied(p.rageClicks, f?.rage, "rage_click"),
         ...tallied(p.deadClicks, f?.dead, "dead_click"),
-        ...tallied(p.jsErrors, f?.error, "js_error"),
         ...(p.pageViews > 0
           ? { page_view: { kind: "page_view", count: p.pageViews, sessions: p.sessions, pages: [p.path] } }
           : {}),
@@ -315,21 +280,6 @@ export function digestParts(
     }
   }
 
-  const uniq = shownErrors(errors);
-  if (uniq.length) {
-    lines.push("RECENT ERRORS:");
-    for (const e of uniq) {
-      const f = friction?.errors.find((x) => x.message === e.message);
-      lines.push(`  - "${clip(e.message, 80)}" on ${e.path}${errorContext(f)}`);
-      targets.push({
-        section: "error",
-        names: [...new Set([clip(e.message, 80), e.message])],
-        volume: tallied(e.count, f?.tally, "js_error"),
-        ...(f?.handle ? { handle: f.handle } : {}),
-      });
-    }
-  }
-
   return { lines, targets };
 }
 
@@ -402,11 +352,9 @@ export function citedInPrompt(
 
 const RAGE = /\brage/i;
 const DEAD = /\bdead\b|\bunresponsive|\bno (?:visible )?response|\bnear[- ]?miss|\bmissed\b|\bdoesn'?t respond|\bnothing happen/i;
-const ERROR = /\berror|\bexception|\bthrows?\b|\bthrown\b|\bcrash/i;
 const WORDS: [SignalKind, RegExp][] = [
   ["rage_click", RAGE],
   ["dead_click", DEAD],
-  ["js_error", ERROR],
 ];
 
 /**
@@ -428,9 +376,8 @@ export function lossSignal(
 ): PolishdLossSignal | undefined {
   const t = citedTarget(evidence, targets);
   if (!t) return undefined;
-  if (t.section === "error") return t.volume.js_error;
 
-  // The issue's wording only: a citation like `/errors` names a page, not a kind.
+  // The issue's wording only: a citation like `/dead-ends` names a page, not a kind.
   const named = WORDS.filter(([, re]) => re.test(issue)).map(([k]) => k);
   if (named.length === 1) return t.volume[named[0]];
   if (named.length > 1) return undefined;

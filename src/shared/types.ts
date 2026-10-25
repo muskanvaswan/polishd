@@ -18,7 +18,6 @@ export type PolishdEventType =
   | "dead_click" // a click on a non-control, non-text element that drew no response within ~1s (confusion)
   | "scroll_depth" // max scroll reached on a page before leaving it (only pages tall enough to scroll)
   | "viewport" // device/viewport size sampled once at session start
-  | "js_error" // an uncaught error or unhandled rejection
   | "web_vital" // a Core Web Vital sample (LCP, CLS, INP)
   | "hover" // pointer dwell on an explicitly tracked component; value = ms
   | "component_view" // time a PolishdMonitor component spent in the viewport; value = ms
@@ -63,17 +62,13 @@ export interface PolishdEvent {
    */
   value?: number;
   /**
-   * Small, typed extras keyed by event type (e.g. vital name, error message).
+   * Small, typed extras keyed by event type (e.g. vital name).
    * Every key is optional: events from older clients carry fewer of them.
    * - dead_click: `near`, the label of the control the click landed next to
    *   or inside, and `nearHandle`, that control's handle
-   * - dead_click, rage_click, js_error: `handle`, a greppable path to the
-   *   element (anchored at a `data-component` or id, distinctive classes) —
-   *   evidence only, it can vary between clicks, so nothing groups by it
-   * - js_error: `message`, `source`, `line`, `origin`, `kind`; plus `digest`
-   *   (Next's error digest), `frame` (top stack frame, `file:line:col`),
-   *   `after` (data-component, label or selector of the click ≤2s before it),
-   *   `afterMs` (how long before, rounded to 100ms) and `afterSelector`
+   * - dead_click, rage_click: `handle`, a greppable path to the element
+   *   (anchored at a `data-component` or id, distinctive classes) — evidence
+   *   only, it can vary between clicks, so nothing groups by it
    * - install_state: `hasModel`, `provider`, `model`, `version`
    */
   meta?: Record<string, string | number | boolean | null>;
@@ -134,7 +129,6 @@ export const CLIENT_EVENT_TYPES: ReadonlySet<PolishdEventType> = new Set<Polishd
   "dead_click",
   "scroll_depth",
   "viewport",
-  "js_error",
   "web_vital",
   "hover",
   "component_view",

@@ -27,12 +27,11 @@ const element = (e: Partial<ElementStat>): ElementStat => ({
 
 const data = (elements: ElementStat[]) =>
   ({
-    overview: { ready: true, totalEvents: 10, sessions: 2, pageViews: 4, rageClicks: 0, deadClicks: 3, jsErrors: 0 },
+    overview: { ready: true, totalEvents: 10, sessions: 2, pageViews: 4, rageClicks: 0, deadClicks: 3 },
     pages: [],
     elements,
     devices: [],
     topUsed: [],
-    errors: [],
     monitored: [],
   }) as unknown as PolishdDashboardData;
 

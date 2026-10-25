@@ -28,7 +28,6 @@ import {
   getMetricTrends,
   getMonitoredComponents,
   getOverview,
-  getRecentErrors,
   getSessionJourneys,
   getTopInteractions,
   getTopPages,
@@ -81,7 +80,6 @@ export const loadElements = swept((f) => getElementStats(12, f));
 export const loadDevices = swept((f) => getDeviceBreakdown(f));
 export const loadTopUsed = swept((f) => getTopInteractions(12, f));
 export const loadJourneys = swept((f) => getSessionJourneys(6, f));
-export const loadErrors = swept((f) => getRecentErrors(20, f));
 export const loadMonitored = swept((f) => getMonitoredComponents(f));
 export const loadBuilds = swept((f) => getBuilds(50, f));
 /** Capture health describes the proxy, not a window of traffic: never scoped. */
@@ -106,7 +104,6 @@ export const loadDashboardData = cache(
       devices,
       topUsed,
       journeys,
-      errors,
       monitored,
     ] = await Promise.all([
       loadOverview(range),
@@ -117,7 +114,6 @@ export const loadDashboardData = cache(
       loadDevices(range),
       loadTopUsed(range),
       loadJourneys(range),
-      loadErrors(range),
       loadMonitored(range),
     ]);
     return {
@@ -129,7 +125,6 @@ export const loadDashboardData = cache(
       devices,
       topUsed,
       journeys,
-      errors,
       monitored,
     };
   },

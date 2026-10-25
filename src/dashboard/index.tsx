@@ -42,7 +42,6 @@ import {
   type ElementStat,
   type MonitoredComponent,
   type OverviewStats,
-  type RecentError,
   type TopInteraction,
 } from "../server/queries";
 import {
@@ -51,7 +50,6 @@ import {
   loadDashboardData,
   loadDevices,
   loadElements,
-  loadErrors,
   loadHealth,
   loadJourneys,
   loadMonitored,
@@ -533,7 +531,7 @@ function JourneysSection({ children }: { children: ReactNode }) {
   return (
     <Section
       title="Sampled user journeys"
-      tip="Full sessions sampled and ranked by a composite score (rage×3 + dead×2 + errors×2.5), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
+      tip="Full sessions sampled and ranked by a composite score (rage×3 + dead×2), preferring complete recordings and recent ones. Click a session to open its start-to-finish flow chart."
     >
       {children}
     </Section>
@@ -608,61 +606,6 @@ function ElementsCard({ elements }: { elements: ElementStat[] }) {
   );
 }
 
-/** Errors shown before the rest collapse behind "Show more". */
-const ERRORS_VISIBLE = 3;
-
-/** "1.2k" past a thousand — the badge is a glance, not a ledger. */
-function compactCount(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `${Math.round(n / 1000)}k`;
-}
-
-function ErrorRow({ e, first }: { e: RecentError; first: boolean }) {
-  const others = e.paths.length - 1;
-  return (
-    <div className={first ? "" : divider}>
-      <div className="flex items-start gap-3 px-5 py-3.5">
-        <span
-          aria-hidden
-          className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${e.origin ? "bg-fg-4" : "bg-bad"}`}
-        />
-        <div className="min-w-0 flex-1">
-          {/* Errors the page can't claim as its own are dimmed rather
-              than hidden: the classification is a judgement about
-              where the code came from, so it's shown, not enforced. */}
-          <div
-            className={`break-words font-mono text-[12.5px] leading-relaxed ${e.origin ? "text-fg-3" : "text-bad"}`}
-          >
-            {e.message}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-fg-3">
-            <span className="font-mono text-fg-2">{e.path}</span>
-            {others > 0 && (
-              <span title={e.paths.slice(0, 10).join("\n")}>
-                {`+${others} more ${others === 1 ? "page" : "pages"}`}
-              </span>
-            )}
-            {e.component && <span>· {e.component}</span>}
-            {e.origin === "foreign" && <span>· not your code</span>}
-            {e.origin === "unknown" && <span>· unattributable</span>}
-          </div>
-        </div>
-        {e.count > 1 && (
-          <span
-            title={`Seen ${e.count.toLocaleString()} times`}
-            className={`inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-md px-1.5 text-[11px] font-semibold tabular-nums ring-1 ring-inset ${
-              e.origin ? "bg-raised text-fg-3 ring-line-strong" : "bg-bad/12 text-bad ring-bad/25"
-            }`}
-          >
-            ×{compactCount(e.count)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Builds ───────────────────────────────────────────────────────────────────
 // Every event names the build it was captured on, so the tab can say what
 // each deploy did: how many sessions it served, and how much friction they
@@ -719,11 +662,8 @@ function BuildRow({
       <td className={num}>
         {b.rageClicks > 0 ? <span className="text-bad">{b.rageClicks.toLocaleString()}</span> : none}
       </td>
-      <td className={num}>
-        {b.deadClicks > 0 ? <span className="text-warn">{b.deadClicks.toLocaleString()}</span> : none}
-      </td>
       <td className="py-3 pl-4 pr-5 text-right text-[13px] tabular-nums text-fg-2">
-        {b.jsErrors > 0 ? <span className="text-bad">{b.jsErrors.toLocaleString()}</span> : none}
+        {b.deadClicks > 0 ? <span className="text-warn">{b.deadClicks.toLocaleString()}</span> : none}
       </td>
     </tr>
   );
@@ -774,7 +714,6 @@ function BuildsCard({
                 <Th tip="page_view events captured on this build.">Views</Th>
                 <Th tip="Rage clicks captured on this build.">Rage</Th>
                 <Th tip="Dead clicks captured on this build.">Dead</Th>
-                <Th tip="JS errors captured on this build.">Errors</Th>
               </tr>
             </thead>
             <tbody>
@@ -791,30 +730,6 @@ function BuildsCard({
         </div>
       )}
     </div>
-  );
-}
-
-function RecentErrors({ errors }: { errors: RecentError[] }) {
-  if (errors.length === 0) return null;
-  const visible = errors.slice(0, ERRORS_VISIBLE);
-  const overflow = errors.slice(ERRORS_VISIBLE);
-  const key = (e: RecentError) => `${e.message}|${e.component ?? ""}|${e.origin ?? ""}`;
-  return (
-    <Section
-      title="Recent errors"
-      tip="Repeats of the same error are grouped into one row, most recently seen first. The badge counts every time it was thrown, across all pages."
-    >
-      <div className={`${card} overflow-hidden`}>
-        {visible.map((e, i) => (
-          <ErrorRow key={key(e)} e={e} first={i === 0} />
-        ))}
-        <ShowMore count={overflow.length} label="errors">
-          {overflow.map((e) => (
-            <ErrorRow key={key(e)} e={e} first={false} />
-          ))}
-        </ShowMore>
-      </div>
-    </Section>
   );
 }
 
@@ -874,7 +789,6 @@ export function PolishdDashboard({
       <ElementsSection>
         <ElementsCard elements={data.elements} />
       </ElementsSection>
-      <RecentErrors errors={data.errors} />
     </main>
     </DashboardChrome>
   );
@@ -909,10 +823,10 @@ function CardSkeleton({ rows = 4 }: { rows?: number }) {
 function TileGridSkeleton() {
   return (
     <div
-      className="grid grid-cols-2 gap-3 motion-safe:animate-pulse sm:grid-cols-3 lg:grid-cols-6"
+      className="grid grid-cols-2 gap-3 motion-safe:animate-pulse sm:grid-cols-3 lg:grid-cols-5"
       aria-hidden="true"
     >
-      {Array.from({ length: 6 }, (_, i) => (
+      {Array.from({ length: 5 }, (_, i) => (
         <div key={i} className={`${card} px-4 py-4`}>
           <div className={`h-3 w-16 ${skel} opacity-60`} />
           <div className={`mt-3 h-6 w-14 ${skel}`} />
@@ -1066,10 +980,6 @@ async function BuildsData({ range }: Ranged) {
   return <BuildsCard builds={builds} current={current} range={range} />;
 }
 
-async function ErrorsData({ range }: Ranged) {
-  return <RecentErrors errors={await loadErrors(range)} />;
-}
-
 /** The analytics tab, streamed section by section, every section on `range`. */
 function AnalyticsStream({ range }: Ranged) {
   return (
@@ -1132,9 +1042,6 @@ function AnalyticsStream({ range }: Ranged) {
           <BuildsData range={range} />
         </Suspense>
       </BuildsSection>
-      <Suspense fallback={null}>
-        <ErrorsData range={range} />
-      </Suspense>
     </main>
   );
 }
