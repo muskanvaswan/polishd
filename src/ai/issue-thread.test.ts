@@ -19,6 +19,7 @@ import {
   fixPulls,
   fixStatus,
   isFixActive,
+  isLinked,
   offersSuggestFix,
 } from "./fix-status.ts";
 import { commentText, issueThreadsQuery, normalizeIssueThread, type RawIssueThread } from "./issue-thread.ts";
@@ -346,6 +347,21 @@ test("Suggest a fix is offered only where it's the one help there is", () => {
   assert.equal(offersSuggestFix({ stage: "pr-closed", pull: { ...pull, state: "closed" } }, none), true);
   // The agent was asked about this issue: its answer is the help.
   assert.equal(offersSuggestFix({ stage: "declined", run: RUN }, none), false);
+});
+
+test("a pull request polishd opened is linked before GitHub says so", () => {
+  // Straight after Create PR, GitHub hasn't recorded the "Fixes #N" link yet:
+  // the pull request is listed (or merely cross-referenced) without closes.
+  const lagging = thread({ pulls: [{ ...thread().pulls[0], closes: false }] });
+  const opened = { ...RUN, openedPull: 41 };
+  assert.equal(isLinked(lagging.pulls[0], opened), true);
+  assert.equal(fixStatus({ run: opened, thread: lagging })?.stage, "pr-open");
+  assert.equal(createPrAction(opened, lagging), null, "no Link PR for what polishd just linked");
+  // Without polishd's record of it, it reads as GitHub reports it.
+  assert.equal(isLinked(lagging.pulls[0], RUN), false);
+  assert.equal(createPrAction(RUN, lagging), "link");
+  // One polishd added the line to counts the same way.
+  assert.equal(createPrAction({ ...RUN, linkedPulls: [41] }, lagging), null);
 });
 
 test("a failed assignment is reported as failed", () => {
