@@ -112,6 +112,21 @@ export type GenerateProfileError =
   | "provider-error";
 
 /**
+ * How much behaviour a loss's evidence accounts for, looked up in the
+ * aggregated analytics after the model answers — never the model's numbers.
+ * `kind` is the event type counted: `dead_click`, `rage_click`, `js_error`,
+ * or, for evidence with no friction on it, `page_view` / `component_view`.
+ * `pages` lists where it happened, most affected first (capped; empty for a
+ * component's views).
+ */
+export interface PolishdLossSignal {
+  kind: string;
+  count: number;
+  sessions: number;
+  pages: string[];
+}
+
+/**
  * A specific problem the model found in the data. Losses are held to a higher
  * bar than wins: each must cite evidence (a selector, component name, or page
  * path) that appears in the digest we sent — uncited losses are dropped as
@@ -123,10 +138,25 @@ export interface PolishdLossItem {
   issue: string;
   /** The identifier from the data that shows it (selector / component / path). */
   evidence: string;
-  /** Source file containing the cited element, when found on disk. */
+  /**
+   * Source file the cited element was matched to — on disk, or in the
+   * connected GitHub repo (then a repo path) where the source isn't on disk.
+   */
   location?: string;
-  /** True when the citation was matched to a file in the codebase. */
+  /**
+   * True when the citation matched exactly one file on something the author
+   * wrote — a component name, route, id, custom class or visible label —
+   * never on utility classes or tag names.
+   */
   verified: boolean;
+  /**
+   * Set instead of `location` when the match isn't specific enough to verify:
+   * the citation matched several files equally well (none of them picked), or
+   * its text matched one file in a repo too large to read whole.
+   */
+  candidates?: string[];
+  /** The analytics volume behind the evidence. Absent when nothing counts it. */
+  signal?: PolishdLossSignal;
   /** GitHub issue filed for this problem (manually or automatically). */
   issueUrl?: string;
   issueNumber?: number;
@@ -149,13 +179,52 @@ export interface PolishdIgnoredLoss {
   ignoredAt: number;
 }
 
-/** Result of dismissing a loss. */
+/**
+ * A design issue the owner dismissed. Same shape and the same three effects as
+ * an ignored loss, against the design review: kept out of every review that
+ * renders, and replayed into every later review's prompt.
+ */
+export type PolishdIgnoredDesignIssue = PolishdIgnoredLoss;
+
+/** Result of dismissing a loss or a design issue. */
 export type IgnoreLossResult =
   | { ok: true; ignored: PolishdIgnoredLoss }
   | { ok: false; message: string };
 
 /** Result of undoing a dismissal. */
 export type UnignoreLossResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * One finding to dismiss from a coding agent's verdict block. Only the
+ * citation, verdict and reason travel: the server looks the finding up in the
+ * current summary or review by its citation, and takes the problem's wording
+ * from there, so a pasted block can't put text of its own into later prompts
+ * beyond the bounded reason.
+ */
+export interface PolishdVerdictDismissal {
+  source: "analytics" | "design";
+  /**
+   * The finding's id in the current summary or review ("A2", "D1"): what
+   * picks it out, since two design issues can cite identical evidence.
+   */
+  id: string;
+  /** Its citation, checked against the finding the id names. */
+  evidence: string;
+  verdict: "not_real" | "deliberate";
+  /** The agent's reason, as it wrote it. Sanitized and clipped server-side. */
+  reason: string;
+}
+
+/** Result of recording a verdict block's dismissals. */
+export type RecordVerdictsResult =
+  | {
+      ok: true;
+      /** Each dismissal stored, with the id it was sent under. */
+      recorded: { source: "analytics" | "design"; id: string; ignored: PolishdIgnoredLoss }[];
+      /** Verdicts whose finding isn't in the current summary or review. */
+      skipped: number;
+    }
+  | { ok: false; message: string };
 
 /** A generated narrative summary, cached in the store. */
 export interface PolishdSummary {
@@ -199,8 +268,19 @@ export interface PolishdDesignIssue {
   issue: string;
   /** The token from the metrics that shows it (hex, px value, page path). */
   evidence: string;
-  /** A concrete fix, when the model offered one. */
+  /** A concrete fix, when the model offered one and it held up. */
   suggestion?: string;
+  /**
+   * Values the suggestion names that the metrics don't contain: new to the
+   * site, where every other value it names is already in use.
+   */
+  newValues?: string[];
+  /**
+   * Why the model's suggestion was dropped, when it was: it would have
+   * removed a value the same review lists as a strength, or proposed a new
+   * scale or palette rather than reusing the site's own values.
+   */
+  suggestionWithheld?: string;
   /** GitHub issue filed for this problem, attached when the tab loads. */
   issueUrl?: string;
   issueNumber?: number;
@@ -223,6 +303,12 @@ export interface PolishdDesignReview {
   generatedAt: number;
   /** Hash of the design digest it was generated from — drives staleness. */
   fingerprint: string;
+  /**
+   * Hash of the measurements alone — no site description, no dismissals — so
+   * a stale review can say whether the site's design actually changed or only
+   * something around it did. Absent on reviews from older versions.
+   */
+  metricsFingerprint?: string;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
