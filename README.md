@@ -293,20 +293,34 @@ in production, because that is the only place it is worth acting on.
 
 ## Overview
 
-The dashboard opens on the **Overview**: the headline audience numbers
-(sessions, page views, views per session, the share on mobile), the
-[AI summary](#ai-summary) and the [design review](#design-review) one above the
-other, then **Actionables** — every problem either review found, as one list —
-and the newest [site snapshot](#site-snapshots) when there is one. The review
-cards are the cards from their own tabs, so regenerating works from here; the
-Actionables section is the first rows of the
-[Actionables tab](#the-actionables-tab), so filing a bug and ignoring a finding
-do too.
+The dashboard opens on the **Overview**, laid out as a board of the site:
+
+- **The site and its brand**, in one card with no headings. On the left, the
+  newest [snapshot](#site-snapshots) as a small bento of the site's top pages:
+  the homepage hero largest, the homepage on a phone beside it, and the two
+  most visited other pages under them, with no device or theme toggles in
+  front. A click opens the full-height shot, and the rest of the capture is
+  one link away on the Design tab. On the right, the system the pages
+  actually ship, curated the way the brand kit is (one-offs left out), as two
+  hierarchies. The palette: Primary largest, Secondary and Accent beside it,
+  and the neutrals as one scale from light to dark — not every color the site
+  paints. The type: "Title", "Subtitle", "Body" and "Caption", each word set
+  in its own face at the size the site really uses that style.
+- **Overview** — one paragraph, written by the model from the
+  [AI summary](#ai-summary) and the [design review](#design-review): the
+  overall picture, the one or two things most worth fixing, and what to
+  protect, saying nothing the two reviews don't. It's cached, goes stale when
+  either review changes, and is rewritten when the Overview opens on a
+  missing or stale paragraph; one refresh regenerates both reviews and then
+  the paragraph. The problems both reviews found are on the
+  [Actionables tab](#the-actionables-tab), with the file-bug and ignore
+  controls that act on them.
+- **Visitors** — sessions, page views and the share on mobile, stacked in a
+  narrow column beside the paragraph, each tile opening its chart over time.
 
 **Copy fix prompt** turns every problem the two reviews found into one message
 for the coding agent working in your repo — Claude Code, Cursor, or anything
-else that reads a prompt. Each review's own **Copy prompt** button copies just
-its half. A prompt carries:
+else that reads a prompt. A prompt carries:
 
 - the site description and audience from Settings, and the traffic so far;
 - a warning up front when the two reviews are far apart in time (two weeks or
@@ -333,10 +347,9 @@ its half. A prompt carries:
   a JSON verdict block: `fixed`, `not_real` or `deliberate` per problem, with a
   reason and the files involved.
 
-The prompt is built in the browser from what the cards show at the moment you
-click, so a loss you've just ignored is already out of it and a review you've
-just regenerated is already in. It sends nothing anywhere: it's text on your
-clipboard.
+The prompt is built in the browser from the latest summary and review the
+page has, so a review you've just regenerated is already in it. It sends
+nothing anywhere: it's text on your clipboard.
 
 **Paste verdicts** reads the agent's verdict block back. Paste its reply (or
 just the block) and each verdict is shown next to the finding it refers to.
@@ -544,6 +557,24 @@ cite a token that actually appears in the metrics (a hex value, a px size, a
 page path), and its fix should move the outlier onto a value the site already
 uses.
 
+The model also sees the pages. Generating a review first runs a small
+capture of its own, through the same machinery as [site snapshots](#site-snapshots)
+but separate from the gallery: the first screen of the three most-visited
+pages (ranked like the Top pages table: distinct sessions, then page views),
+desktop, in light and dark — a site with no dark mode drops the dark shots —
+plus each flagged value pictured in place: the element carrying it, ringed,
+with its surroundings, from the light rendering only. Failing contrast pairs
+are looked for first, then one-off type styles, colors and radii in turn, and
+off-grid padding only to fill the last of at most six pictures. The shots are
+context, not evidence: an issue still has to cite a measured token, and the
+model is told they're scaled down. The card says which pages and how many
+values were shown, and why the review went without pictures when it did. The
+screenshots travel to your model provider with the metrics, on a regenerate
+only; a model or endpoint that doesn't take images gets the metrics alone. In
+production the capture uses Polishd's screenshot service, so the first review
+there asks the same consent question the Site snapshots card does, and a
+declined service or a missing Blob store means reviews from the metrics alone.
+
 Its fixes are then checked against the review itself. A fix that clearly
 removes a value the same review praised is withheld, and the card says why:
 one that replaces the value with a different one of the same kind
@@ -569,8 +600,9 @@ failure's sizes must be the same when both state them, so dismissing it at
 still matches, and of two issues citing identical evidence, a dismissal hides
 only the one worded closest to it. It
 follows the summary's token-thrift rules: the
-model sees a few hundred tokens of aggregated metrics, the result is cached and
-fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
+model sees a few hundred tokens of aggregated metrics plus a dozen small
+screenshots at most, the result is cached and fingerprinted, and regenerating
+over unchanged metrics is free. Refresh buttons
 for both the metrics and the analysis are on the tab.
 
 **Brand kit.** The **Brand kit** button in the tab's header downloads the

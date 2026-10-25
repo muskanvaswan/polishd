@@ -25,12 +25,14 @@
  * an opaque digest, while a returned message renders in the card.
  */
 import { buildDesignDigest } from "../ai/design";
+import { REVIEW_RENDERINGS, designReviewTargets, pickReviewRoutes } from "../ai/design-shots";
 import { fingerprintDigest } from "../ai/digest";
 import { requirePolishdAuth } from "../ai/guard";
 import { resolveSettings } from "../ai/settings";
 import { parseCaptureBlock, type StoredCaptureBlock } from "../capture/protocol";
 import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
+import { getPageTraffic } from "../server/queries";
 import { dashboardTabOf, type ShotSlot } from "../server/snapshot-files";
 import { resolveSiteOrigin } from "../server/site-origin";
 import {
@@ -51,6 +53,7 @@ import {
   type ShotRecord,
   type SnapshotAvailability,
   type SnapshotPlan,
+  type SnapshotPurpose,
   type UploadTarget,
 } from "../server/snapshots";
 import { designPreviewTargets } from "../shared/design-values";
@@ -59,11 +62,18 @@ function failed(prefix: string, err: unknown): Failure {
   return { ok: false, message: `${prefix}: ${err instanceof Error ? err.message : "unknown error"}` };
 }
 
-/** Plan a capture: the routes, renderings and values to picture, and who shoots. */
-export async function beginSnapshotCaptureAction(): Promise<
-  ({ ok: true } & SnapshotPlan) | (Failure & { consentRequired?: true })
-> {
+/**
+ * Plan a capture: the routes, renderings and values to picture, and who
+ * shoots. A gallery capture (the default) shoots every scanned route, full
+ * page, in every rendering. A review capture — what the aesthetic review runs
+ * before asking the model — shoots the first screen of the three most-visited
+ * pages, desktop, light and dark, and looks for the flagged values on them.
+ */
+export async function beginSnapshotCaptureAction(
+  purpose: SnapshotPurpose = "gallery",
+): Promise<({ ok: true } & SnapshotPlan) | (Failure & { consentRequired?: true })> {
   await requirePolishdAuth();
+  const review = purpose === "review";
   try {
     const origin = await resolveSiteOrigin();
     if (!origin) {
@@ -117,22 +127,36 @@ export async function beginSnapshotCaptureAction(): Promise<
           !isDashboardPath(p, dashboardRoute) &&
           (!p.startsWith("/~") || (engine.kind === "local" && dashboardTabOf(p) !== null)),
       );
-    const routes = (scanned.length > 0 ? scanned : ["/"]).slice(0, MAX_SNAPSHOT_ROUTES);
+    const candidates = scanned.length > 0 ? scanned : ["/"];
+    const routes = review
+      ? pickReviewRoutes(candidates, await getPageTraffic(candidates))
+      : candidates.slice(0, MAX_SNAPSHOT_ROUTES);
 
-    // Stamp the snapshot with the same metrics fingerprint the AI review caches
-    // under, so "taken before/after this round of changes" is a hash comparison.
+    // Stamp the snapshot with the design digest's hash — the measurements the
+    // AI review is keyed on — so "taken before/after this round of changes" is
+    // a hash comparison.
     let fingerprint: string | null = null;
     if (data.ready && data.pages.length > 0) {
       const { settings } = await resolveSettings();
       fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
     }
 
-    // The one-off and off-grid values flagged right now get pictured in place,
-    // so hovering one on the Design tab shows the element that carries it.
+    // The values flagged right now get pictured in place: on a gallery capture
+    // so hovering one on the Design tab shows the element that carries it; on
+    // a review capture so the model sees it too, failing contrast included.
     const shot = new Set(routes);
-    const targets = designPreviewTargets(data).filter((t) => t.pages.some((p) => shot.has(p)));
+    const targets = (review ? designReviewTargets(data) : designPreviewTargets(data)).filter((t) =>
+      t.pages.some((p) => shot.has(p)),
+    );
 
-    return await beginSnapshot({ origin, routes, fingerprint, targets, engine });
+    return await beginSnapshot({
+      origin,
+      routes,
+      fingerprint,
+      targets,
+      engine,
+      ...(review ? { purpose: "review" as const, renderings: REVIEW_RENDERINGS, viewport: true } : {}),
+    });
   } catch (err) {
     return failed("Snapshot capture failed unexpectedly", err);
   }

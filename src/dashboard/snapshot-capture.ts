@@ -15,19 +15,31 @@
  * — the site's CSP blocks it, it's down or rate-limiting, it can't reach the
  * site — the run ends with a `block`, and the section turns itself off and
  * says why. Whatever was already shot is kept.
+ *
+ * The same loop runs a review capture for the aesthetic review: the server
+ * plans fewer cells (three pages, desktop, light and dark, first screens),
+ * values are looked for in the light cells only, and the result replaces the
+ * last review capture instead of joining the gallery.
  */
-import type {
-  CaptureBlock,
-  EncodedImage,
-  FindTarget,
-  ShootResponse,
-  ShotResult,
-  SnapshotDevice,
-  SnapshotTheme,
+import {
+  DEVICE_VIEWPORTS,
+  type CaptureBlock,
+  type EncodedImage,
+  type FindTarget,
+  type ShootResponse,
+  type ShotResult,
+  type SnapshotDevice,
+  type SnapshotTheme,
 } from "../capture/protocol";
 import type { BlobAccess } from "../server/snapshot-blob";
 import type { ShotSlot } from "../server/snapshot-files";
-import type { PolishdSnapshot, ShotRecord, SnapshotPlan, StoredImage } from "../server/snapshots";
+import type {
+  PolishdSnapshot,
+  ShotRecord,
+  SnapshotPlan,
+  SnapshotPurpose,
+  StoredImage,
+} from "../server/snapshots";
 import {
   appendSnapshotChunkAction,
   beginSnapshotCaptureAction,
@@ -130,13 +142,20 @@ async function shootWithService(
   base: string,
   slot: ShotSlot,
   find: FindTarget[],
+  viewport: boolean,
 ): Promise<{ ok: true; shot: ShotResult } | { ok: false; failure: ServiceFailure }> {
   const result = await fetchWatchingCsp(`${base}/shoot`, {
     method: "POST",
     mode: "cors",
     credentials: "omit",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ route: slot.route, device: slot.device, theme: slot.theme, find }),
+    body: JSON.stringify({
+      route: slot.route,
+      device: slot.device,
+      theme: slot.theme,
+      find,
+      ...(viewport ? { viewport: true } : {}),
+    }),
     signal: AbortSignal.timeout(SERVICE_TIMEOUT_MS),
   });
   if ("error" in result) {
@@ -149,6 +168,40 @@ async function shootWithService(
   const shot = body?.v === 1 && Array.isArray(body.shots) ? body.shots[0] : undefined;
   if (!shot) return { ok: false, failure: { kind: "down", status: result.response.status } };
   return { ok: true, shot: { ...shot, previews: shot.previews ?? [], looked: shot.looked ?? [] } };
+}
+
+/**
+ * Cut a first-screen shot out of a full-page one, for a service deployed
+ * before it knew `viewport`. The top of the page at the device's viewport
+ * height, re-encoded here; a browser that can't encode WebP hands back PNG,
+ * which the store accepts too. Any failure keeps the image as it came.
+ */
+async function cropToViewport(image: EncodedImage, device: SnapshotDevice): Promise<EncodedImage> {
+  const vp = DEVICE_VIEWPORTS[device];
+  const targetHeight = Math.round(vp.height * vp.scale);
+  if (image.height <= targetHeight + 2) return image;
+  try {
+    const bitmap = await createImageBitmap(new Blob([base64ToBytes(image.data)], { type: image.type }));
+    const width = bitmap.width;
+    const height = Math.min(bitmap.height, targetHeight);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return image;
+    ctx.drawImage(bitmap, 0, 0, width, height, 0, 0, width, height);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/webp", 0.82));
+    if (!blob || (blob.type !== "image/webp" && blob.type !== "image/png")) return image;
+    return {
+      type: blob.type,
+      width,
+      height,
+      data: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
+    };
+  } catch {
+    return image;
+  }
 }
 
 class StoreError extends Error {}
@@ -217,8 +270,11 @@ async function storeImage(
  * the block that ended it early if the service couldn't be used, or the error
  * that stopped it.
  */
-export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureOutcome> {
-  const begun = await beginSnapshotCaptureAction();
+export async function runSnapshotCapture(
+  cb: CaptureCallbacks,
+  purpose: SnapshotPurpose = "gallery",
+): Promise<CaptureOutcome> {
+  const begun = await beginSnapshotCaptureAction(purpose);
   if (!begun.ok) {
     return begun.consentRequired
       ? { snapshot: null, block: null, error: null, consentRequired: true }
@@ -263,17 +319,21 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
 
   // A cell can look for 16 values. Hand out the ones looked for least so far,
   // so values that never turn up don't hold every slot while the rest of the
-  // list (off-grid paddings come last) never gets a turn.
-  const findFor = (route: string): FindTarget[] =>
-    plan.targets
-      .map((t, order) => ({ t, order }))
-      .filter(({ t }) => t.pages.includes(route) && !found.has(t.key) && !searching.has(t.key))
-      .sort((a, b) => (tries.get(a.t.key) ?? 0) - (tries.get(b.t.key) ?? 0) || a.order - b.order)
-      .slice(0, 16)
-      .map(({ t }) => ({ key: t.key, ref: t.ref }));
+  // list (off-grid paddings come last) never gets a turn. A review capture
+  // pictures values in the light rendering only: its dark cells are the first
+  // screens alone.
+  const findFor = (slot: ShotSlot): FindTarget[] =>
+    plan.purpose === "review" && slot.theme === "dark"
+      ? []
+      : plan.targets
+          .map((t, order) => ({ t, order }))
+          .filter(({ t }) => t.pages.includes(slot.route) && !found.has(t.key) && !searching.has(t.key))
+          .sort((a, b) => (tries.get(a.t.key) ?? 0) - (tries.get(b.t.key) ?? 0) || a.order - b.order)
+          .slice(0, 16)
+          .map(({ t }) => ({ key: t.key, ref: t.ref }));
 
   const shootLocal = async (slot: ShotSlot) => {
-    const res = await serial(() => captureLocalShotAction(plan.id, slot, findFor(slot.route).map((t) => t.key)));
+    const res = await serial(() => captureLocalShotAction(plan.id, slot, findFor(slot).map((t) => t.key)));
     if (!res.ok) {
       error ??= res.message;
       return;
@@ -288,7 +348,7 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
   };
 
   const shootAndStore = async (base: string, slot: ShotSlot, find: FindTarget[]) => {
-    const res = await shootWithService(base, slot, find);
+    const res = await shootWithService(base, slot, find, plan.viewport);
     if (!res.ok) {
       const { failure } = res;
       if (failure.kind === "rejected") {
@@ -301,10 +361,13 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
       }
       return;
     }
-    const { shot } = res;
+    let { shot } = res;
     if (shot.reason === "protected") {
       block ??= { reason: "protected", message: protectedMessage(plan.origin) };
       return;
+    }
+    if (plan.viewport && shot.image) {
+      shot = { ...shot, image: await cropToViewport(shot.image, slot.device) };
     }
     cb.onShot({
       ...slot,
@@ -344,7 +407,7 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
   };
 
   const shootRemote = async (base: string, slot: ShotSlot) => {
-    const find = findFor(slot.route);
+    const find = findFor(slot);
     for (const t of find) searching.add(t.key);
     try {
       await shootAndStore(base, slot, find);
@@ -376,7 +439,9 @@ export async function runSnapshotCapture(cb: CaptureCallbacks): Promise<CaptureO
 
   const fin = await finishSnapshotCaptureAction(plan.id);
   if (fin.ok) {
-    const cut = error ? `${error} The pages shot before that are in the snapshot.` : null;
+    const cut = error
+      ? `${error} ${plan.purpose === "review" ? "The pages shot before that were kept." : "The pages shot before that are in the snapshot."}`
+      : null;
     return { snapshot: fin.snapshot, block, error: cut };
   }
   // Nothing recorded: say why the run stopped, rather than "every page failed".

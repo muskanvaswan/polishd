@@ -360,6 +360,13 @@ export interface PolishdDesignReview {
    * something around it did. Absent on reviews from older versions.
    */
   metricsFingerprint?: string;
+  /**
+   * What the model was shown beside the metrics, from the review capture run
+   * for this review: the pages whose first screens went (light and dark where
+   * the site has both), and the flagged values pictured in place, in words.
+   * Absent when nothing went — no capture, or a model that takes no images.
+   */
+  screenshots?: { capturedAt: number; pages: string[]; values: string[] };
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -371,6 +378,37 @@ export type GenerateDesignReviewResult =
 export type GenerateDesignReviewError =
   | "no-key" // no API key configured
   | "no-data" // no pages scanned yet
+  | "provider-error"; // the model call failed
+
+// ── The Overview's paragraph ─────────────────────────────────────────────────
+
+/**
+ * The one paragraph at the top of the dashboard: the analytics summary and
+ * the design review folded into a single story by the same model, cached in
+ * the store. Written from the two reviews as they stand (dismissed findings
+ * already gone), so it goes stale when either of them changes.
+ */
+export interface PolishdOverview {
+  /** One paragraph of prose — no headings, lists or labels. */
+  text: string;
+  /** Which reviews existed when it was written. */
+  sources: ("summary" | "review")[];
+  provider: PolishdAIProvider;
+  model: string;
+  generatedAt: number;
+  /** Hash of the reviews it was written from — drives the "stale" check. */
+  fingerprint: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}
+
+/** Result of writing (or reusing) the Overview's paragraph. */
+export type GenerateOverviewResult =
+  | { ok: true; overview: PolishdOverview; regenerated: boolean }
+  | { ok: false; error: GenerateOverviewError; message: string };
+
+export type GenerateOverviewError =
+  | "no-key" // no API key configured
+  | "no-data" // neither review exists yet — nothing to fold together
   | "provider-error"; // the model call failed
 
 // ── GitHub connection ────────────────────────────────────────────────────────

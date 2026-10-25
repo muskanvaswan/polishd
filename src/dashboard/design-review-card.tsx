@@ -15,11 +15,22 @@
  *    and what's working; the issues it raises are actionables, listed with
  *    the summary's losses (actionable-list.tsx), and the card ends with how
  *    many are waiting there.
+ *
+ * Generating runs a review capture first (snapshot-capture.ts, purpose
+ * "review"): the first screen of the three most-visited pages, desktop, light
+ * and dark, with the flagged values pictured in place. Its pictures go to the
+ * model with the metrics. Where it can't run — snapshots off here, the
+ * service not yet allowed, a capture that failed — the review is made from
+ * the metrics alone and the card says so. The server decides what can run;
+ * this card only skips the attempt when the section already knows it's off.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { generateDesignReviewAction } from "../ai/actions";
+import { setSnapshotBlockAction } from "./snapshot-actions";
+import { runSnapshotCapture } from "./snapshot-capture";
+import { useSnapshotsOptional } from "./snapshots";
 import type { GenerateDesignReviewResult, PolishdDesignReview } from "../ai/types";
 import { TabLink } from "./chrome";
 import { Annotated } from "./design-tokens";
@@ -67,10 +78,7 @@ export interface DesignReviewCardProps {
   scannedPages: number;
   /** Told when a regenerate lands — the Overview builds its fix prompt from it. */
   onReviewChange?: (review: PolishdDesignReview) => void;
-  /**
-   * Whether the issues pointer links to the Actionables tab. The Overview
-   * passes false: its own Actionables section sits right below the card.
-   */
+  /** Whether the issues pointer links to the Actionables tab. */
   actionablesLink?: boolean;
 }
 
@@ -88,14 +96,68 @@ export default function DesignReviewCard({
   const [review, setReview] = useState<PolishdDesignReview | null>(initialReview);
   const [stale, setStale] = useState(initialStale);
   const [error, setError] = useState<string | null>(null);
+  /** Why the last review went without screenshots, when it did. */
+  const [unpictured, setUnpictured] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState<{ done: number; total: number } | null>(null);
   const [pending, startGenerate] = useTransition();
+  const snapshots = useSnapshotsOptional();
+
+  /**
+   * Shoot the first screens and value pictures for this review, or say why
+   * not. Never throws: a capture that fails still leaves a review to make.
+   */
+  const captureForReview = async (): Promise<string | undefined> => {
+    const mode = snapshots?.availability.mode;
+    if (mode?.kind === "disabled") {
+      setUnpictured("Reviewed from the metrics alone — site snapshots are off here.");
+      return undefined;
+    }
+    setCapturing({ done: 0, total: 0 });
+    snapshots?.setReviewCapturing(true);
+    try {
+      const outcome = await runSnapshotCapture(
+        {
+          onPlan: (plan) => setCapturing({ done: 0, total: plan.routes.length * plan.renderings.length }),
+          onShot: () => {},
+          onProgress: (done, total) => setCapturing({ done, total }),
+        },
+        "review",
+      );
+      if (outcome.block) {
+        const saved = await setSnapshotBlockAction(outcome.block).catch(() => null);
+        snapshots?.noteBlock(saved?.ok && saved.block ? saved.block : { ...outcome.block, at: Date.now() });
+      }
+      if (outcome.consentRequired) {
+        snapshots?.openConsent();
+        setUnpictured(
+          "Reviewed from the metrics alone — decide whether snapshots may use Polishd's screenshot service, then generate again to include screenshots.",
+        );
+        return undefined;
+      }
+      if (outcome.snapshot) {
+        if (outcome.error) setUnpictured(`Some screenshots are missing: ${outcome.error}`);
+        return outcome.snapshot.id;
+      }
+      setUnpictured(
+        `Reviewed from the metrics alone — ${outcome.block?.message ?? outcome.error ?? "the screenshots couldn't be captured."}`,
+      );
+    } catch {
+      setUnpictured("Reviewed from the metrics alone — the screenshot capture failed before a result came back.");
+    } finally {
+      snapshots?.setReviewCapturing(false);
+      setCapturing(null);
+    }
+    return undefined;
+  };
 
   const generate = (force: boolean) => {
     setError(null);
+    setUnpictured(null);
     startGenerate(async () => {
+      const captureId = await captureForReview();
       let res: GenerateDesignReviewResult;
       try {
-        res = await generateDesignReviewAction(force);
+        res = await generateDesignReviewAction(force, captureId);
       } catch {
         // The action threw rather than returning a result — an expired
         // dashboard session, a function timeout. In production that arrives as
@@ -114,7 +176,10 @@ export default function DesignReviewCard({
     });
   };
 
-  const canGenerate = hasApiKey && scannedPages > 0;
+  const canGenerate = hasApiKey && scannedPages > 0 && !snapshots?.capturing;
+  const busyLabel = capturing
+    ? `Capturing screenshots${capturing.total ? ` ${capturing.done}/${capturing.total}` : ""}…`
+    : "Reviewing…";
 
   return (
     <section className={`mb-10 ${card} overflow-hidden`}>
@@ -142,7 +207,11 @@ export default function DesignReviewCard({
               ? "Connect a model first — Settings tab"
               : scannedPages === 0
                 ? "No pages scanned yet"
-                : "Regenerate the design review now"
+                : pending
+                  ? busyLabel
+                  : snapshots?.capturing
+                    ? "Wait for the snapshot capture to finish"
+                    : "Regenerate the design review now — screenshots of the top pages are taken first"
           }
           aria-label="Refresh design review"
           className={iconBtn}
@@ -156,6 +225,16 @@ export default function DesignReviewCard({
           <Callout tone="bad" className="mb-4">
             {error}
           </Callout>
+        )}
+        {pending && (
+          <p className="mb-4 text-[12px] text-fg-3" aria-live="polite">
+            {busyLabel}
+          </p>
+        )}
+        {!pending && unpictured && (
+          <p className="mb-4 text-[12px] leading-relaxed text-fg-3" data-component="design-review-unpictured">
+            {unpictured}
+          </p>
         )}
 
         {review ? (
@@ -173,6 +252,20 @@ export default function DesignReviewCard({
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
               <span>
                 Generated {relTime(review.generatedAt)} · {review.provider}/{review.model}
+                {!!review.screenshots?.pages.length && (
+                  <span
+                    title={
+                      "Shown to the model beside the metrics: the first screen of each page, light and dark where the site has both" +
+                      (review.screenshots.values.length
+                        ? `, and these values pictured in place — ${review.screenshots.values.join("; ")}`
+                        : "")
+                    }
+                  >
+                    {" "}· with screenshots of {review.screenshots.pages.join(", ")}
+                    {review.screenshots.values.length > 0 &&
+                      ` and ${review.screenshots.values.length} flagged value${review.screenshots.values.length === 1 ? "" : "s"}`}
+                  </span>
+                )}
               </span>
               {stale && <Badge tone="warn">Something&apos;s changed since this review — refresh to update</Badge>}
             </div>
@@ -194,7 +287,7 @@ export default function DesignReviewCard({
                 disabled={pending || !canGenerate}
                 className={primaryBtn}
               >
-                {pending ? "Reviewing…" : (
+                {pending ? busyLabel : (
                   <>
                     <SparkIcon size={13} />
                     Generate review

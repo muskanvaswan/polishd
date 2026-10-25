@@ -12,6 +12,12 @@
  * hundred tokens for the whole site), never raw scans; the digest is
  * fingerprinted and the review cached, so reopening the tab is free and a
  * regenerate with unchanged metrics returns the cached text without a call.
+ * The one large input is the screenshots, and they're taken for the purpose:
+ * right before it generates, the dashboard runs a review capture — the first
+ * screen of the three most-visited pages, desktop, light and dark, plus the
+ * flagged values pictured in place (design-shots.ts picks them) — and hands
+ * its id here. The cache is keyed on the metrics and dismissals alone, as
+ * before; a model that won't take images gets the metrics alone.
  *
  * The review's suggestions go to a coding agent through the fix prompt, which
  * implements them. So the prompt asks the model to judge the site's system on
@@ -22,8 +28,22 @@
  */
 import { getMeta, setMeta } from "../server/store";
 import { getDesignData, type PolishdDesignData } from "../server/design";
-import { listSnapshots, type PolishdSnapshot } from "../server/snapshots";
+import { imageSize } from "../server/image-size";
+import {
+  listSnapshots,
+  loadReviewCapture,
+  readSnapshotImageBytes,
+  type PolishdSnapshot,
+} from "../server/snapshots";
 import { designUsagesFor } from "../shared/design-evidence";
+import {
+  cropLabel,
+  heroLabel,
+  screenshotsNote,
+  selectReviewImages,
+  shotRefusal,
+  type ReviewSelection,
+} from "./design-shots";
 import { checkSuggestion, knownDesignValues } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import {
@@ -35,10 +55,11 @@ import {
   withoutIgnoredIssues,
 } from "./ignored";
 import { attachGithubIssuesToDesignIssues } from "./issues";
-import { callModel } from "./providers";
+import { callModel, imageLimits, type ModelImage } from "./providers";
 import { resolveSettings } from "./settings";
 import type {
   GenerateDesignReviewResult,
+  PolishdAIProvider,
   PolishdDesignIssue,
   PolishdDesignReview,
   PolishdIgnoredDesignIssue,
@@ -115,8 +136,10 @@ const SYSTEM_PROMPT =
   "You are a senior product designer reviewing a shipped website. You receive " +
   "design tokens reverse-engineered from its rendered pages — the typography, " +
   "color palette, corner radii and spacing actually in use, with how often each " +
-  "is used — plus deterministic findings from rule-based checks. You never see " +
-  "screenshots or source code.\n\n" +
+  "is used — plus deterministic findings from rule-based checks. You may also " +
+  "receive screenshots: the first screen of the most-visited pages, desktop, in " +
+  "light and dark theme, and crops of elements carrying flagged values, each " +
+  "ringed in amber and labelled with the value. You never see source code.\n\n" +
   "Judge the system the site already has, on its own terms. Values that recur " +
   "across pages are its decisions, even when they don't follow a textbook scale. " +
   "A problem is a value that breaks the pattern the rest of the site follows, or " +
@@ -124,6 +147,12 @@ const SYSTEM_PROMPT =
   "[one-off] are the likeliest outliers, but a one-off can be deliberate (a hero " +
   "size, a brand accent). Never redesign: don't propose a new palette, type " +
   "scale, spacing system or set of radii.\n\n" +
+  "Screenshots are context, not evidence. Read the first screens for hierarchy, " +
+  "layout and rhythm, and each ringed crop for whether the value it shows is " +
+  "deliberate (a hero, a brand accent) or a slip — and weigh what the metrics say " +
+  "against what the pages look like. They are scaled down, so never read a size " +
+  "or color off them, and never report something only a screenshot shows: " +
+  "evidence is still a token from the metrics.\n\n" +
   "Respond with ONLY a JSON object (no markdown fences, no preamble):\n" +
   '{ "assessment": string, "strengths": string[], "issues": [{ "issue": string, "evidence": string, "suggestion": string }] }\n\n' +
   "assessment: one tight paragraph (3-5 sentences) on how consistently the site " +
@@ -360,31 +389,80 @@ function verifyIssues(
 }
 
 /**
- * The exact user message for a review call and its cache fingerprint. The
- * fingerprint covers the dismissals, so ignoring an issue marks the cached
- * review stale; with none, it's the digest's own hash, as it always was.
+ * The cache fingerprint of a review call. It covers the dismissals, so
+ * ignoring an issue marks the cached review stale; with none, it's the
+ * digest's own hash, as it always was.
  */
-function composeReview(
-  digest: string,
-  ignored: PolishdIgnoredDesignIssue[],
-): { user: string; fingerprint: string } {
-  const dismissed = ignoredSection(ignored);
+function reviewFingerprint(digest: string, ignored: PolishdIgnoredDesignIssue[]): string {
   const ignoredHash = ignoredFingerprint(ignored);
-  return {
-    user: dismissed ? `${dismissed}\n\n${digest}` : digest,
-    fingerprint: fingerprintDigest(ignoredHash ? `${digest}\nIGNORED:${ignoredHash}` : digest),
-  };
+  return fingerprintDigest(ignoredHash ? `${digest}\nIGNORED:${ignoredHash}` : digest);
 }
+
+/** The images of one review capture, ready to send, and what each one is. */
+interface ReviewImages {
+  images: ModelImage[];
+  selection: ReviewSelection;
+}
+
+/**
+ * A review capture's pictures for the model: every first screen and the
+ * chosen value pictures (design-shots.ts), read from disk or Blob and checked
+ * against the provider's limits. One that can't go — gone from storage, or
+ * over a limit — is left out with a note in the server log; the rest still
+ * go, and the labels and note describe exactly what was sent.
+ */
+async function loadReviewImages(
+  capture: PolishdSnapshot,
+  data: PolishdDesignData,
+  provider: PolishdAIProvider,
+): Promise<ReviewImages> {
+  const wanted = selectReviewImages(capture, data);
+  const limits = imageLimits(provider);
+  const read = async (file: string, what: string): Promise<ModelImage | null> => {
+    const image = await readSnapshotImageBytes(capture.id, file);
+    if (!image) return null;
+    const refusal = shotRefusal(imageSize(image.bytes), image.bytes.length, limits);
+    if (refusal) {
+      console.warn(`[polishd] design review: ${what} stays out — ${refusal}`);
+      return null;
+    }
+    return { mime: image.mime, data: image.bytes.toString("base64") };
+  };
+  const heroes: { hero: ReviewSelection["heroes"][number]; image: ModelImage }[] = [];
+  for (const hero of wanted.heroes) {
+    const image = await read(hero.file, `the first screen of ${hero.route} (${hero.theme})`);
+    if (image) heroes.push({ hero, image });
+  }
+  const crops: { crop: ReviewSelection["crops"][number]; image: ModelImage }[] = [];
+  for (const crop of wanted.crops) {
+    const image = await read(crop.file, `the picture of ${crop.label}`);
+    if (image) crops.push({ crop, image });
+  }
+  const images = [
+    ...heroes.map(({ hero, image }, i) => ({ ...image, label: heroLabel(i + 1, hero) })),
+    ...crops.map(({ crop, image }, i) => ({ ...image, label: cropLabel(heroes.length + i + 1, crop) })),
+  ];
+  return { images, selection: { heroes: heroes.map((h) => h.hero), crops: crops.map((c) => c.crop) } };
+}
+
+const providerError = (err: unknown): GenerateDesignReviewResult => ({
+  ok: false,
+  error: "provider-error",
+  message: err instanceof Error ? err.message : "The model request failed.",
+});
 
 /**
  * Generate (or reuse) the design review.
  *
- * @param force  When false (default), a review whose fingerprint matches the
- *               current metrics is returned as-is — no model call. When true,
- *               always re-asks the model.
+ * @param force      When false (default), a review whose fingerprint matches
+ *                   the current metrics is returned as-is — no model call.
+ *                   When true, always re-asks the model.
+ * @param captureId  The review capture the dashboard just ran, whose pictures
+ *                   go to the model. Only the one capture on record counts;
+ *                   without it, or with a stale id, the metrics go alone.
  */
 export async function generateDesignReview(
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; captureId?: string } = {},
 ): Promise<GenerateDesignReviewResult> {
   const { settings } = await resolveSettings();
   if (!settings.apiKey) {
@@ -402,7 +480,7 @@ export async function generateDesignReview(
 
   const digest = buildDesignDigest(data, settings.context);
   const ignored = await loadIgnoredDesignIssues();
-  const { user, fingerprint } = composeReview(digest, ignored);
+  const fingerprint = reviewFingerprint(digest, ignored);
 
   if (!opts.force) {
     const cached = await loadDesignReview(data);
@@ -415,15 +493,40 @@ export async function generateDesignReview(
     ? `${SYSTEM_PROMPT}\n\nAdditional instructions from the site owner: ${settings.instructions}`
     : SYSTEM_PROMPT;
 
+  // The capture the dashboard just ran, if it's the one on record. Its
+  // pictures are read only past the cache: a hit above never touches storage.
+  const onRecord = opts.captureId ? await loadReviewCapture() : null;
+  const capture = onRecord && onRecord.id === opts.captureId ? onRecord : null;
+  const pictures = capture ? await loadReviewImages(capture, data, settings.provider) : null;
+  const dismissed = ignoredSection(ignored);
+  const prompt = (shown: ReviewImages | null): string =>
+    [
+      dismissed,
+      capture && shown?.images.length ? screenshotsNote(shown.selection, capture.capturedAt) : null,
+      digest,
+    ]
+      .filter((part): part is string => part !== null)
+      .join("\n\n");
+
   let reply;
+  let shown = pictures?.images.length ? pictures : null;
   try {
-    reply = await callModel(settings, system, user);
+    reply = await callModel(settings, system, prompt(shown), { images: shown?.images });
   } catch (err) {
-    return {
-      ok: false,
-      error: "provider-error",
-      message: err instanceof Error ? err.message : "The model request failed.",
-    };
+    if (!shown) return providerError(err);
+    // A model or endpoint that doesn't take images, or won't take these:
+    // the metrics alone are still the review it always was.
+    console.warn(
+      `[polishd] design review: the model refused the request with screenshots (${
+        err instanceof Error ? err.message : "unknown error"
+      }) — asking again with the metrics alone`,
+    );
+    shown = null;
+    try {
+      reply = await callModel(settings, system, prompt(shown));
+    } catch (again) {
+      return providerError(again);
+    }
   }
   if (!reply.text) {
     return { ok: false, error: "provider-error", message: "The model returned an empty response." };
@@ -451,6 +554,15 @@ export async function generateDesignReview(
     fingerprint,
     metricsFingerprint: metricsFingerprint(data),
     usage: reply.usage,
+    ...(shown && capture
+      ? {
+          screenshots: {
+            capturedAt: capture.capturedAt,
+            pages: [...new Set(shown.selection.heroes.map((h) => h.route))],
+            values: shown.selection.crops.map((c) => c.label),
+          },
+        }
+      : {}),
   };
   // Persisted without issue links or usages — those are looked up on every
   // read, so the cached review can't hold a stale link or a stale picture.
@@ -484,7 +596,7 @@ export async function loadDesignReviewState(preloaded?: PolishdDesignData): Prom
   const review = await loadDesignReview(data);
   if (!data.ready || data.pages.length === 0) return { review, stale: false, metricsChanged: null };
   const [{ settings }, ignored] = await Promise.all([resolveSettings(), loadIgnoredDesignIssues()]);
-  const { fingerprint } = composeReview(buildDesignDigest(data, settings.context), ignored);
+  const fingerprint = reviewFingerprint(buildDesignDigest(data, settings.context), ignored);
   const stale = review !== null && review.fingerprint !== fingerprint;
   const metricsChanged =
     review?.metricsFingerprint === undefined ? null : review.metricsFingerprint !== metricsFingerprint(data);

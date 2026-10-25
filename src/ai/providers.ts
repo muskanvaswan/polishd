@@ -8,7 +8,9 @@
  *
  * Each call is a single non-streaming request: one system prompt, one user
  * message, a small token cap. That's all a one-paragraph summary needs, and it
- * keeps the owner's spend to the absolute minimum.
+ * keeps the owner's spend to the absolute minimum. The one caller that sends
+ * more is the design review, which may attach a few screenshots; each adapter
+ * places them ahead of the text in the vendor's own content shape.
  */
 import type { PolishdAIProvider, PolishdAISettings } from "./types";
 
@@ -37,9 +39,39 @@ export const DEFAULT_MODEL: Record<PolishdAIProvider, string> = {
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
 
+/** One image to show the model beside the user message. */
+export interface ModelImage {
+  mime: "image/webp" | "image/png" | "image/jpeg";
+  /** The image bytes, base64. */
+  data: string;
+  /** A line of text placed right before the image, naming what it shows. */
+  label?: string;
+}
+
 export interface CallOptions {
   /** Output token cap for this call. */
   maxTokens?: number;
+  /** Images to attach, in order, ahead of the user message. */
+  images?: ModelImage[];
+}
+
+/** What a provider accepts per image: bytes, and the longest edge where it refuses rather than scales. */
+export interface ImageLimits {
+  maxBytes: number;
+  maxEdge: number;
+}
+
+/**
+ * Anthropic rejects any image file over 5 MB or with an edge over 8,000px;
+ * the others scale a large image down and cap the file at 20 MB. The byte
+ * cap is kept under every vendor's limit, so a shot either goes to all of
+ * them or to none.
+ */
+export function imageLimits(provider: PolishdAIProvider): ImageLimits {
+  return {
+    maxBytes: 3_600_000,
+    maxEdge: provider === "anthropic" ? 8000 : Number.POSITIVE_INFINITY,
+  };
 }
 
 class ProviderError extends Error {}
@@ -105,7 +137,17 @@ async function callAnthropic(
   system: string,
   user: string,
   maxTokens: number,
+  images: ModelImage[],
 ): Promise<ModelReply> {
+  const content = images.length
+    ? [
+        ...images.flatMap((img) => [
+          ...(img.label ? [{ type: "text", text: img.label }] : []),
+          { type: "image", source: { type: "base64", media_type: img.mime, data: img.data } },
+        ]),
+        { type: "text", text: user },
+      ]
+    : user;
   const data = (await postJson(
     "https://api.anthropic.com/v1/messages",
     { "x-api-key": s.apiKey, "anthropic-version": "2023-06-01" },
@@ -113,7 +155,7 @@ async function callAnthropic(
       model: s.model || DEFAULT_MODEL.anthropic,
       max_tokens: maxTokens,
       system,
-      messages: [{ role: "user", content: user }],
+      messages: [{ role: "user", content }],
     },
   )) as {
     content?: { type: string; text?: string }[];
@@ -142,8 +184,18 @@ async function callOpenAI(
   system: string,
   user: string,
   maxTokens: number,
+  images: ModelImage[],
 ): Promise<ModelReply> {
   const base = (s.baseUrl?.replace(/\/$/, "") || "https://api.openai.com/v1");
+  const content = images.length
+    ? [
+        ...images.flatMap((img) => [
+          ...(img.label ? [{ type: "text", text: img.label }] : []),
+          { type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } },
+        ]),
+        { type: "text", text: user },
+      ]
+    : user;
   const data = (await postJson(
     `${base}/chat/completions`,
     { authorization: `Bearer ${s.apiKey}` },
@@ -152,7 +204,7 @@ async function callOpenAI(
       max_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "user", content },
       ],
     },
   )) as {
@@ -177,8 +229,16 @@ async function callGoogle(
   system: string,
   user: string,
   maxTokens: number,
+  images: ModelImage[],
 ): Promise<ModelReply> {
   const model = s.model || DEFAULT_MODEL.google;
+  const parts = [
+    ...images.flatMap((img) => [
+      ...(img.label ? [{ text: img.label }] : []),
+      { inline_data: { mime_type: img.mime, data: img.data } },
+    ]),
+    { text: user },
+  ];
   const data = (await postJson(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       model,
@@ -186,7 +246,7 @@ async function callGoogle(
     {},
     {
       systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: user }] }],
+      contents: [{ role: "user", parts }],
       generationConfig: { maxOutputTokens: maxTokens },
     },
   )) as {
@@ -276,15 +336,16 @@ function dispatch(
   system: string,
   user: string,
   maxTokens: number,
+  images: ModelImage[],
 ): Promise<ModelReply> {
   switch (settings.provider) {
     case "anthropic":
-      return callAnthropic(settings, system, user, maxTokens);
+      return callAnthropic(settings, system, user, maxTokens, images);
     case "openai":
     case "openai-compatible":
-      return callOpenAI(settings, system, user, maxTokens);
+      return callOpenAI(settings, system, user, maxTokens, images);
     case "google":
-      return callGoogle(settings, system, user, maxTokens);
+      return callGoogle(settings, system, user, maxTokens, images);
     default:
       throw new ProviderError(`unknown provider: ${settings.provider}`);
   }
@@ -307,10 +368,11 @@ export async function callModel(
   opts: CallOptions = {},
 ): Promise<ModelReply> {
   const maxTokens = opts.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
-  const reply = await dispatch(settings, system, user, maxTokens);
+  const images = opts.images ?? [];
+  const reply = await dispatch(settings, system, user, maxTokens, images);
   if (!reply.truncated) return reply;
   console.warn(
     `[polishd] model hit the ${maxTokens}-token output cap — retrying once at ${maxTokens * 2}`,
   );
-  return dispatch(settings, system, user, maxTokens * 2);
+  return dispatch(settings, system, user, maxTokens * 2, images);
 }

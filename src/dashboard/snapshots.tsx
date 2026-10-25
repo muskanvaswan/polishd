@@ -12,8 +12,9 @@
  * dashboard never hands out a direct URL), and a clicked tile expands into a
  * full-height lightbox.
  *
- * `SnapshotStrip` is the read-only cut of the same gallery the Overview tab
- * shows: the newest snapshot, one rendering, no capture controls.
+ * `ShotTile` and `ShotLightbox` are exported for the Overview's gallery
+ * (snapshot-gallery.tsx), which tiles the newest snapshot with the same
+ * pieces and none of the controls.
  *
  * Where the section sits depends on what it can do here (`SnapshotMode`):
  * locally, or in production once the owner has allowed Polishd's screenshot
@@ -101,20 +102,38 @@ function TogglePills<T extends string>({
   );
 }
 
+/** What a clicked tile hands the lightbox. */
+export interface ShotZoom {
+  src: string;
+  route: string;
+  /** Phone shots open narrower than desktop ones. */
+  device: string;
+}
+
 /**
  * One screenshot tile. Fetches its image the first time it renders, unless
- * the capture that just ran already has it in hand.
+ * the capture that just ran already has it in hand. The Design tab captions
+ * it underneath; the Overview's gallery lays the caption over the picture so
+ * the tile itself can be the grid cell.
  */
-function ShotTile({
+export function ShotTile({
   snapshotId,
   shot,
   known,
   onZoom,
+  frameClassName = "aspect-[4/5] w-full",
+  caption = "below",
+  component = "design-snapshot-open",
 }: {
   snapshotId: string;
   shot: PolishdSnapshotShot;
   known?: string;
-  onZoom: (src: string, route: string) => void;
+  onZoom: (zoom: ShotZoom) => void;
+  /** The tile's size and placement — its aspect ratio, and any grid span. */
+  frameClassName?: string;
+  caption?: "below" | "overlay";
+  /** `data-component` name for dashboard telemetry. */
+  component?: string;
 }) {
   const [src, setSrc] = useState<string | null>(known ?? null);
   const [failed, setFailed] = useState(false);
@@ -139,33 +158,45 @@ function ShotTile({
     };
   }, [snapshotId, shot.file, known]);
 
+  const frame = (
+    <button
+      type="button"
+      data-component={component}
+      onClick={() => src && onZoom({ src, route: shot.route, device: shot.device })}
+      disabled={!src}
+      title={src ? `${shot.route} — click to enlarge` : shot.route}
+      className={`relative block ${frameClassName} overflow-hidden rounded-lg border border-line bg-canvas transition-[border-color,transform] hover:-translate-y-0.5 hover:border-fg-4 disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:border-line`}
+    >
+      {src ? (
+        // Full-page shots are tall; the tile shows the top of the page and
+        // the lightbox shows the rest.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`${shot.route} — ${shot.device}, ${shot.theme}`}
+          className="h-full w-full object-cover object-top"
+        />
+      ) : (
+        <span
+          className={`flex h-full items-center justify-center px-2 text-center text-[12px] text-fg-3 ${failed ? "" : "motion-safe:animate-pulse"}`}
+        >
+          {failed ? "image missing" : "loading…"}
+        </span>
+      )}
+      {caption === "overlay" && (
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-linear-to-t from-black/80 to-transparent px-2.5 pb-2 pt-8 text-left font-mono text-[11px] leading-none text-white/90">
+          <span className="truncate">{shot.route}</span>
+          <span className="truncate text-white/55">
+            {shot.device} · {shot.theme}
+          </span>
+        </span>
+      )}
+    </button>
+  );
+  if (caption === "overlay") return frame;
   return (
     <figure className="min-w-0">
-      <button
-        type="button"
-        data-component="design-snapshot-open"
-        onClick={() => src && onZoom(src, shot.route)}
-        disabled={!src}
-        title={src ? `${shot.route} — click to enlarge` : shot.route}
-        className="block aspect-[4/5] w-full overflow-hidden rounded-lg border border-line bg-canvas transition-[border-color,transform] hover:-translate-y-0.5 hover:border-fg-4 disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:border-line"
-      >
-        {src ? (
-          // Full-page shots are tall; the tile shows the top of the page and
-          // the lightbox shows the rest.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={`${shot.route} — ${shot.device}, ${shot.theme}`}
-            className="h-full w-full object-cover object-top"
-          />
-        ) : (
-          <span
-            className={`flex h-full items-center justify-center px-2 text-center text-[12px] text-fg-3 ${failed ? "" : "motion-safe:animate-pulse"}`}
-          >
-            {failed ? "image missing" : "loading…"}
-          </span>
-        )}
-      </button>
+      {frame}
       <figcaption className="mt-2 truncate font-mono text-[12px] text-fg-2">
         {shot.route}
       </figcaption>
@@ -196,6 +227,11 @@ interface SnapshotsState {
   openConsent: () => void;
   /** Withdraw consent: production captures stop using the service. */
   turnOff: () => void;
+  /** True while the aesthetic review runs its own capture — one capture at a time. */
+  reviewCapturing: boolean;
+  setReviewCapturing: (on: boolean) => void;
+  /** A block another capture found, so the section turns off without a reload. */
+  noteBlock: (block: StoredCaptureBlock) => void;
 }
 
 const SnapshotsContext = createContext<SnapshotsState | null>(null);
@@ -204,6 +240,11 @@ function useSnapshots(): SnapshotsState {
   const ctx = useContext(SnapshotsContext);
   if (!ctx) throw new Error("Site snapshots rendered outside their provider");
   return ctx;
+}
+
+/** The section's state where there is a provider (the Design tab), null elsewhere (the Overview). */
+export function useSnapshotsOptional(): SnapshotsState | null {
+  return useContext(SnapshotsContext);
 }
 
 /** True when the section is off — it then renders in the bottom slot. */
@@ -233,6 +274,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   const [block, setBlock] = useState<StoredCaptureBlock | null>(initialAvailability.block);
   const [error, setError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [reviewCapturing, setReviewCapturing] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [live, setLive] = useState<LiveShot[]>([]);
   // The dialog only ever opens from a click — Capture, or "Review and
@@ -249,7 +291,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   const router = useRouter();
 
   const capture = useCallback(() => {
-    if (capturing) return;
+    if (capturing || reviewCapturing) return;
     // A standing block stays put while a retry runs: the section only comes
     // back up once a capture actually gets through.
     const blocked = block !== null;
@@ -305,7 +347,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
         setProgress(null);
         setLive([]);
       });
-  }, [capturing, block, router]);
+  }, [capturing, reviewCapturing, block, router]);
   captureRef.current = capture;
 
   const decide = useCallback((allow: boolean) => {
@@ -352,6 +394,9 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
       setConsentOpen(true);
     },
     turnOff: () => decide(false),
+    reviewCapturing,
+    setReviewCapturing,
+    noteBlock: setBlock,
   };
 
   const host = serviceHost(availability.serviceUrl);
@@ -511,11 +556,12 @@ function SnapshotsCard() {
     openConsent,
     turnOff,
     ready,
+    reviewCapturing,
   } = useSnapshots();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("light");
-  const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
+  const [zoom, setZoom] = useState<ShotZoom | null>(null);
 
   // A new capture selects itself.
   const newest = snapshots[0]?.id ?? null;
@@ -543,7 +589,7 @@ function SnapshotsCard() {
       type="button"
       data-component="design-snapshot-capture"
       onClick={capture}
-      disabled={!ready || capturing || (off !== null && off.action !== "retry")}
+      disabled={!ready || capturing || reviewCapturing || (off !== null && off.action !== "retry")}
       title={off?.message ?? "Screenshot every scanned page — phone and desktop, light and dark"}
       className={primaryBtn}
     >
@@ -709,7 +755,7 @@ function SnapshotsCard() {
                     snapshotId={selected.id}
                     shot={s}
                     known={fresh.get(selected.id)?.get(shotKey(s))}
-                    onZoom={(src, route) => setZoom({ src, route })}
+                    onZoom={setZoom}
                   />
                 ))}
               </div>
@@ -770,14 +816,19 @@ function SnapshotsCard() {
   );
 }
 
-/** A clicked shot at full height; a click anywhere closes it. */
-function ShotLightbox({
-  zoom,
-  onClose,
-}: {
-  zoom: { src: string; route: string };
-  onClose: () => void;
-}) {
+/** A clicked shot at full height; a click anywhere, or Escape, closes it. */
+export function ShotLightbox({ zoom, onClose }: { zoom: ShotZoom; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // A phone shot is a few hundred pixels wide; blown up to desktop width it
+  // would only blur.
+  const width = zoom.device === "phone" ? "max-w-sm" : "max-w-3xl";
   return (
     <div
       role="dialog"
@@ -792,63 +843,8 @@ function ShotLightbox({
       <img
         src={zoom.src}
         alt={`${zoom.route} full screenshot`}
-        className="w-full max-w-3xl rounded-xl border border-line-strong shadow-pop"
+        className={`w-full ${width} rounded-xl border border-line-strong shadow-pop`}
       />
-    </div>
-  );
-}
-
-// ── The Overview's strip ─────────────────────────────────────────────────────
-
-/** Shots the strip shows before leaving the rest to the Design tab. */
-const STRIP_SHOTS = 8;
-
-/**
- * The newest snapshot, read-only: the Overview's look at the site as it last
- * rendered. One rendering — desktop and light where the snapshot has it,
- * otherwise whichever it has first — with the same tiles and lightbox as the
- * full section. Capturing, the other renderings and the history all stay on
- * the Design tab, so nothing here can start a capture or ask for consent.
- */
-export function SnapshotStrip({ snapshot }: { snapshot: PolishdSnapshot }) {
-  const [zoom, setZoom] = useState<{ src: string; route: string } | null>(null);
-
-  const pictured = snapshot.shots.filter((s) => s.file.length > 0);
-  const lead =
-    pictured.find((s) => s.device === "desktop" && s.theme === "light") ?? pictured[0];
-  const shots = lead
-    ? pictured.filter((s) => s.device === lead.device && s.theme === lead.theme)
-    : [];
-  const visible = shots.slice(0, STRIP_SHOTS);
-  const more = shots.length - visible.length;
-
-  return (
-    <div data-component="overview-snapshots" className={`${card} overflow-hidden px-4 py-5 sm:px-5`}>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {visible.map((s) => (
-          <ShotTile
-            key={`${snapshot.id}|${s.file}`}
-            snapshotId={snapshot.id}
-            shot={s}
-            onZoom={(src, route) => setZoom({ src, route })}
-          />
-        ))}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-fg-3">
-        <span>
-          {/* "just now" from the server can be "1m ago" by hydration — a
-              relative time is allowed to differ, and shouldn't cost a re-render. */}
-          Captured <span suppressHydrationWarning>{relTime(snapshot.capturedAt)}</span> ·{" "}
-          {snapshot.origin}
-          {lead ? ` · ${lead.device}, ${lead.theme}` : ""}
-        </span>
-        {more > 0 && (
-          <span>
-            {more} more {more === 1 ? "page" : "pages"} on the Design tab
-          </span>
-        )}
-      </div>
-      {zoom && <ShotLightbox zoom={zoom} onClose={() => setZoom(null)} />}
     </div>
   );
 }

@@ -17,8 +17,7 @@ one list now.
 - **The review cards are the story and what's working.** The *Losses* and
   *Breaking the system* rails are gone from the summary and design review
   cards; each card ends with how many of its findings are waiting on the
-  Actionables tab. The Overview puts the same list under its two review cards,
-  cut to its first rows.
+  Actionables tab.
 - **A filed issue stays linked on its actionable**, from the moment it's filed
   and with the tracker's live state on the next load. A filed issue whose
   finding the current reviews no longer hold stays listed on its own, as the
@@ -35,6 +34,82 @@ one list now.
   `PolishdDashboardTab` type names the tab `actionables`.
 - `POLISHD_GITHUB_API` points the GitHub client at a GitHub Enterprise
   Server's REST base instead of `api.github.com`.
+### The Overview is a board of the site
+
+The Overview opened on four audience numbers and the two review cards stacked
+one above the other, with the newest snapshot as a strip at the bottom. It
+now reads as a board: one row of the site as it renders and the system it
+renders with, then one column of the story and the numbers.
+
+- **Site snapshots** are a small bento of the site's top pages rather than a
+  strip: the homepage hero largest, the homepage on a phone beside it, and
+  the heroes of the two most visited other pages under them — four pictures,
+  with no heading over them and no device or theme toggles in front. Pages
+  are ranked by the traffic the analytics saw. A click still opens the
+  full-height shot; the rest of the capture is one link away on the Design
+  tab. In the lightbox, phone shots now open at phone width instead of being
+  blown up to desktop width, and Escape closes it.
+- **The brand** sits in the same card, beside the snapshots: the system the
+  pages actually ship, curated the way the brand kit is (one-offs left out),
+  as two hierarchies and no labels. The palette: Primary largest, Secondary
+  and Accent beside it, the neutrals as one scale from light to dark — not
+  every color the site paints. The type: the words "Title", "Subtitle",
+  "Body" and "Caption", each set in its own face at the size the site really
+  uses that style.
+- **The paragraph**, captioned Overview, is written by the model. The analytics summary
+  and the design review are handed to the same provider, model and key the
+  owner configured, with instructions to fold them into a single story — the
+  overall picture, the one or two things most worth fixing, what to protect —
+  and to say nothing the two reviews don't. It's cached under the reviews'
+  hash, goes stale when either changes, and is rewritten when the Overview
+  opens on a missing or stale paragraph. One refresh regenerates the summary,
+  the review and then the paragraph from them. The losses and the design
+  issues — and the ignore and file-bug controls that act on them — are on
+  the Actionables tab.
+- **Visitors** — sessions, page views and the share on mobile — stack in a
+  narrow column beside the paragraph; views per session and the friction
+  counts stay on the Analytics tab. Colors the paragraph cites render as the Design tab's
+  copyable chips.
+
+**Copy fix prompt** and **Paste verdicts** are unchanged: the prompt still
+carries every problem both reviews found, built from the latest summary and
+review the page has, and a pasted verdict drops its finding from the next
+copy.
+
+### The design review sees the pages
+
+The aesthetic review read the measured tokens and nothing else. It could tell
+that 28px was used once, not whether that was a hero or a slip.
+
+- **A capture of its own, when you generate.** Generating a review first
+  shoots the first screen of the three most-visited pages (ranked like the
+  Top pages table: distinct sessions, then page views), desktop, in light and
+  dark — a site with no dark mode drops the dark shots — and pictures the
+  flagged values in place from the light rendering: the element carrying
+  each, ringed, with its surroundings. It runs through the snapshot machinery
+  (the service in production, this machine's browser in development) but
+  stays out of the gallery, and each review's capture replaces the last.
+  Nothing is captured for the gallery that wasn't before.
+- **Chosen with care.** Failing contrast pairs are looked for first, then
+  one-off type styles, colors and radii in turn, and off-grid padding only to
+  fill the last of at most six pictures — a pixel of padding isn't something a
+  scaled screenshot can show. With the first screens that's a dozen small
+  images at most, each labelled for the model with its page or value and the
+  capture date. The prompt says the shots are scaled down and are context, not
+  evidence: an issue still cites a measured token. Works with Anthropic,
+  OpenAI and Google models alike; a model or endpoint that won't take images
+  gets the metrics alone, with a note in the server log.
+- **The card says what happened.** A review made with screenshots lists the
+  pages and the number of values it was shown (the values themselves on
+  hover), and the fix prompt's design section names them too. One made from
+  the metrics alone says why: snapshots off here, the service not yet allowed
+  (the consent dialog opens, as it does from the Site snapshots card), or a
+  capture that failed. The button reports the capture's progress.
+- **The screenshot service learns `viewport`.** A request may ask for the
+  first screen instead of the full page; the local engine honours it too. A
+  deployed service that predates the option returns the full page and the
+  dashboard crops it to the viewport before storing. Snapshot captures are
+  unchanged.
 
 ### Dead clicks are judged by what happened, and errors say where they came from
 

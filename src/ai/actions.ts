@@ -16,6 +16,7 @@
 import { requirePolishdAuth } from "./guard";
 import { selectVerdictDismissals } from "../dashboard/verdicts";
 import { generateDesignReview, loadDesignReview } from "./design";
+import { generateOverview } from "./overview";
 import { suggestIssueFix } from "./fix";
 import { verifyGithubConnection } from "./github";
 import {
@@ -35,6 +36,7 @@ import {
 } from "./settings";
 import { generateSummary, loadSummary } from "./summary";
 import type {
+  GenerateOverviewResult,
   PolishdAISettingsPublic,
   PolishdDesignIssue,
   PolishdLossItem,
@@ -60,13 +62,29 @@ export async function generateSummaryAction(force = false): Promise<GenerateSumm
 /**
  * Generate or refresh the aesthetic design review (the Design tab). Uses the
  * same configured provider/model as the summary. `force` re-asks the model
- * even when the design metrics haven't changed.
+ * even when the design metrics haven't changed. `captureId` names the review
+ * capture the dashboard just ran — its first screens and value pictures go
+ * to the model; anything but the one capture on record is ignored.
  */
 export async function generateDesignReviewAction(
   force = false,
+  captureId?: string,
 ): Promise<GenerateDesignReviewResult> {
   await requirePolishdAuth();
-  return generateDesignReview({ force });
+  return generateDesignReview({
+    force,
+    ...(typeof captureId === "string" && captureId.length > 0 && captureId.length <= 32 ? { captureId } : {}),
+  });
+}
+
+/**
+ * Write (or reuse) the Overview's paragraph — the analytics summary and the
+ * design review folded into one by the model. `force` re-asks even when the
+ * two reviews haven't changed since it was last written.
+ */
+export async function generateOverviewAction(force = false): Promise<GenerateOverviewResult> {
+  await requirePolishdAuth();
+  return generateOverview({ force });
 }
 
 /** Persist provider/model/key/instructions/context; returns the no-secret view. */

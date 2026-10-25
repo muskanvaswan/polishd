@@ -3,26 +3,32 @@
 /**
  * Polishd — the Overview tab (client).
  *
- * The dashboard's front page: how many people use the site, what the
- * analytics summary and the design review found, and the site as it last
- * rendered — then the step after reading, a prompt that hands every problem
- * to the coding agent working in the repo. One button copies all of it; each
- * review's own button copies just its half.
+ * The dashboard's front page, laid out as a board. One card: the site as it
+ * last rendered, in a bento of its top pages' heroes, beside its brand — the
+ * colors and type the pages actually ship — with no headings over either;
+ * the pictures and the type carry it. Under it, a second row: the story both
+ * reviews tell, written as a single paragraph by the model, with the headline
+ * audience numbers beside it. Then the step after reading — a prompt that
+ * hands every problem to the coding agent working in the repo, copied by the
+ * button in the header.
  *
- * The review cards are the very components the Analytics and Design tabs
- * render, so regenerating works here too, and the problems both found sit
- * under them as one Actionables list — the same list as the Actionables tab,
- * cut to its first rows — where a loss or a design issue is filed as a bug or
- * ignored. The panel listens to all of them and mirrors what they show, and
- * the prompt is built from that mirror at the moment of the click — an
- * ignored finding is already gone from it, a regenerated review already in
- * it, a bug filed a second ago already cited.
+ * On a phone the board reads the other way up — numbers, story, brand,
+ * snapshots — so the quickest read comes first and the pictures, which take
+ * the most scrolling, last. The DOM order stays the desktop's; CSS order
+ * flips it below `lg`.
+ *
+ * The problems themselves aren't on this page. The losses and the design
+ * issues are actionables, listed on the Actionables tab with the controls
+ * that act on them (ignore, file a bug); the prompt still carries all of
+ * them, built at the moment of the click from the latest summary and review
+ * this page has — a regenerate from the summary card is in the very next copy.
  *
  * The prompt asks the agent to end with a verdict block, and "Paste verdicts"
  * reads it back: the findings the agent showed aren't real, or are
  * deliberate, are ignored with its reasons, exactly as if the owner had
- * clicked Ignore on each card. Verdict ids are matched against the prompt as
- * it was last copied, since an ignore or a regenerate since then renumbers it.
+ * clicked Ignore on each card — and they're out of the next prompt copied
+ * here. Verdict ids are matched against the prompt as it was last copied,
+ * since a regenerate since then renumbers it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 
@@ -31,15 +37,15 @@ import type {
   PolishdAISettingsPublic,
   PolishdDesignReview,
   PolishdIgnoredLoss,
-  PolishdProjectProfile,
+  PolishdOverview,
   PolishdSummary,
 } from "../ai/types";
 import type { DeviceBucket, MetricTrends, OverviewStats } from "../server/queries";
 import type { PolishdSnapshot } from "../server/snapshots";
-import ActionableList, { type FindingChange } from "./actionable-list";
-import { TabLink, type PolishdDashboardTab } from "./chrome";
+import type { BrandKit } from "../shared/brand-kit";
+import BrandBoard from "./brand-board";
+import { TabLink } from "./chrome";
 import { copyText } from "./color-chip";
-import DesignReviewCard from "./design-review-card";
 import { UNREACHABLE } from "./dismissable";
 import {
   buildFixPrompt,
@@ -48,47 +54,33 @@ import {
   fixPromptFindings,
   type FixPromptFinding,
   type FixPromptInput,
-  type FixPromptScope,
 } from "./fix-prompt";
 import OverviewTiles from "./metric-trends";
-import { SnapshotStrip } from "./snapshots";
-import SummaryCard from "./summary";
+import OverviewSummary from "./overview-summary";
+import SnapshotGallery from "./snapshot-gallery";
 import {
-  ArrowRightIcon,
   Callout,
   CheckIcon,
   ChevronDownIcon,
   Code,
   CopyIcon,
-  EmptyState,
   InfoTip,
   PageHeader,
-  SectionHeader,
   XIcon,
   card,
   ghostBtn,
   inputCls,
   labelCls,
   primaryBtn,
+  textLink,
 } from "./ui";
 import { parseVerdicts, planVerdicts, type VerdictKind } from "./verdicts";
 
-type Filed = { url: string; number: number };
-type Dismissals = ReadonlyMap<string, PolishdIgnoredLoss>;
-
-/** A set with one key added or removed — state updates stay immutable. */
-function toggled(prev: ReadonlySet<string>, key: string, on: boolean): ReadonlySet<string> {
+/** A set with one key added — state updates stay immutable. */
+function added(prev: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  if (prev.has(key)) return prev;
   const next = new Set(prev);
-  if (on) next.add(key);
-  else next.delete(key);
-  return next;
-}
-
-/** A map with one key removed. */
-function without<V>(prev: ReadonlyMap<string, V>, key: string): ReadonlyMap<string, V> {
-  if (!prev.has(key)) return prev;
-  const next = new Map(prev);
-  next.delete(key);
+  next.add(key);
   return next;
 }
 
@@ -97,21 +89,24 @@ export interface OverviewPanelProps {
   trends: MetricTrends;
   devices: DeviceBucket[];
   settings: PolishdAISettingsPublic;
+  /** The model's one-paragraph story of both reviews, or null before the first. */
+  story: PolishdOverview | null;
+  /** True when a review has changed since the story was written. */
+  storyStale: boolean;
   summary: PolishdSummary | null;
   summaryStale: boolean;
-  profile: PolishdProjectProfile | null;
-  /** Component identifiers in the analytics that the profile doesn't cover. */
-  gaps: string[];
-  /** Whether the app's source tree is on disk here. */
-  sourceAvailable: boolean;
   review: PolishdDesignReview | null;
   reviewStale: boolean;
   /** Whether the design measurements themselves changed since the review; null when unknown. */
   reviewMetricsChanged: boolean | null;
-  /** Pages with a design scan — the review card needs at least one. */
+  /** Pages with a design scan — the review needs at least one. */
   scannedPages: number;
   /** The newest snapshot with any pictures in it, or null. */
   snapshot: PolishdSnapshot | null;
+  /** The brand kit curated from the design scans; null before the first scan. */
+  kit: BrandKit | null;
+  /** Routes by traffic, most visited first — the order the gallery picks pages in. */
+  topPages: string[];
 }
 
 export default function OverviewPanel({
@@ -119,30 +114,27 @@ export default function OverviewPanel({
   trends,
   devices,
   settings,
+  story,
+  storyStale,
   summary: initialSummary,
   summaryStale,
-  profile,
-  gaps,
-  sourceAvailable,
   review: initialReview,
   reviewStale,
   reviewMetricsChanged,
   scannedPages,
   snapshot,
+  kit,
+  topPages,
 }: OverviewPanelProps) {
-  // The cards own what they display; these mirror it for the prompt.
+  // The summary card owns what it displays; these mirror it for the prompt.
   const [summary, setSummary] = useState(initialSummary);
   const [review, setReview] = useState(initialReview);
   const [summaryIsStale, setSummaryIsStale] = useState(summaryStale);
   const [reviewIsStale, setReviewIsStale] = useState(reviewStale);
   const [metricsChanged, setMetricsChanged] = useState(reviewMetricsChanged);
+  // Findings a pasted verdict ignored this visit: out of the next prompt.
   const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
   const [ignoredDesign, setIgnoredDesign] = useState<ReadonlySet<string>>(() => new Set());
-  const [filedLosses, setFiledLosses] = useState<ReadonlyMap<string, Filed>>(() => new Map());
-  const [filedDesign, setFiledDesign] = useState<ReadonlyMap<string, Filed>>(() => new Map());
-  // Dismissals from a pasted verdict block, handed to the cards to show.
-  const [importedLosses, setImportedLosses] = useState<Dismissals>(() => new Map());
-  const [importedDesign, setImportedDesign] = useState<Dismissals>(() => new Map());
   /** The findings as the agent saw them: each copied prompt's numbering, by id. */
   const [copied, setCopied] = useState<ReadonlyMap<string, FixPromptFinding>>(() => new Map());
   /** Set when the clipboard refused a copy: the prompt, to copy by hand. */
@@ -160,37 +152,12 @@ export default function OverviewPanel({
     setMetricsChanged(false);
   }, []);
 
-  const onLossChange = useCallback((evidence: string, change: FindingChange) => {
-    if ("filed" in change) {
-      setFiledLosses((prev) => new Map(prev).set(evidence, change.filed));
-      return;
-    }
-    setIgnored((prev) => toggled(prev, evidence, change.ignored));
-    if (!change.ignored) setImportedLosses((prev) => without(prev, evidence));
-  }, []);
-
-  // Design issues are tracked by findingKey, not evidence: two can cite the same.
-  const onIssueChange = useCallback((key: string, change: FindingChange) => {
-    if ("filed" in change) {
-      setFiledDesign((prev) => new Map(prev).set(key, change.filed));
-      return;
-    }
-    setIgnoredDesign((prev) => toggled(prev, key, change.ignored));
-    if (!change.ignored) setImportedDesign((prev) => without(prev, key));
-  }, []);
-
   const onVerdictsRecorded = useCallback(
     (recorded: { finding: FixPromptFinding; ignored: PolishdIgnoredLoss }[]) => {
-      for (const { finding, ignored: entry } of recorded) {
-        if (finding.source === "design") {
-          const key = findingKey(finding);
-          setIgnoredDesign((prev) => toggled(prev, key, true));
-          setImportedDesign((prev) => new Map(prev).set(key, entry));
-        } else {
-          const add = (prev: Dismissals) => new Map(prev).set(finding.evidence, entry);
-          setIgnored((prev) => toggled(prev, finding.evidence, true));
-          setImportedLosses(add);
-        }
+      for (const { finding } of recorded) {
+        // Design issues are tracked by findingKey, not evidence: two can cite the same.
+        if (finding.source === "design") setIgnoredDesign((prev) => added(prev, findingKey(finding)));
+        else setIgnored((prev) => added(prev, finding.evidence));
       }
     },
     [],
@@ -211,58 +178,20 @@ export default function OverviewPanel({
       : null,
     summary: summary && {
       ...summary,
-      losses: summary.losses
-        ?.filter((l) => !ignored.has(l.evidence))
-        .map((l) => withFiled(l, filedLosses.get(l.evidence))),
+      losses: summary.losses?.filter((l) => !ignored.has(l.evidence)),
     },
     review: review && {
       ...review,
-      issues: review.issues
-        ?.filter((iss) => !ignoredDesign.has(findingKey(iss)))
-        .map((iss) => withFiled(iss, filedDesign.get(findingKey(iss)))),
+      issues: review.issues?.filter((iss) => !ignoredDesign.has(findingKey(iss))),
     },
     summaryStale: summaryIsStale,
     reviewStale: reviewIsStale,
     reviewMetricsChanged: metricsChanged,
   };
   const counts = fixableCounts(input);
-  const githubConnected = settings.hasGithubToken && !!settings.githubRepo;
   // The prompt hands over a model's findings and the verdicts answer them, so
   // the whole loop waits for a connected model.
   const connected = settings.hasApiKey;
-
-  const copyButton = (scope: FixPromptScope, label: string, primary = false, className = "") => {
-    const count =
-      scope === "all" ? counts.analytics + counts.design : counts[scope];
-    return (
-      <CopyPromptButton
-        label={label}
-        count={count}
-        primary={primary}
-        disabled={!connected}
-        className={className}
-        component={scope === "all" ? "overview-copy-prompt" : `overview-copy-prompt-${scope}`}
-        emptyTitle={
-          connected ? emptyTitle(scope, summary !== null, review !== null) : NOT_CONNECTED
-        }
-        build={() => {
-          const built = { ...input, now: Date.now() };
-          const text = buildFixPrompt(built, scope);
-          // Remember the numbering the agent is about to see, for its verdicts.
-          if (text) {
-            setCopied((prev) => {
-              const next = new Map(prev);
-              for (const f of fixPromptFindings(built, scope)) next.set(f.id, f);
-              return next;
-            });
-          }
-          return text;
-        }}
-        onCopied={() => setManual(null)}
-        onFailed={setManual}
-      />
-    );
-  };
 
   return (
     <main className="text-fg">
@@ -270,13 +199,40 @@ export default function OverviewPanel({
         title="Overview"
         description={
           <>
-            Who&apos;s using the site, what the analytics and design reviews found, and the site
-            as it last rendered — with a prompt that hands every problem to your coding agent.
+            The site as it last rendered, its brand, who&apos;s using it and what both reviews
+            make of it — with a prompt that hands every problem to your coding agent.
           </>
         }
         actions={
           <FixLoopMenu
-            copy={copyButton("all", "Copy fix prompt", true, "rounded-r-none")}
+            copy={
+              <CopyPromptButton
+                count={counts.analytics + counts.design}
+                disabled={!connected}
+                emptyTitle={
+                  !connected
+                    ? NOT_CONNECTED
+                    : summary === null && review === null
+                      ? "Generate the summary first"
+                      : "Neither review found anything to fix"
+                }
+                build={() => {
+                  const built = { ...input, now: Date.now() };
+                  const text = buildFixPrompt(built, "all");
+                  // Remember the numbering the agent is about to see, for its verdicts.
+                  if (text) {
+                    setCopied((prev) => {
+                      const next = new Map(prev);
+                      for (const f of fixPromptFindings(built, "all")) next.set(f.id, f);
+                      return next;
+                    });
+                  }
+                  return text;
+                }}
+                onCopied={() => setManual(null)}
+                onFailed={setManual}
+              />
+            }
             connected={connected}
             onPaste={() => setPasting(true)}
           />
@@ -302,153 +258,74 @@ export default function OverviewPanel({
         </Callout>
       )}
 
-      <Section title="Visitors" link={{ tab: "analytics", label: "All metrics" }}>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="flex flex-col gap-6">
+        {/* One card: the site as it renders, beside the system it renders with.
+            On a phone the brand comes first and the pictures last. */}
+        <div className={`order-2 grid overflow-hidden lg:order-1 lg:grid-cols-2 ${card}`}>
+        <div className="order-2 flex flex-col border-t border-line p-4 sm:p-5 lg:order-1 lg:border-t-0">
+          {snapshot ? (
+            <SnapshotGallery snapshot={snapshot} topPages={topPages} />
+          ) : (
+            <Callout tone="neutral">
+              No snapshots yet. Capture one on the{" "}
+              <TabLink tab="design" className={textLink}>
+                Design tab
+              </TabLink>{" "}
+              to see every page of the site as it renders right now.
+            </Callout>
+          )}
+        </div>
+        <div className="order-1 p-4 sm:p-5 lg:order-2 lg:border-l lg:border-line">
+          {kit ? (
+            <BrandBoard kit={kit} />
+          ) : (
+            <Callout tone="neutral">
+              No design scans yet. Each page measures its own colors and type once per visitor
+              session — browse a few pages of the site and the brand board appears here.
+            </Callout>
+          )}
+        </div>
+      </div>
+
+      {/* The story, with the numbers it's told about in a narrow column beside
+          it. Neither side is stretched to the other: a paragraph padded out to
+          three tiles' height, or tiles padded out to a paragraph's, reads as a
+          mistake. On a phone the numbers lead. */}
+      <div className="order-1 grid gap-3 lg:order-2 lg:grid-cols-[minmax(0,1fr)_11rem] lg:items-start">
+        <div className="order-2 min-w-0 lg:order-1">
+          <OverviewSummary
+            initialStory={story}
+            initialStale={storyStale}
+            summary={summary}
+            review={review}
+            settings={settings}
+            scannedPages={scannedPages}
+            onSummaryChange={onSummaryChange}
+            onReviewChange={onReviewChange}
+          />
+        </div>
+        {/* One row of three on small screens; one column beside the paragraph from lg. */}
+        <div className="order-1 grid grid-cols-3 gap-3 lg:order-2 lg:grid-cols-1">
           <OverviewTiles
             overview={overview}
             trends={trends}
             metrics={["sessions", "pageViews"]}
             gridClassName="contents"
+            dot={false}
           />
-          <DepthTile overview={overview} />
           <MobileTile devices={devices} />
         </div>
-      </Section>
-
-      <Section
-        title="Analytics review"
-        action={copyButton("analytics", "Copy prompt")}
-        link={{ tab: "analytics", label: "Analytics" }}
-      >
-        <SummaryCard
-          initialSummary={initialSummary}
-          initialSettings={settings}
-          initialStale={summaryStale}
-          initialProfile={profile}
-          initialGaps={gaps}
-          sourceAvailable={sourceAvailable}
-          onSummaryChange={onSummaryChange}
-          actionablesLink={false}
-        />
-      </Section>
-
-      <Section
-        title="Design review"
-        action={copyButton("design", "Copy prompt")}
-        link={{ tab: "design", label: "Design" }}
-      >
-        <DesignReviewCard
-          initialReview={initialReview}
-          initialStale={reviewStale}
-          hasApiKey={settings.hasApiKey}
-          provider={settings.provider}
-          model={settings.model}
-          scannedPages={scannedPages}
-          onReviewChange={onReviewChange}
-          actionablesLink={false}
-        />
-      </Section>
-
-      {/* Both reviews' problems, as one list — the first rows of the Actionables
-          tab, built from what the cards above show right now. The tab adds the
-          issues filed earlier and the tracker's live state. */}
-      <Section title="Actionables" link={{ tab: "actionables", label: "All actionables" }}>
-        <div className={`${card} overflow-hidden`}>
-          <ActionableList
-            losses={summary?.losses ?? []}
-            designIssues={review?.issues ?? []}
-            repo={settings.githubRepo}
-            githubConnected={githubConnected}
-            limit={OVERVIEW_ACTIONABLES}
-            onLossChange={onLossChange}
-            onIssueChange={onIssueChange}
-            dismissedLosses={importedLosses}
-            dismissedDesign={importedDesign}
-            empty={
-              <EmptyState>
-                {summary === null && review === null
-                  ? "Nothing to act on yet — the problems the analytics summary and the design review find land here."
-                  : "Nothing to act on — neither review found a problem worth fixing."}
-              </EmptyState>
-            }
-          />
-        </div>
-      </Section>
-
-      {snapshot && (
-        <Section title="Site snapshots" link={{ tab: "design", label: "All snapshots" }}>
-          <SnapshotStrip snapshot={snapshot} />
-        </Section>
-      )}
+      </div>
+      </div>
     </main>
   );
-}
-
-/** Actionables the Overview shows before pointing at the tab for the rest. */
-const OVERVIEW_ACTIONABLES = 6;
-
-/** A finding with the issue filed for it this session, if one was. */
-function withFiled<T extends { issueUrl?: string; issueNumber?: number }>(
-  item: T,
-  filed: Filed | undefined,
-): T {
-  return filed ? { ...item, issueUrl: filed.url, issueNumber: filed.number } : item;
 }
 
 /** Why the fix loop is off altogether. */
 const NOT_CONNECTED =
   "Connect a model in Settings first — its reviews are what this hands to your coding agent";
 
-/** Why a copy button is off — what's missing before it has anything to copy. */
-function emptyTitle(scope: FixPromptScope, hasSummary: boolean, hasReview: boolean): string {
-  if (scope === "analytics") {
-    return hasSummary
-      ? "The analytics summary found nothing to fix"
-      : "Generate the analytics summary first";
-  }
-  if (scope === "design") {
-    return hasReview ? "The design review found nothing to fix" : "Generate the design review first";
-  }
-  if (!hasSummary && !hasReview) return "Generate the analytics summary and design review first";
-  return "Neither review found anything to fix";
-}
-
 // ── Pieces ───────────────────────────────────────────────────────────────────
-
-function Section({
-  title,
-  action,
-  link,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  link: { tab: PolishdDashboardTab; label: string };
-  children: ReactNode;
-}) {
-  return (
-    <section className="mb-10">
-      <SectionHeader
-        title={title}
-        actions={
-          <>
-            {action}
-            <TabLink
-              tab={link.tab}
-              className="group inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-medium text-fg-3 transition-colors hover:text-fg"
-            >
-              {link.label}
-              <span className="transition-transform group-hover:translate-x-0.5">
-                <ArrowRightIcon />
-              </span>
-            </TabLink>
-          </>
-        }
-      />
-      {children}
-    </section>
-  );
-}
 
 /**
  * The Overview's one action, as a split button: copy the fix prompt, with the
@@ -537,31 +414,22 @@ function FixLoopMenu({
 }
 
 /**
- * Copies one scope's prompt. The label and "Copied" share a grid cell, so
- * the button holds its width when the confirmation swaps in.
+ * Copies the fix prompt. The label and "Copied" share a grid cell, so the
+ * button holds its width when the confirmation swaps in; its right edge is
+ * squared to meet the menu's chevron.
  */
 function CopyPromptButton({
-  label,
   count,
-  primary,
   disabled = false,
-  className = "",
-  component,
   emptyTitle: disabledTitle,
   build,
   onCopied,
   onFailed,
 }: {
-  label: string;
   /** Problems the prompt carries; 0 disables the button. */
   count: number;
-  primary: boolean;
   /** Off whatever the count — no model connected. `emptyTitle` says why. */
   disabled?: boolean;
-  /** Extra classes, e.g. the squared edge where a split button meets its menu. */
-  className?: string;
-  /** `data-component` name for the dashboard's own telemetry. */
-  component: string;
   emptyTitle: string;
   build: () => string | null;
   onCopied: () => void;
@@ -593,19 +461,19 @@ function CopyPromptButton({
     <>
       <button
         type="button"
-        data-component={component}
+        data-component="overview-copy-prompt"
         onClick={copy}
         disabled={off}
         title={off ? disabledTitle : `Copy a prompt that hands ${problems} to a coding agent`}
-        aria-label={off ? label : `${label} (${problems})`}
-        className={`${primary ? primaryBtn : ghostBtn} ${className}`}
+        aria-label={off ? "Copy fix prompt" : `Copy fix prompt (${problems})`}
+        className={`${primaryBtn} rounded-r-none`}
       >
-        <span className={copied ? (primary ? "text-accent-fg" : "text-ok") : ""}>
+        <span className={copied ? "text-accent-fg" : ""}>
           {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
         </span>
         {/* Label and "Copied" share one cell, so the button holds its width. */}
         <span className="inline-grid">
-          <span className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`}>{label}</span>
+          <span className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`}>Copy fix prompt</span>
           <span aria-hidden className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`}>
             Copied
           </span>
@@ -613,9 +481,7 @@ function CopyPromptButton({
         {!off && (
           <span
             aria-hidden
-            className={`ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-1 text-[11px] font-semibold tabular-nums ${
-              primary ? "bg-accent-fg/12 text-accent-fg/75" : "bg-overlay text-fg-3"
-            }`}
+            className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] bg-accent-fg/12 px-1 text-[11px] font-semibold tabular-nums text-accent-fg/75"
           >
             {count}
           </span>
@@ -683,7 +549,7 @@ function VerdictImport({
 }: {
   /** The findings the verdict ids refer to. */
   findings: FixPromptFinding[];
-  /** The findings the cards hold now; a verdict for anything else is skipped. */
+  /** The findings the page holds now; a verdict for anything else is skipped. */
   current: FixPromptFinding[];
   /** True when they're the prompt as last copied, not as it would read now. */
   fromCopy: boolean;
@@ -825,8 +691,8 @@ function VerdictImport({
         </button>
         {!fromCopy && plans.length > 0 && (
           <span className="text-[12px] text-fg-3">
-            Matched against the findings shown now — no prompt was copied in this visit, so check
-            each is the one the agent saw.
+            Matched against the findings as they stand now — no prompt was copied in this visit, so
+            check each is the one the agent saw.
           </span>
         )}
         {done && <span className="text-[12px] text-ok">{done}</span>}
@@ -851,9 +717,9 @@ function PlainTile({
 }) {
   return (
     <div className={`${card} px-4 pb-3 pt-4`}>
+      {/* The label wraps rather than truncates: three tiles share a phone's width. */}
       <div className={`flex items-center gap-1.5 ${labelCls}`}>
-        <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg-4" />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 leading-tight">{label}</span>
         <InfoTip text={tip} />
       </div>
       <div className="mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums text-fg">
@@ -861,17 +727,6 @@ function PlainTile({
       </div>
       <div className="mt-3 flex min-h-7 items-end pb-0.5 text-[12px] leading-snug text-fg-3">{note}</div>
     </div>
-  );
-}
-
-function DepthTile({ overview }: { overview: OverviewStats }) {
-  const depth = overview.sessions > 0 ? overview.pageViews / overview.sessions : null;
-  return (
-    <PlainTile
-      value={depth === null ? "—" : depth.toFixed(1)}
-      label="Views / session"
-      tip="Page views divided by sessions, all time — how far the average visit goes before it ends."
-    />
   );
 }
 

@@ -349,8 +349,9 @@ owner's browser, so the host never runs a browser. Tell the user plainly that
 site's public pages and stores nothing.
 
 The dashboard asks the owner once, in a consent dialog the first time they
-press Capture, before the service is ever used, and keeps the answer in the
-store. **That choice is the owner's: don't pre-answer it, write it to the
+press Capture or generate a design review (which shoots the first screens of
+the top pages for the model), before the service is ever used, and keeps the
+answer in the store. **That choice is the owner's: don't pre-answer it, write it to the
 store, or set anything to skip it.** If it's declined, or there's no Blob
 store on Vercel, the Site snapshots section sits at the bottom of the tab,
 turned off, with the reason. That's expected, not a broken install. Two things can still
