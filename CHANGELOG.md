@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### The design review sees the pages
+
+The aesthetic review read the measured tokens and nothing else. It could tell
+that 28px was used once, not whether that was a hero or a slip.
+
+- **A capture of its own, when you generate.** Generating a review first
+  shoots the first screen of the three most-visited pages (ranked like the
+  Top pages table: distinct sessions, then page views), desktop, in light and
+  dark — a site with no dark mode drops the dark shots — and pictures the
+  flagged values in place from the light rendering: the element carrying
+  each, ringed, with its surroundings. It runs through the snapshot machinery
+  (the service in production, this machine's browser in development) but
+  stays out of the gallery, and each review's capture replaces the last.
+  Nothing is captured for the gallery that wasn't before.
+- **Chosen with care.** Failing contrast pairs are looked for first, then
+  one-off type styles, colors and radii in turn, and off-grid padding only to
+  fill the last of at most six pictures — a pixel of padding isn't something a
+  scaled screenshot can show. With the first screens that's a dozen small
+  images at most, each labelled for the model with its page or value and the
+  capture date. The prompt says the shots are scaled down and are context, not
+  evidence: an issue still cites a measured token. Works with Anthropic,
+  OpenAI and Google models alike; a model or endpoint that won't take images
+  gets the metrics alone, with a note in the server log.
+- **The card says what happened.** A review made with screenshots lists the
+  pages and the number of values it was shown (the values themselves on
+  hover), and the fix prompt's design section names them too. One made from
+  the metrics alone says why: snapshots off here, the service not yet allowed
+  (the consent dialog opens, as it does from the Site snapshots card), or a
+  capture that failed. The button reports the capture's progress.
+- **The screenshot service learns `viewport`.** A request may ask for the
+  first screen instead of the full page; the local engine honours it too. A
+  deployed service that predates the option returns the full page and the
+  dashboard crops it to the viewport before storing. Snapshot captures are
+  unchanged.
+
 ### Dead clicks are judged by what happened, and errors say where they came from
 
 A dead click used to mean "a click on something that isn't a button or a

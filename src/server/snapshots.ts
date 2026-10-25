@@ -25,6 +25,14 @@
  * function (4.5 MB). Elsewhere, on disk under `.polishd/snapshots/<id>/`,
  * sent in chunks small enough for a server action.
  *
+ * **Two purposes.** A gallery capture shoots every scanned route in four
+ * renderings, full page, and joins the Design tab's history. A review
+ * capture — run by the aesthetic review right before it asks the model —
+ * shoots the first screen of the three most-visited pages, desktop, light and
+ * dark, with the flagged values pictured in place from the light rendering,
+ * and replaces the previous review capture rather than joining the gallery.
+ * Same loop, same storage, same checks; the plan and the finish differ.
+ *
  * **What's trusted.** The capture in progress is parked in the store, and
  * every call is checked against it: file names are derived here from the
  * slot, never taken from the browser; a Blob URL the browser reports is
@@ -61,6 +69,7 @@ import {
   type BlobAccess,
 } from "./snapshot-blob";
 import {
+  SNAPSHOT_RENDERINGS,
   capturePathFor,
   darkModeVerdict,
   imageMime,
@@ -69,6 +78,8 @@ import {
   snapshotFileFor,
   type ShotSlot,
 } from "./snapshot-files";
+
+export { SNAPSHOT_RENDERINGS };
 import { localCaptureUnavailable, onVercelDeployment, shootLocally } from "./snapshot-local";
 import { getMeta, setMeta, storeReady } from "./store";
 
@@ -136,7 +147,16 @@ export interface PolishdSnapshot {
   previewMisses?: string[];
   /** What shot it: Polishd's screenshot service, a browser on this machine, or both. */
   engines?: ("service" | "local")[];
+  /**
+   * The routes the capture was planned for, in order — most visited first on
+   * a review capture, which is what the model is shown them in. Absent on
+   * gallery snapshots.
+   */
+  routes?: string[];
 }
+
+/** Why a capture is run: for the Design tab's gallery, or for one aesthetic review. */
+export type SnapshotPurpose = "gallery" | "review";
 
 interface SnapshotIndex {
   v: 1;
@@ -151,16 +171,6 @@ const MAX_SNAPSHOTS = 6;
 /** Cap on routes shot per run. */
 export const MAX_SNAPSHOT_ROUTES = 12;
 
-/**
- * The renderings every snapshot shoots, in order: the gallery's default view
- * first, so most value pictures match the shot the user is already looking at.
- */
-export const SNAPSHOT_RENDERINGS: { device: SnapshotDevice; theme: SnapshotTheme }[] = [
-  { device: "desktop", theme: "light" },
-  { device: "desktop", theme: "dark" },
-  { device: "phone", theme: "light" },
-  { device: "phone", theme: "dark" },
-];
 
 /** Largest image accepted for storage — well over what the service sends. */
 export const MAX_SNAPSHOT_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -199,19 +209,50 @@ export async function listSnapshots(): Promise<PolishdSnapshot[]> {
   return (await loadIndex()).snapshots;
 }
 
+const REVIEW_CAPTURE_KEY = "design_review_capture";
+
 /**
- * Read one shot's — or one value preview's — image as a data URL, or null
- * when it doesn't exist. The filename is only accepted when the index lists it
- * for that snapshot, so a caller can never read outside a snapshot directory —
- * and Blob-stored images are only ever fetched from the URL the index recorded.
+ * The last review capture — the first screens and value pictures the
+ * aesthetic review was (or is about to be) shown — or null. One is kept: the
+ * next review's capture replaces it, images included.
  */
-export async function readSnapshotImage(
+export async function loadReviewCapture(): Promise<PolishdSnapshot | null> {
+  const raw = await getMeta(REVIEW_CAPTURE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PolishdSnapshot;
+    return parsed && typeof parsed.id === "string" && Array.isArray(parsed.shots) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A recorded capture by id: a gallery snapshot, or the review capture. */
+async function findCapture(id: string): Promise<PolishdSnapshot | null> {
+  const fromIndex = (await loadIndex()).snapshots.find((s) => s.id === id);
+  if (fromIndex) return fromIndex;
+  const review = await loadReviewCapture();
+  return review?.id === id ? review : null;
+}
+
+/** One stored image's bytes and type. */
+export interface SnapshotImageBytes {
+  bytes: Buffer;
+  mime: "image/webp" | "image/png";
+}
+
+/**
+ * Read one shot's — or one value preview's — image, or null when it doesn't
+ * exist. The filename is only accepted when the index lists it for that
+ * snapshot, so a caller can never read outside a snapshot directory — and
+ * Blob-stored images are only ever fetched from the URL the index recorded.
+ */
+export async function readSnapshotImageBytes(
   snapshotId: string,
   file: string,
-): Promise<string | null> {
-  const index = await loadIndex();
-  const snapshot = index.snapshots.find((s) => s.id === snapshotId);
-  if (!snapshot || file.length === 0) return null;
+): Promise<SnapshotImageBytes | null> {
+  const snapshot = file.length > 0 ? await findCapture(snapshotId) : null;
+  if (!snapshot) return null;
   const shot = snapshot.shots.find((s) => s.file === file);
   const preview = shot ? undefined : snapshot.previews?.find((p) => p.file === file);
   const image = shot ?? preview;
@@ -221,10 +262,16 @@ export async function readSnapshotImage(
     const bytes = image.url
       ? await readBlobImage(image.url)
       : await readFile(join(snapshotsRoot(), snapshot.id, dir, image.file));
-    return bytes ? `data:${imageMime(image.file)};base64,${bytes.toString("base64")}` : null;
+    return bytes ? { bytes, mime: imageMime(image.file) } : null;
   } catch {
     return null; // Directory pruned or deleted by hand — the tile shows a blank.
   }
+}
+
+/** The same image as a data URL, for the gallery's tiles. */
+export async function readSnapshotImage(snapshotId: string, file: string): Promise<string | null> {
+  const image = await readSnapshotImageBytes(snapshotId, file);
+  return image ? `data:${image.mime};base64,${image.bytes.toString("base64")}` : null;
 }
 
 /**
@@ -308,6 +355,12 @@ interface PendingSnapshot {
   routes: string[];
   targets: DesignPreviewTarget[];
   storage: "blob" | "disk";
+  /** Gallery or review — decides where `finish` records it. */
+  purpose: SnapshotPurpose;
+  /** The renderings this capture shoots; a slot outside them is refused. */
+  renderings: { device: SnapshotDevice; theme: SnapshotTheme }[];
+  /** First screens rather than full pages. */
+  viewport: boolean;
   /** Who shoots this capture. Each action only serves its own engine's calls. */
   engine: SnapshotEngine;
   /** The access mode browser uploads succeeded with, once one has. */
@@ -335,7 +388,15 @@ async function loadPendingRaw(): Promise<Partial<PendingSnapshot> | null> {
 
 async function loadPending(id: string): Promise<PendingSnapshot | null> {
   const parsed = await loadPendingRaw();
-  return parsed?.v === 2 && parsed.id === id && parsed.engine ? (parsed as PendingSnapshot) : null;
+  if (parsed?.v !== 2 || parsed.id !== id || !parsed.engine) return null;
+  // A record parked before captures had a purpose is a gallery capture.
+  const record = parsed as PendingSnapshot;
+  return {
+    ...record,
+    purpose: record.purpose ?? "gallery",
+    renderings: record.renderings ?? SNAPSHOT_RENDERINGS,
+    viewport: record.viewport ?? false,
+  };
 }
 
 /** Persist the in-flight capture; null clears it. */
@@ -365,6 +426,9 @@ export interface SnapshotPlan {
   targets: DesignPreviewTarget[];
   engine: SnapshotEngine;
   storage: "blob" | "disk";
+  purpose: SnapshotPurpose;
+  /** First screens rather than full pages: ask the service for them, and crop if it sends more. */
+  viewport: boolean;
 }
 
 export interface BeginSnapshotInput {
@@ -377,6 +441,12 @@ export interface BeginSnapshotInput {
   /** Flagged values to picture in place, each on the pages it was measured on. */
   targets?: DesignPreviewTarget[];
   engine: SnapshotEngine;
+  /** Gallery (the default) or review. */
+  purpose?: SnapshotPurpose;
+  /** The renderings to shoot; every one of them by default. */
+  renderings?: { device: SnapshotDevice; theme: SnapshotTheme }[];
+  /** Shoot first screens only. */
+  viewport?: boolean;
 }
 
 /**
@@ -411,6 +481,11 @@ export async function beginSnapshot(
     await deleteSnapshotImages({ id: stale.id, shots: stale.shots ?? [], previews: stale.previews ?? [] });
   }
 
+  const renderings = (input.renderings?.length ? input.renderings : SNAPSHOT_RENDERINGS).filter((r) =>
+    SNAPSHOT_RENDERINGS.some((known) => known.device === r.device && known.theme === r.theme),
+  );
+  if (renderings.length === 0) return { ok: false, message: "No renderings to capture." };
+
   const pending: PendingSnapshot = {
     v: 2,
     id: Date.now().toString(36),
@@ -420,6 +495,9 @@ export async function beginSnapshot(
     routes,
     targets: input.targets ?? [],
     storage: blobConfigured() ? "blob" : "disk",
+    purpose: input.purpose ?? "gallery",
+    renderings,
+    viewport: input.viewport === true,
     engine: input.engine,
     engines: [],
     shots: [],
@@ -434,17 +512,19 @@ export async function beginSnapshot(
     id: pending.id,
     origin: pending.origin,
     routes,
-    renderings: SNAPSHOT_RENDERINGS,
+    renderings,
     targets: pending.targets,
     engine: input.engine,
     storage: pending.storage,
+    purpose: pending.purpose,
+    viewport: pending.viewport,
   };
 }
 
 function validSlot(pending: PendingSnapshot, slot: ShotSlot): boolean {
   return (
     pending.routes.includes(slot.route) &&
-    SNAPSHOT_RENDERINGS.some((r) => r.device === slot.device && r.theme === slot.theme)
+    pending.renderings.some((r) => r.device === slot.device && r.theme === slot.theme)
   );
 }
 
@@ -773,6 +853,7 @@ export async function captureLocalShot(
       device: slot.device,
       theme: slot.theme,
       find,
+      viewport: pending.viewport,
     });
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : "The local browser failed." };
@@ -876,6 +957,24 @@ export async function finishSnapshot(id: string): Promise<{ ok: true; snapshot: 
       ok: false,
       message: `Every page failed to capture${first ? ` (${first})` : ""}.`,
     };
+  }
+
+  if (pending.purpose === "review") {
+    // One review capture is kept, outside the gallery: this one replaces the
+    // last, and the shots the model is shown go in the order they were planned.
+    snapshot.routes = pending.routes;
+    const previous = await loadReviewCapture();
+    if (!(await setMeta(REVIEW_CAPTURE_KEY, JSON.stringify(snapshot)))) {
+      await deleteSnapshotImages(pending);
+      await savePending(null);
+      return { ok: false, message: "The pages were shot but the store refused to record them." };
+    }
+    await savePending(null);
+    if (dropped.length > 0 || extraPreviews.length > 0) {
+      await deleteImageFiles(pending.id, [...dropped, ...extraPreviews]);
+    }
+    if (previous && previous.id !== snapshot.id) await deleteSnapshotImages(previous);
+    return { ok: true, snapshot };
   }
 
   const index = await loadIndex();

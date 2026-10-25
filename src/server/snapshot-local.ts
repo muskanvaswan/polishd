@@ -168,6 +168,8 @@ export async function shootLocally(input: {
   device: SnapshotDevice;
   theme: SnapshotTheme;
   find: FindTarget[];
+  /** The first screen only, for the design review. */
+  viewport?: boolean;
 }): Promise<ShotResult> {
   const unavailable = localCaptureUnavailable();
   if (unavailable) throw new Error(unavailable);
@@ -216,6 +218,7 @@ export async function shootLocally(input: {
         device,
         theme: input.theme,
         find: input.find,
+        viewportOnly: input.viewport === true,
         navigationTimeoutMs: NAVIGATION_TIMEOUT_MS,
         previewBudgetMs: PREVIEW_BUDGET_MS,
         maxImageBytes: MAX_IMAGE_BYTES,

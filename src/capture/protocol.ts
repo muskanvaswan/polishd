@@ -29,6 +29,16 @@ export const SNAPSHOT_THEMES = ["light", "dark"] as const;
 export type SnapshotDevice = (typeof SNAPSHOT_DEVICES)[number];
 export type SnapshotTheme = (typeof SNAPSHOT_THEMES)[number];
 
+/**
+ * The viewport each device renders at, as allpages defines it — in CSS px,
+ * with the pixel ratio. The dashboard uses it to cut a first-screen shot out
+ * of a full-page one when an older service ignored `viewport`.
+ */
+export const DEVICE_VIEWPORTS: Record<SnapshotDevice, { width: number; height: number; scale: number }> = {
+  phone: { width: 390, height: 844, scale: 2 },
+  desktop: { width: 1440, height: 900, scale: 1 },
+};
+
 /** Request caps. The dashboard sends one route × one rendering per call. */
 export const MAX_ROUTES_PER_REQUEST = 4;
 export const MAX_FIND_PER_REQUEST = 16;
@@ -61,6 +71,12 @@ export interface ShootRequest {
   devices: SnapshotDevice[];
   themes: SnapshotTheme[];
   find: FindTarget[];
+  /**
+   * Shoot the first screen only — the viewport, not the full page. What the
+   * design review is shown. Added within v1; a service that predates it
+   * returns the full page, and the dashboard crops.
+   */
+  viewport?: true;
 }
 
 export interface EncodedImage {
@@ -285,7 +301,16 @@ export function parseShootRequest(body: unknown): Parsed<ShootRequest> {
     }
   }
 
-  return { ok: true, value: { routes, devices: devices.value, themes: themes.value, find } };
+  return {
+    ok: true,
+    value: {
+      routes,
+      devices: devices.value,
+      themes: themes.value,
+      find,
+      ...(b.viewport === true ? { viewport: true } : {}),
+    },
+  };
 }
 
 /** Rough size of a shot once serialized — what the response budget counts. */

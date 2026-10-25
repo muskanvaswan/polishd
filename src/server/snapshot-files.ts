@@ -21,6 +21,18 @@ export interface ShotSlot {
 /** Value pictures kept per cell, matching the service's per-request cap. */
 export const MAX_PREVIEWS_PER_SHOT = 16;
 
+/**
+ * The renderings every snapshot shoots, in order: the gallery's default view
+ * first, so most value pictures match the shot the user is already looking
+ * at — and so does the shot the design review is shown of a page.
+ */
+export const SNAPSHOT_RENDERINGS: { device: SnapshotDevice; theme: SnapshotTheme }[] = [
+  { device: "desktop", theme: "light" },
+  { device: "desktop", theme: "dark" },
+  { device: "phone", theme: "light" },
+  { device: "phone", theme: "dark" },
+];
+
 const DEVICES = new Set(["phone", "desktop"]);
 const THEMES = new Set(["light", "dark"]);
 const FILE = /^(v-)?r(\d{1,3})-(phone|desktop)-(light|dark)(?:-(\d{1,2}))?\.(webp|png)$/;

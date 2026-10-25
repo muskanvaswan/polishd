@@ -32,6 +32,15 @@ test("a route list, with devices and themes defaulting to all of them", () => {
   });
 });
 
+test("the first-screen option is kept only when asked for", () => {
+  assert.equal(parseShootRequest({ route: "/", viewport: true }).ok && (parseShootRequest({ route: "/", viewport: true }) as { value: { viewport?: true } }).value.viewport, true);
+  for (const body of [{ route: "/" }, { route: "/", viewport: false }, { route: "/", viewport: "yes" }]) {
+    const r = parseShootRequest(body);
+    assert.ok(r.ok);
+    assert.equal("viewport" in r.value, false, JSON.stringify(body));
+  }
+});
+
 test("route lists are capped", () => {
   const routes = Array.from({ length: MAX_ROUTES_PER_REQUEST + 1 }, (_, i) => `/p${i}`);
   assert.equal(parseShootRequest({ routes }).ok, false);

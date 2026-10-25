@@ -608,6 +608,8 @@ export interface ShootInput {
   previewBudgetMs: number;
   /** Base64 bytes the full shot may take; it's re-encoded smaller to fit. */
   maxImageBytes: number;
+  /** Shoot the first screen only — the viewport — instead of the full page. */
+  viewportOnly?: boolean;
 }
 
 /** Attribute the locator tags candidate elements with: space-separated target indices. */
@@ -714,12 +716,15 @@ export async function shootRendering(
     if (status >= 400) return skip(input, "http_error", `HTTP ${status}`, { status });
 
     // Full page, capped below WebP's height limit; a page taller than that
-    // keeps its top, which is what the gallery shows anyway.
+    // keeps its top, which is what the gallery shows anyway. A first-screen
+    // shot is the viewport as the page loaded, before any scroll.
     const cssCap = Math.floor(MAX_SHOT_PIXEL_HEIGHT / input.device.scale);
-    const docHeight = Number(await page.evaluate(documentHeight).catch(() => 0)) || 0;
+    const docHeight = input.viewportOnly
+      ? 0
+      : Number(await page.evaluate(documentHeight).catch(() => 0)) || 0;
     const truncated = docHeight > cssCap;
     const png = await page.screenshot({
-      fullPage: true,
+      fullPage: !input.viewportOnly,
       animations: "disabled",
       type: "png",
       ...(truncated ? { clip: { x: 0, y: 0, width: input.device.width, height: cssCap } } : {}),
