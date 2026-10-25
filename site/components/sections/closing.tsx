@@ -12,10 +12,10 @@ export default function Closing() {
           </h2>
 
           <div
-            className="r mt-7 inline-flex items-center gap-2.5 rounded-full border border-[#2e2e2e] px-4 py-2 text-[12px] text-[#888]"
+            className="r mt-7 inline-flex items-center gap-2.5 rounded-full border border-line px-4 py-2 text-[12px] text-fg-3"
             style={{ "--d": "90ms" } as React.CSSProperties}
           >
-            <span className="blip h-1.5 w-1.5 rounded-full bg-[#f5a623]" />
+            <span className="blip h-1.5 w-1.5 rounded-full bg-warn" />
             Half the loop is live. The rest is coming soon, in all its glory.
           </div>
 
@@ -29,8 +29,8 @@ export default function Closing() {
         </Wrap>
       </section>
 
-      <footer className="border-t border-[#2e2e2e] pt-7 pb-11">
-        <Wrap className="flex flex-wrap items-center gap-3.5 text-[12px] text-[#444]">
+      <footer className="border-t border-line pt-7 pb-11">
+        <Wrap className="flex flex-wrap items-center gap-3.5 text-[12px] text-fg-4">
           <span className="font-mono">@polishd/next</span>
           <span>·</span>
           <span>MIT</span>
@@ -50,7 +50,7 @@ function FootLink({ href, children }: { href: string; children: string }) {
     <a
       href={href}
       rel="noopener"
-      className="text-[#666] transition-colors duration-200 hover:text-white"
+      className="text-fg-3 transition-colors duration-200 hover:text-fg"
     >
       {children}
     </a>

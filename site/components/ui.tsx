@@ -19,7 +19,7 @@ export function StatusChip({
   return (
     <span
       className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-[3px] text-[9.5px] font-semibold uppercase tracking-[0.09em] ${
-        coming ? "bg-amber-950/60 text-amber-400" : "bg-[#101c14] text-emerald-400"
+        coming ? "bg-warn/10 text-warn ring-1 ring-inset ring-warn/20" : "bg-ok/10 text-ok ring-1 ring-inset ring-ok/20"
       } ${className}`}
     >
       {dot && <span className="h-[5px] w-[5px] rounded-full bg-current" />}
@@ -43,11 +43,11 @@ export function Wrap({
   );
 }
 
-/** The dashboard's section label: 11px, uppercase, 0.08em, #666. */
+/** The dashboard's eyebrow: 11px, uppercase, 0.08em, fg-3. */
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="label r flex items-center gap-2">
-      <span className="inline-block h-[5px] w-[5px] rounded-full bg-[#444]" />
+      <span className="inline-block h-[5px] w-[5px] rounded-full bg-fg-4" />
       {children}
     </p>
   );
@@ -65,7 +65,7 @@ export function Pill({
   return (
     <span
       className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.09em] ${
-        tone === "amber" ? "bg-amber-950/60 text-amber-400" : "bg-[#101c14] text-emerald-400"
+        tone === "amber" ? "bg-warn/10 text-warn ring-1 ring-inset ring-warn/20" : "bg-ok/10 text-ok ring-1 ring-inset ring-ok/20"
       } ${className}`}
     >
       <span className="blip h-[5px] w-[5px] rounded-full bg-current" />
@@ -79,7 +79,7 @@ export function GhostLink({ href, children }: { href: string; children: ReactNod
     <a
       href={href}
       rel="noopener"
-      className="inline-flex items-center gap-2 rounded-[10px] border border-[#2e2e2e] px-4 py-3 text-[13px] text-[#888] transition-colors duration-200 hover:border-[#555] hover:text-white"
+      className="inline-flex items-center gap-2 rounded-[10px] border border-line px-4 py-3 text-[13px] text-fg-3 transition-colors duration-200 hover:border-fg-4 hover:text-fg"
     >
       {children}
       <svg
@@ -98,7 +98,7 @@ export function GhostLink({ href, children }: { href: string; children: ReactNod
   );
 }
 
-/** Section heading — 2nd line dimmed, the way the dashboard dims secondary text. */
+/** Section heading — 2nd line dimmed to fg-4, the way the dashboard dims secondary text. */
 export function Heading({
   children,
   delay = 60,
@@ -119,7 +119,7 @@ export function Heading({
 export function Sub({ children, delay = 120 }: { children: ReactNode; delay?: number }) {
   return (
     <p
-      className="r mt-[18px] max-w-[56ch] font-mono text-[13px] leading-[1.7] text-[#888]"
+      className="r mt-[18px] max-w-[56ch] font-mono text-[13px] leading-[1.7] text-fg-3"
       style={{ "--d": `${delay}ms` } as React.CSSProperties}
     >
       {children}

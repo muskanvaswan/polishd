@@ -44,7 +44,7 @@ export default function LoopRing({
 }) {
   const current = stages[active];
   const coming = current.status === "coming";
-  const accent = coming ? "#f5a623" : "#ffffff";
+  const accent = coming ? "#fbbf24" : "#f5f5f5";
 
   // Index of the first stage still in beta; the ring goes dashed from there.
   const firstComing = stages.findIndex((s) => s.status === "coming");
@@ -64,13 +64,13 @@ export default function LoopRing({
         <path
           d={arcPath(angleOf(0), angleOf(firstComing))}
           fill="none"
-          stroke="#2e2e2e"
+          stroke="#262626"
           strokeWidth={1.5}
         />
         <path
           d={arcPath(angleOf(firstComing), angleOf(stages.length))}
           fill="none"
-          stroke="#2e2e2e"
+          stroke="#262626"
           strokeWidth={1.5}
           strokeDasharray="3 7"
           strokeLinecap="round"
@@ -82,7 +82,7 @@ export default function LoopRing({
           cy={CY}
           r={R}
           fill="none"
-          stroke="#ffffff"
+          stroke="#f5f5f5"
           strokeWidth={2}
           strokeLinecap="round"
           strokeDasharray={CIRC}
@@ -95,7 +95,7 @@ export default function LoopRing({
           cy={CY}
           r={R}
           fill="none"
-          stroke="#f5a623"
+          stroke="#fbbf24"
           strokeWidth={2}
           strokeLinecap="round"
           strokeDasharray={CIRC}
@@ -112,7 +112,7 @@ export default function LoopRing({
           const isActive = i === active;
           const reached = i < active;
           const isComing = stage.status === "coming";
-          const tone = isComing ? "#f5a623" : "#ffffff";
+          const tone = isComing ? "#fbbf24" : "#f5f5f5";
 
           return (
             <g key={stage.id} className="ring-node">
@@ -131,8 +131,8 @@ export default function LoopRing({
                 cx={node.x}
                 cy={node.y}
                 r={isActive ? 6.5 : 5}
-                fill={isActive ? tone : reached ? "#5a5a5a" : "#0a0a0a"}
-                stroke={isActive ? tone : reached ? "#5a5a5a" : "#3a3a3a"}
+                fill={isActive ? tone : reached ? "#5e5e5e" : "#121212"}
+                stroke={isActive ? tone : reached ? "#5e5e5e" : "#363636"}
                 strokeWidth={1.5}
                 strokeDasharray={!isActive && !reached && isComing ? "2 2" : undefined}
               />
@@ -142,7 +142,7 @@ export default function LoopRing({
                 dy={dy}
                 textAnchor={anchor}
                 className="ring-label"
-                fill={isActive ? tone : reached ? "#888" : "#555"}
+                fill={isActive ? tone : reached ? "#8f8f8f" : "#5e5e5e"}
               >
                 {stage.name.toUpperCase()}
               </text>
