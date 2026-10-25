@@ -62,7 +62,9 @@ export default function BrandBoard({ kit }: { kit: BrandKit }) {
               {neutrals.length > 0 && (
                 <div className={brand.length > 0 ? "mt-4" : ""}>
                   <div className={`${eyebrowCls} mb-2`}>Neutrals · light to dark</div>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                  {/* Six across while the board is one column; three across once
+                      it splits, so the names stay legible in half the width. */}
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-3">
                     {neutrals.map((c) => (
                       <Swatch key={c.hex} color={c} className="aspect-[4/3]" small />
                     ))}
