@@ -290,6 +290,40 @@ export async function getPageStats(limit = 5): Promise<PageStat[]> {
     .slice(0, limit);
 }
 
+/** How much a page is visited, as `getTopPages` ranks it. */
+export interface PageTraffic {
+  /** Distinct sessions that reached the page. */
+  sessions: number;
+  pageViews: number;
+}
+
+/**
+ * Traffic for exactly these paths — the same two numbers `getTopPages` ranks
+ * on, for a caller that already knows which pages it's choosing between (the
+ * design review picking which snapshots to show the model). Paths nobody
+ * visited are absent; `[]` and an unready store give an empty map.
+ */
+export async function getPageTraffic(paths: string[]): Promise<Map<string, PageTraffic>> {
+  const out = new Map<string, PageTraffic>();
+  const wanted = [...new Set(paths)].slice(0, 100);
+  if (wanted.length === 0 || !(await storeReady())) return out;
+  const placeholders = wanted.map(() => "?").join(", ");
+  const rows = await query(
+    `SELECT
+       path,
+       COUNT(DISTINCT session_id)                                     AS sessions,
+       SUM(CASE WHEN type = 'page_view' THEN 1 ELSE 0 END)            AS "pageViews"
+     FROM ${polishdEventsSource()}
+     WHERE path IN (${placeholders})
+     GROUP BY path`,
+    wanted,
+  );
+  for (const r of rows) {
+    out.set(r.path as string, { sessions: num(r, "sessions"), pageViews: num(r, "pageViews") });
+  }
+  return out;
+}
+
 /** One point in a page's sessions-over-time series (one calendar day, UTC). */
 export interface PageTrendPoint {
   /** Bucket start — UTC midnight, ms since epoch. */

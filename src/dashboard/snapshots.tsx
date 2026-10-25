@@ -227,6 +227,11 @@ interface SnapshotsState {
   openConsent: () => void;
   /** Withdraw consent: production captures stop using the service. */
   turnOff: () => void;
+  /** True while the aesthetic review runs its own capture — one capture at a time. */
+  reviewCapturing: boolean;
+  setReviewCapturing: (on: boolean) => void;
+  /** A block another capture found, so the section turns off without a reload. */
+  noteBlock: (block: StoredCaptureBlock) => void;
 }
 
 const SnapshotsContext = createContext<SnapshotsState | null>(null);
@@ -235,6 +240,11 @@ function useSnapshots(): SnapshotsState {
   const ctx = useContext(SnapshotsContext);
   if (!ctx) throw new Error("Site snapshots rendered outside their provider");
   return ctx;
+}
+
+/** The section's state where there is a provider (the Design tab), null elsewhere (the Overview). */
+export function useSnapshotsOptional(): SnapshotsState | null {
+  return useContext(SnapshotsContext);
 }
 
 /** True when the section is off — it then renders in the bottom slot. */
@@ -264,6 +274,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   const [block, setBlock] = useState<StoredCaptureBlock | null>(initialAvailability.block);
   const [error, setError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [reviewCapturing, setReviewCapturing] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [live, setLive] = useState<LiveShot[]>([]);
   // The dialog only ever opens from a click — Capture, or "Review and
@@ -280,7 +291,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   const router = useRouter();
 
   const capture = useCallback(() => {
-    if (capturing) return;
+    if (capturing || reviewCapturing) return;
     // A standing block stays put while a retry runs: the section only comes
     // back up once a capture actually gets through.
     const blocked = block !== null;
@@ -336,7 +347,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
         setProgress(null);
         setLive([]);
       });
-  }, [capturing, block, router]);
+  }, [capturing, reviewCapturing, block, router]);
   captureRef.current = capture;
 
   const decide = useCallback((allow: boolean) => {
@@ -383,6 +394,9 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
       setConsentOpen(true);
     },
     turnOff: () => decide(false),
+    reviewCapturing,
+    setReviewCapturing,
+    noteBlock: setBlock,
   };
 
   const host = serviceHost(availability.serviceUrl);
@@ -542,6 +556,7 @@ function SnapshotsCard() {
     openConsent,
     turnOff,
     ready,
+    reviewCapturing,
   } = useSnapshots();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
@@ -574,7 +589,7 @@ function SnapshotsCard() {
       type="button"
       data-component="design-snapshot-capture"
       onClick={capture}
-      disabled={!ready || capturing || (off !== null && off.action !== "retry")}
+      disabled={!ready || capturing || reviewCapturing || (off !== null && off.action !== "retry")}
       title={off?.message ?? "Screenshot every scanned page — phone and desktop, light and dark"}
       className={primaryBtn}
     >

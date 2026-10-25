@@ -309,6 +309,13 @@ export interface PolishdDesignReview {
    * something around it did. Absent on reviews from older versions.
    */
   metricsFingerprint?: string;
+  /**
+   * What the model was shown beside the metrics, from the review capture run
+   * for this review: the pages whose first screens went (light and dark where
+   * the site has both), and the flagged values pictured in place, in words.
+   * Absent when nothing went — no capture, or a model that takes no images.
+   */
+  screenshots?: { capturedAt: number; pages: string[]; values: string[] };
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 

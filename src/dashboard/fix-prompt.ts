@@ -533,7 +533,15 @@ function designSection(review: PolishdDesignReview, kinds: Set<FindingKind>): st
   const lines = [
     "## Design: how the rendered design holds together",
     "",
-    `_Reviewed ${day(review.generatedAt)} by ${review.provider}/${review.model}, from the typography, colors, radii and spacing measured on the rendered pages._`,
+    `_Reviewed ${day(review.generatedAt)} by ${review.provider}/${review.model}, from the typography, colors, radii and spacing measured on the rendered pages${
+      review.screenshots?.pages.length
+        ? ` and screenshots of ${review.screenshots.pages.join(", ")}${
+            review.screenshots.values.length
+              ? ` plus ${review.screenshots.values.length} flagged value${review.screenshots.values.length === 1 ? "" : "s"} in place`
+              : ""
+          }`
+        : ""
+    }._`,
     "",
     review.text.trim(),
     "",
