@@ -16,7 +16,8 @@ export default function Closing() {
             style={{ "--d": "90ms" } as React.CSSProperties}
           >
             <span className="blip h-1.5 w-1.5 rounded-full bg-warn" />
-            Half the loop is live. The rest is coming soon, in all its glory.
+            Live from the first signal to the pull request. The rest is coming soon, in all its
+            glory.
           </div>
 
           <div

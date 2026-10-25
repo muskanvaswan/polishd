@@ -3,6 +3,7 @@ import Hero from "@/components/sections/hero";
 import Loop from "@/components/sections/loop";
 import Proof from "@/components/sections/proof";
 import Actionables from "@/components/sections/actionables";
+import Fix from "@/components/sections/fix";
 import Design from "@/components/sections/design";
 import Frontier from "@/components/sections/frontier";
 import Install from "@/components/sections/install";
@@ -20,6 +21,7 @@ export default function Page() {
         <Design />
         <Proof />
         <Actionables />
+        <Fix />
         <Loop />
         <Frontier />
         <Install />

@@ -209,3 +209,47 @@ export function IssueIcon(p: IconProps) {
     </Svg>
   );
 }
+
+// ── GitHub, for the fix pipeline ─────────────────────────────────────────────
+
+export function PullRequestIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+      <path d="M6 9v12" />
+    </Svg>
+  );
+}
+
+export function BranchIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M6 3v12" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </Svg>
+  );
+}
+
+/** A workflow run: the play mark GitHub Actions draws its runs with. */
+export function RunIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m10 8 6 4-6 4z" />
+    </Svg>
+  );
+}
+
+/** A finished step: a check in a ring. */
+export function StepDoneIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" />
+    </Svg>
+  );
+}

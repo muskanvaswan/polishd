@@ -38,7 +38,8 @@ export default function Loop() {
           <span className="text-fg-4">from signal to shipped fix.</span>
         </Heading>
         <Sub>
-          Six stages, one cycle. Four of them are live now — the last two are coming soon.
+          Seven stages, one cycle. Five of them are live now, fixes included — the last two are
+          coming soon.
         </Sub>
 
         <div className="mt-14 grid grid-cols-1 gap-10 lg:grid-cols-[380px_1fr] lg:gap-16">
