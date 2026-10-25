@@ -247,6 +247,15 @@ test("a page that loads comes back with its image and no fault", async () => {
   assert.deepEqual(faults, []);
 });
 
+test("a page that paints a single flat colour is skipped, not shown", async () => {
+  const faults: BrowserFault[] = [];
+  const flat = fakePage({ evaluate: async (fn: unknown) => (String(fn).includes("tolerance") ? true : ENCODED) });
+  const shot = await shootRendering(fakePage(), flat, INPUT, shootDeps(faults));
+  assert.equal(shot.reason, "blank");
+  assert.equal(shot.image, undefined);
+  assert.ok(shot.hash);
+});
+
 test("a browser that can't open a connection is reported to the host, and the cell is skipped", async () => {
   const faults: BrowserFault[] = [];
   const page = fakePage({

@@ -99,6 +99,7 @@ export interface EncodedImage {
  * - `http_error` the route answered 4xx/5xx
  * - `timeout`    the page didn't load in time
  * - `budget`     didn't fit this response — request it on its own
+ * - `blank`      rendered as a single flat colour — nothing was painted
  * - `failed`     anything else
  */
 export type SkipReason =
@@ -109,6 +110,7 @@ export type SkipReason =
   | "http_error"
   | "timeout"
   | "budget"
+  | "blank"
   | "failed";
 
 export interface ShotPreview {

@@ -587,6 +587,38 @@ async function encodeInPage({ data, quality, scale }: EncodeArgs) {
   return { type: blob.type, width, height, data: btoa(s) };
 }
 
+/**
+ * Whether a PNG (base64) is a single flat colour — a page that never painted,
+ * or painted nothing. Sampled on a small canvas, so a stray pixel of text on
+ * a mostly empty page still counts as content. Runs in the encoder's page.
+ */
+async function isBlankInPage(data: string): Promise<boolean> {
+  const bin = atob(data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+  // Keep the top of a tall page: that is where content would be.
+  const side = 64;
+  const canvas = new OffscreenCanvas(side, side);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return false;
+  const srcHeight = Math.min(bitmap.height, bitmap.width * 2);
+  ctx.drawImage(bitmap, 0, 0, bitmap.width, srcHeight, 0, 0, side, side);
+  bitmap.close();
+  const px = ctx.getImageData(0, 0, side, side).data;
+  const tolerance = 6;
+  for (let i = 4; i < px.length; i += 4) {
+    if (
+      Math.abs(px[i] - px[0]) > tolerance ||
+      Math.abs(px[i + 1] - px[1]) > tolerance ||
+      Math.abs(px[i + 2] - px[2]) > tolerance
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // ── Encoding ─────────────────────────────────────────────────────────────────
 
 /**
@@ -770,6 +802,10 @@ export async function shootRendering(
       ...(truncated ? { clip: { x: 0, y: 0, width: input.device.width, height: cssCap } } : {}),
     });
     const hash = await hashPixels(png);
+    const empty = await blank
+      .evaluate(isBlankInPage, Buffer.from(png).toString("base64"))
+      .catch(() => false);
+    if (empty === true) return skip(input, "blank", "rendered blank", { status, hash });
     const image = await encodeImage(blank, png, input.maxImageBytes);
     if (!image) {
       return skip(input, "budget", "too large to send in one response", { status, hash });
