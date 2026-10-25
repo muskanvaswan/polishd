@@ -8,25 +8,31 @@
  * The merged data then gets a deterministic review (design-flags.ts):
  * rule-based checks against widely accepted UI practice (a bounded type
  * scale, one or two families, a palette without near-duplicates, WCAG
- * contrast, spacing on a grid, values drawn from a theme). These produce
- * `flags` — no model involved — and both the metrics and the flags feed the
- * AI design review in ai/design.ts.
+ * contrast, values drawn from a theme or at least a 2px scale). These
+ * produce `flags` — no model involved — and both the metrics and the flags
+ * feed the AI design review in ai/design.ts. Values cited by review issues
+ * the owner dismissed are left out of them (design-dismissals.ts).
  *
  * Every value carries two counts: uses (elements rendering it) and
  * declarations (the distinct class strings behind them), so a component
  * repeated forty times reads as the one decision it is. One-off status is
- * judged on declarations (shared/design-values.ts), and so is the share of
- * spacing off the grid; uses still say how much of the UI a value covers.
+ * judged on declarations (shared/design-values.ts); uses still say how much
+ * of the UI a value covers.
  */
+import { knownDesignValues } from "../ai/design-suggestions";
+import { ignoredDesignSignatures, loadIgnoredDesignIssues } from "../ai/ignored";
+import type { PolishdIgnoredDesignIssue } from "../ai/types";
 import type { PolishdDesignScanPayload } from "../shared/types";
 import { aggregateDesignScans, contrastRatio, type DesignScanRow } from "./design-aggregate";
 import { selectBuildScans, type DesignBuildCoverage } from "./design-builds";
+import { dismissedDesignValues, type DesignDismissedValues } from "./design-dismissals";
 import { buildDesignFlags } from "./design-flags";
 import { getCurrentBuild, polishdEventsSource } from "./queries";
 import { parseMeta, query, storeReady } from "./store";
 
 export { aggregateDesignScans, buildDesignFlags, contrastRatio, selectBuildScans };
 export type { DesignBuildCoverage };
+export type { DesignDismissal, DesignDismissedValues } from "./design-dismissals";
 
 // ── Aggregated shapes (what the Design tab renders) ──────────────────────────
 
@@ -65,6 +71,8 @@ export interface DesignFontUsage extends DesignDeclarations {
   pages: string[];
   /** True when this looks like a one-off rather than part of the type scale. */
   outlier: boolean;
+  /** Hand-typed (`text-[15px]`) and off the 2px scale (shared/design-values.ts). */
+  offScale: boolean;
 }
 
 export type DesignColorRole = "text" | "background" | "border";
@@ -101,11 +109,13 @@ export interface DesignContrastPair {
 }
 
 export interface DesignRadiusUsage extends DesignDeclarations {
-  /** "8px", "9999px (full)" style label. */
+  /** "8px", "8px (mixed)" or "full". */
   value: string;
   count: number;
   pages: string[];
   outlier: boolean;
+  /** Hand-typed (`rounded-[5px]`) and off the 2px scale. */
+  offScale: boolean;
 }
 
 export interface DesignSpacingUsage extends DesignDeclarations {
@@ -113,13 +123,13 @@ export interface DesignSpacingUsage extends DesignDeclarations {
   count: number;
   pages: string[];
   /**
-   * True when the value sits off the 4px grid — and, on a Tailwind site, off
-   * Tailwind's default spacing scale too.
+   * Hand-typed (`p-[13px]`) and off the 2px scale. A value from the theme is
+   * never off-scale, whatever it renders as; nothing is held to a 4px grid.
    */
-  offGrid: boolean;
+  offScale: boolean;
   /**
    * True when the value passes the one-off test the other sections badge.
-   * The Design tab marks padding by grid instead; the brand kit leaves these out.
+   * The Design tab marks padding by scale instead; the brand kit leaves these out.
    */
   outlier: boolean;
 }
@@ -176,6 +186,12 @@ export interface PolishdDesignData {
   flags: DesignFlag[];
   /** Absent on data shaped before class names were read. */
   system?: DesignSystemSignals;
+  /**
+   * Values cited by design-review issues the owner ignored or marked fixed
+   * (design-dismissals.ts). `flags` already leaves them out; the rows mark
+   * them as answered rather than badging them. Absent when there are none.
+   */
+  dismissed?: DesignDismissedValues;
 }
 
 export const EMPTY_DESIGN_DATA: PolishdDesignData = {
@@ -237,18 +253,39 @@ async function loadPathsViewedOn(build: string): Promise<Set<string>> {
 }
 
 /**
+ * Take the owner's dismissed review issues out of the rule-based checks: the
+ * values they cite are recorded on the data and the flags are rerun without
+ * them. Data no dismissal touches comes back as it was.
+ */
+export function withDesignDismissals(
+  data: PolishdDesignData,
+  ignored: PolishdIgnoredDesignIssue[],
+): PolishdDesignData {
+  if (ignored.length === 0) return data;
+  const known = knownDesignValues(data);
+  const dismissed = dismissedDesignValues(ignoredDesignSignatures(ignored, known), known);
+  if (Object.keys(dismissed).length === 0) return data;
+  return { ...data, dismissed, flags: buildDesignFlags(data, dismissed) };
+}
+
+/**
  * Build the full design dataset: pick the scans that describe the current
- * build (design-builds.ts), merge their per-page tallies site-wide, then run
- * the deterministic checks (design-aggregate.ts). Read-only; degrades to
- * `EMPTY_DESIGN_DATA`.
+ * build (design-builds.ts), merge their per-page tallies site-wide, run the
+ * deterministic checks (design-aggregate.ts), and leave out what the owner
+ * has already answered. Read-only; degrades to `EMPTY_DESIGN_DATA`.
  */
 export async function getDesignData(): Promise<PolishdDesignData> {
   if (!(await storeReady())) return EMPTY_DESIGN_DATA;
-  const [latest, current] = await Promise.all([loadPageScans(), getCurrentBuild()]);
+  const [latest, current, ignored] = await Promise.all([
+    loadPageScans(),
+    getCurrentBuild(),
+    // A dismissal log the store can't read leaves every flag standing.
+    loadIgnoredDesignIssues().catch(() => []),
+  ]);
   if (latest.length === 0) return { ...EMPTY_DESIGN_DATA, ready: true };
   const viewed = current ? await loadPathsViewedOn(current.build) : new Set<string>();
   const { scans, coverage } = selectBuildScans(latest, current, viewed);
-  const data = aggregateDesignScans(scans);
+  const data = withDesignDismissals(aggregateDesignScans(scans), ignored);
   return coverage ? { ...data, build: coverage } : data;
 }
 

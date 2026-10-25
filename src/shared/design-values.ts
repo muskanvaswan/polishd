@@ -11,13 +11,12 @@
  *     `radius:6px`, `spacing:7` — so a preview shot at capture time can be
  *     found again from the row the dashboard renders.
  *   • **Targets.** Which values are worth picturing: the ones flagged one-off
- *     or off-grid. Every other value is the system working as intended.
+ *     or off-scale. Every other value is the system working as intended.
  *   • **Rules.** What earns those flags. A one-off is rare in what renders
  *     *and* decided once: a value chosen in two places is a pattern, and a
  *     badge class repeated down a table is one declaration, however many
- *     rows render it. And a value on the framework's own spacing scale
- *     (Tailwind's 6px `1.5` step) is on-grid even though it isn't a multiple
- *     of 4.
+ *     rows render it. An off-scale value is hand-typed (`p-[13px]`) and off
+ *     the 2px scale; a value from the theme is never off-scale.
  *
  * Pure: no DOM, no store, no React — the test file pins the edge cases.
  */
@@ -53,18 +52,21 @@ export const MAX_PREVIEW_TARGETS = 64;
 
 /**
  * The values worth a picture: every value the Design tab flags — each
- * one-off font, color and radius, and each off-grid padding, most used
- * first. One-offs come first so a site drowning in off-grid spacing still
- * gets its one-offs pictured under the cap.
+ * one-off font, color and radius, then each off-scale font and radius, then
+ * each off-scale padding, most used first. One-offs come first so a site
+ * drowning in hand-typed spacing still gets its one-offs pictured under the
+ * cap.
  */
 export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarget[] {
   const refs: { ref: DesignValueRef; pages: string[] }[] = [];
+  const fontRef = (f: PolishdDesignData["fonts"][number]): DesignValueRef => ({
+    kind: "font",
+    family: f.family,
+    sizePx: f.sizePx,
+    weight: f.weight,
+  });
   for (const f of data.fonts) {
-    if (!f.outlier) continue;
-    refs.push({
-      ref: { kind: "font", family: f.family, sizePx: f.sizePx, weight: f.weight },
-      pages: f.pages,
-    });
+    if (f.outlier) refs.push({ ref: fontRef(f), pages: f.pages });
   }
   for (const c of data.colors) {
     if (!c.outlier) continue;
@@ -72,11 +74,16 @@ export function designPreviewTargets(data: PolishdDesignData): DesignPreviewTarg
     refs.push({ ref: { kind: "color", hex: c.hex, roles: [...roles] }, pages: c.pages });
   }
   for (const r of data.radii) {
-    if (!r.outlier) continue;
-    refs.push({ ref: { kind: "radius", value: r.value }, pages: r.pages });
+    if (r.outlier) refs.push({ ref: { kind: "radius", value: r.value }, pages: r.pages });
   }
-  const offGrid = data.spacing.filter((s) => s.offGrid).sort((a, b) => b.count - a.count);
-  for (const s of offGrid) {
+  for (const f of data.fonts) {
+    if (f.offScale && !f.outlier) refs.push({ ref: fontRef(f), pages: f.pages });
+  }
+  for (const r of data.radii) {
+    if (r.offScale && !r.outlier) refs.push({ ref: { kind: "radius", value: r.value }, pages: r.pages });
+  }
+  const offScale = data.spacing.filter((s) => s.offScale).sort((a, b) => b.count - a.count);
+  for (const s of offScale) {
     refs.push({ ref: { kind: "spacing", px: s.px }, pages: s.pages });
   }
   return refs
@@ -234,37 +241,33 @@ export function isOneOff(v: ValueUsage, totals: SectionTotals, rule: OneOffRule)
   return v.declarations === undefined || v.declarations <= 1;
 }
 
-// ── Spacing grid ─────────────────────────────────────────────────────────────
+// ── The 2px scale ────────────────────────────────────────────────────────────
 
 /**
- * Tailwind's default spacing scale, in its own units of 0.25rem: half steps
- * up to 3.5, whole steps to 12, then wider ones. `px` (1px) sits beside it.
+ * Hand-typed sizes are held to steps of 2px: 2, 4, 6 … 12, 14, 16. Nothing
+ * is held to a 4px or 8px grid, and a value drawn from the theme (`p-1.5`,
+ * `text-sm`, `rounded-md`) is never checked at all: it is the system,
+ * whatever it renders as. Only an arbitrary value typed into a class
+ * (`p-[13px]`, `text-[15px]`, `rounded-[5px]`) bypasses the theme, so only
+ * those are measured against the scale.
  */
-const TAILWIND_SPACING_UNITS = [
-  0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52,
-  56, 60, 64, 72, 80, 96,
-];
+export const SCALE_STEP_PX = 2;
 
-/** How a site's spacing is meant to be measured. */
-export interface SpacingScale {
-  /** Tailwind styles the site, so its default scale is on-grid. */
-  tailwind: boolean;
-  /** The root font size, px — Tailwind's scale is in rem. */
-  remPx: number;
-}
-
-/** Tailwind's spacing scale in whole pixels at a root font size. */
-export function tailwindSpacingPx(remPx = 16): Set<number> {
-  const out = new Set<number>([1]);
-  for (const unit of TAILWIND_SPACING_UNITS) out.add(Math.round((unit * remPx) / 4));
-  return out;
+/** On the scale: a whole multiple of 2px, read to the hundredth, so 12.5px is off it. */
+export function onScale(px: number): boolean {
+  return Math.round(px * 100) % (SCALE_STEP_PX * 100) === 0;
 }
 
 /**
- * Off-grid: neither on the 4px grid nor, on a Tailwind site, on Tailwind's
- * default scale — whose 2px, 6px, 10px and 14px half steps are deliberate.
+ * Off-scale: hand-typed as an arbitrary value by at least one declaration,
+ * and not on the 2px scale. A site whose class names were never read has
+ * nothing hand-typed, so nothing on it is off-scale.
  */
-export function isOffGrid(px: number, scale?: SpacingScale): boolean {
-  if (px % 4 === 0) return false;
-  return !(scale?.tailwind && tailwindSpacingPx(scale.remPx).has(px));
+export function isOffScale(px: number, v: { handTyped?: number }): boolean {
+  return (v.handTyped ?? 0) > 0 && Number.isFinite(px) && !onScale(px);
+}
+
+/** A radius label's size — "6px", "6px (mixed)" — or NaN for "full". */
+export function radiusPx(value: string): number {
+  return value === "full" ? NaN : parseFloat(value);
 }

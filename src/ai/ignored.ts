@@ -158,6 +158,8 @@ export function ignoredDesignSignatures(
   return list.map((i) => ({
     issue: i.issue,
     signature: designIssueSignature(clip(i.issue, MAX_ISSUE_CHARS), boundEvidence(i.evidence), known),
+    ...(i.reason ? { reason: i.reason } : {}),
+    ...(i.fixed ? { fixed: true } : {}),
   }));
 }
 

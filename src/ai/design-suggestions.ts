@@ -41,10 +41,11 @@ export interface KnownDesignValues {
   color: ReadonlySet<string>;
 }
 
-const pxKey = (n: number): string => `${Math.round(n * 100) / 100}px`;
+/** A px value as the known values and signatures key it: `16px`, `12.5px`. */
+export const pxKey = (n: number): string => `${Math.round(n * 100) / 100}px`;
 
 /** Lowercase, with the 3- and 4-digit shorthands spelled out. */
-function hexKey(raw: string): string {
+export function hexKey(raw: string): string {
   const h = raw.toLowerCase();
   if (h.length === 4 || h.length === 5) {
     return `#${[...h.slice(1)].map((c) => c + c).join("")}`;
@@ -655,6 +656,10 @@ export function sameDesignIssue(a: DesignIssueSignature, b: DesignIssueSignature
 export interface DismissedDesignIssue {
   issue: string;
   signature: DesignIssueSignature;
+  /** Why the owner dismissed it, when they said. */
+  reason?: string;
+  /** Dismissed as fixed rather than as not a problem. */
+  fixed?: boolean;
 }
 
 const words = (s: string): Set<string> => new Set(s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);

@@ -20,9 +20,9 @@ function data(overrides: Partial<PolishdDesignData> = {}): PolishdDesignData {
     contrast: [],
     flags: [],
     fonts: [
-      { family: "Inter", sizePx: 16, weight: 400, count: 900, sample: null, tags: ["p"], pages: ["/", "/pricing"], outlier: false, declarations: 12 },
-      { family: "Inter", sizePx: 17, weight: 500, count: 4, sample: null, tags: ["h3"], pages: ["/pricing"], outlier: true, declarations: 1, handTyped: 1 },
-      { family: "Inter", sizePx: 13, weight: 400, count: 40, sample: null, tags: ["span"], pages: ["/", "/pricing"], outlier: false, declarations: 3 },
+      { family: "Inter", sizePx: 16, weight: 400, count: 900, sample: null, tags: ["p"], pages: ["/", "/pricing"], outlier: false, offScale: false, declarations: 12 },
+      { family: "Inter", sizePx: 17, weight: 500, count: 4, sample: null, tags: ["h3"], pages: ["/pricing"], outlier: true, offScale: true, declarations: 1, handTyped: 1 },
+      { family: "Inter", sizePx: 13, weight: 400, count: 40, sample: null, tags: ["span"], pages: ["/", "/pricing"], outlier: false, offScale: false, declarations: 3 },
     ],
     colors: [
       { hex: "#0a0a0a", count: 412, roles: { text: 0, background: 400, border: 12 }, pages: ["/", "/pricing", "/about", "/blog"], pct: 61, outlier: false, declarations: 9 },
@@ -30,12 +30,12 @@ function data(overrides: Partial<PolishdDesignData> = {}): PolishdDesignData {
       { hex: "#fafafa", count: 12, roles: { text: 0, background: 12, border: 0 }, pages: ["/pricing"], pct: 1, outlier: true, declarations: 1, handTyped: 1 },
     ],
     radii: [
-      { value: "8px", count: 60, pages: ["/", "/pricing"], outlier: false, declarations: 4 },
-      { value: "13px", count: 2, pages: ["/about"], outlier: true, declarations: 1 },
+      { value: "8px", count: 60, pages: ["/", "/pricing"], outlier: false, offScale: false, declarations: 4 },
+      { value: "13px", count: 2, pages: ["/about"], outlier: true, offScale: false, declarations: 1 },
     ],
     spacing: [
-      { px: 16, count: 300, pages: ["/", "/pricing"], offGrid: false, outlier: false, declarations: 20 },
-      { px: 13, count: 9, pages: ["/pricing", "/about"], offGrid: true, outlier: false, declarations: 2, handTyped: 2 },
+      { px: 16, count: 300, pages: ["/", "/pricing"], offScale: false, outlier: false, declarations: 20 },
+      { px: 13, count: 9, pages: ["/pricing", "/about"], offScale: true, outlier: false, declarations: 2, handTyped: 2 },
     ],
     ...overrides,
   };
@@ -75,7 +75,7 @@ test("a size/weight pair is one type style; a bare size is every style of that s
   const d = data({
     fonts: [
       ...data().fonts,
-      { family: "Inter", sizePx: 17, weight: 700, count: 90, sample: null, tags: ["h2"], pages: ["/"], outlier: false },
+      { family: "Inter", sizePx: 17, weight: 700, count: 90, sample: null, tags: ["h2"], pages: ["/"], outlier: false, offScale: false },
     ],
   });
   assert.deepEqual(citedDesignRefs("17px headings", d), [
@@ -145,7 +145,7 @@ test("the citation's values lead and its words decide the scale for the rest of 
   // A private store's picture is known about but not public.
   assert.equal(usages[0].preview?.file, "p2.webp");
   assert.equal(usages[0].preview?.publicUrl, undefined);
-  assert.equal(usageFacts(usages[0]), "9 uses as padding on 2 pages (/pricing, /about) · 2 declarations, hand-typed · off-grid");
+  assert.equal(usageFacts(usages[0]), "9 uses as padding on 2 pages (/pricing, /about) · 2 declarations, hand-typed · off-scale");
 
   // Without a hint in the citation, the finding's own words decide.
   const typed = designUsagesFor({ issue: "Body text is set in two sizes.", evidence: "16px" }, data(), []);
@@ -197,7 +197,7 @@ test("a filed issue embeds public pictures, names private ones, and states the f
     "",
     "**`#fafafa`** — 12 uses as background on /pricing · 1 declaration, hand-typed · one-off. Pictured on /pricing (desktop, light).",
     "",
-    "**`13px padding`** — 9 uses as padding on 2 pages (/pricing, /about) · 2 declarations, hand-typed · off-grid. Pictured on /about (desktop, light) in the Polishd dashboard (Design tab); the snapshot is stored privately, so the picture can't be embedded here.",
+    "**`13px padding`** — 9 uses as padding on 2 pages (/pricing, /about) · 2 declarations, hand-typed · off-scale. Pictured on /about (desktop, light) in the Polishd dashboard (Design tab); the snapshot is stored privately, so the picture can't be embedded here.",
     "",
     "**`13px radius`** — 2 uses on /about · 1 declaration · one-off.",
   ]);

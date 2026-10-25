@@ -5,21 +5,33 @@
  * a brand guideline reverse-engineered from the build: type specimens at
  * their real sizes, the palette as swatches with usage share, the radius
  * and spacing scales in use. Each section carries the deterministic
- * findings (outliers, WCAG contrast failures, off-grid spacing) as one
- * combined note, long lists collapse behind a client-side "Show more",
+ * findings (outliers, WCAG contrast failures, hand-typed values off the 2px
+ * scale) as one quiet note, long lists collapse behind a client-side "Show more",
  * and the AI review card at the top adds the model's aesthetic read.
  * Every flagged value opens a hover card picturing the element that carries
  * it, cropped from the newest snapshot that found it. The header also hands
  * the same system over the other way round: curated into a brand kit, one-
  * offs left out, downloaded as a PDF.
+ *
+ * A value cited by a review issue the owner ignored or marked fixed is left
+ * out of the notes (server/design-dismissals.ts) and marked as answered in
+ * its row, its reason on hover, rather than badged.
  */
 import type { ReactNode } from "react";
 
 import type {
+  DesignDismissal,
   DesignFlag,
   DesignFlagSection,
   PolishdDesignData,
 } from "../server/design";
+import {
+  colorKey,
+  contrastDismissal,
+  radiusDismissal,
+  spacingKey,
+  typeKey,
+} from "../server/design-dismissals";
 import type { PolishdAISettingsPublic, PolishdDesignReview } from "../ai/types";
 import type { PolishdSnapshot, SnapshotAvailability } from "../server/snapshots";
 import { buildBrandKit } from "../shared/brand-kit";
@@ -89,7 +101,7 @@ function previewIndex(snapshots: PolishdSnapshot[], targets: Set<string>): Previ
 
 /**
  * A value's markup, wrapped in its hover card when it's flagged — one-off or
- * off-grid — and rendered as a plain box otherwise.
+ * off-scale — and rendered as a plain box otherwise.
  */
 function Flaggable({
   flagged,
@@ -131,6 +143,58 @@ function OutlierBadge({ text = "one-off" }: { text?: string }) {
   return <Badge tone="warn">{text}</Badge>;
 }
 
+/** Hand-typed and off the 2px scale; `example` is the arbitrary class it's typed as. */
+function OffScaleBadge({ example }: { example: string }) {
+  return (
+    <Badge tone="warn" title={`Hand-typed as an arbitrary value (${example}) and not a multiple of 2px`}>
+      off-scale
+    </Badge>
+  );
+}
+
+/**
+ * A flagged value the owner already answered through a review issue: marked
+ * in neutral instead of badged, with the issue and its reason on hover.
+ */
+function DismissedBadge({ d }: { d: DesignDismissal }) {
+  const verdict = d.fixed ? "fixed" : "ignored";
+  const reason = d.reason?.replace(/[.!?…]+$/, "");
+  const title =
+    `${d.fixed ? "Marked fixed" : "Ignored"} with the review issue “${d.issue}”` +
+    `${reason ? ` — ${reason}` : ""}. Left out of this section's checks.`;
+  return (
+    <Badge tone="neutral" title={title}>
+      {verdict}
+    </Badge>
+  );
+}
+
+/**
+ * A value's badges: the answer it was given, if it's flagged and answered;
+ * otherwise what it's flagged for.
+ */
+function ValueBadges({
+  outlier = false,
+  offScale = false,
+  example = "",
+  dismissal,
+}: {
+  outlier?: boolean;
+  offScale?: boolean;
+  /** The arbitrary class an off-scale value is typed as, for its badge's hover text. */
+  example?: string;
+  dismissal?: DesignDismissal;
+}) {
+  if (!outlier && !offScale) return null;
+  if (dismissal) return <DismissedBadge d={dismissal} />;
+  return (
+    <>
+      {outlier && <OutlierBadge />}
+      {offScale && <OffScaleBadge example={example} />}
+    </>
+  );
+}
+
 /**
  * How a value was decided: "1 declaration", "5 declarations · 2 hand-typed".
  * Empty for data scanned before declarations were measured.
@@ -142,34 +206,30 @@ function declLabel(v: { declarations?: number; handTyped?: number; legacyUses?: 
 }
 
 /**
- * The deterministic findings for one section, combined into a single note
- * rather than a stack of alert boxes — the container takes the strongest
- * severity, each finding is one line inside it.
+ * The deterministic findings for one section, as one quiet note: a neutral
+ * box, each finding a line led by a dot in its severity's color. They're
+ * rule-based observations to weigh, not alarms, so the amber stays on the
+ * values themselves — the badges and bars below.
  */
 function SectionFlags({ flags, section }: { flags: DesignFlag[]; section: DesignFlagSection }) {
   const own = flags.filter((f) => f.section === section);
   if (own.length === 0) return null;
-  const hasWarn = own.some((f) => f.severity === "warn");
   return (
-    <Callout tone={hasWarn ? "warn" : "info"} className="mx-4 mt-4 sm:mx-5">
-      <ul className={own.length > 1 ? "space-y-1.5" : undefined}>
-        {own.map((f, i) => (
-          <li key={i} className="flex gap-2 text-[12.5px] leading-relaxed text-fg-2">
-            {own.length > 1 && (
-              <span
-                aria-hidden
-                className={`mt-[8px] h-1 w-1 shrink-0 rounded-full ${
-                  f.severity === "warn" ? "bg-warn" : "bg-info"
-                }`}
-              />
-            )}
-            <span>
-              <Annotated text={f.message} />
-            </span>
-          </li>
-        ))}
-      </ul>
-    </Callout>
+    <ul className="mx-4 mt-4 space-y-1 rounded-lg border border-line bg-sunken px-3.5 py-2.5 sm:mx-5">
+      {own.map((f, i) => (
+        <li key={i} className="flex gap-2.5 text-[12.5px] leading-relaxed text-fg-2">
+          <span
+            aria-hidden
+            className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${
+              f.severity === "warn" ? "bg-warn" : "bg-fg-4"
+            }`}
+          />
+          <span>
+            <Annotated text={f.message} />
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -194,14 +254,16 @@ function FontRow({
   f,
   first,
   previews,
+  dismissal,
 }: {
   f: PolishdDesignData["fonts"][number];
   first: boolean;
   previews: PreviewFor;
+  dismissal?: DesignDismissal;
 }) {
   return (
     <Flaggable
-      flagged={f.outlier}
+      flagged={f.outlier || f.offScale}
       value={{ kind: "font", family: f.family, sizePx: f.sizePx, weight: f.weight }}
       label={`${f.sizePx}px / ${f.weight}`}
       pages={f.pages}
@@ -228,7 +290,12 @@ function FontRow({
         {declLabel(f) && <> · {declLabel(f)}</>} · {f.pages.length}{" "}
         {f.pages.length === 1 ? "page" : "pages"}
         {f.tags.length > 0 && <span className="font-mono text-[11.5px]">· {f.tags.join(", ")}</span>}
-        {f.outlier && <OutlierBadge />}
+        <ValueBadges
+          outlier={f.outlier}
+          offScale={f.offScale}
+          example={`text-[${f.sizePx}px]`}
+          dismissal={dismissal}
+        />
       </span>
     </Flaggable>
   );
@@ -240,7 +307,7 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
   return (
     <DesignSection
       title="Typography"
-      tip="— every family / size / weight combination rendered on the site, most used first. Hover a one-off to see where it renders."
+      tip="— every family / size / weight combination rendered on the site, most used first. Hover a flagged style to see where it renders."
     >
       <div className={`${card} overflow-hidden`}>
         <SectionFlags flags={data.flags} section="typography" />
@@ -266,6 +333,7 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
               f={f}
               first={i === 0}
               previews={previews}
+              dismissal={data.dismissed?.[typeKey(f.sizePx)]}
             />
           ))}
           <ShowMore count={overflow.length} label="type styles">
@@ -275,6 +343,7 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
                 f={f}
                 first={false}
                 previews={previews}
+                dismissal={data.dismissed?.[typeKey(f.sizePx)]}
               />
             ))}
           </ShowMore>
@@ -299,7 +368,15 @@ function colorRef(c: PolishdDesignData["colors"][number]): DesignValueRef {
   return { kind: "color", hex: c.hex, roles: [...roles] };
 }
 
-function ColorChip({ c, previews }: { c: PolishdDesignData["colors"][number]; previews: PreviewFor }) {
+function ColorChip({
+  c,
+  previews,
+  dismissal,
+}: {
+  c: PolishdDesignData["colors"][number];
+  previews: PreviewFor;
+  dismissal?: DesignDismissal;
+}) {
   const chip =
     "flex items-center gap-1.5 rounded-full border border-line-strong bg-raised py-1 pl-1 pr-2.5";
   const body = (
@@ -309,7 +386,7 @@ function ColorChip({ c, previews }: { c: PolishdDesignData["colors"][number]; pr
         style={{ backgroundColor: c.hex }}
       />
       <span className="font-mono text-[11.5px] text-fg-2">{c.hex}</span>
-      {c.outlier && <OutlierBadge />}
+      <ValueBadges outlier={c.outlier} dismissal={dismissal} />
     </>
   );
   // A flagged chip's hover card carries everything the tooltip would.
@@ -368,7 +445,7 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
                 <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11.5px] text-fg-3">
                   <span className="tabular-nums">{c.pct}%</span>
                   <span>· {roleLabel(c.roles)}</span>
-                  {c.outlier && <OutlierBadge />}
+                  <ValueBadges outlier={c.outlier} dismissal={data.dismissed?.[colorKey(c.hex)]} />
                 </div>
               </Flaggable>
             ))}
@@ -381,7 +458,7 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
             rowClassName="flex flex-wrap gap-2"
           >
             {chips.map((c) => (
-              <ColorChip key={c.hex} c={c} previews={previews} />
+              <ColorChip key={c.hex} c={c} previews={previews} dismissal={data.dismissed?.[colorKey(c.hex)]} />
             ))}
           </OverflowRow>
         )}
@@ -392,7 +469,15 @@ function PaletteSection({ data, previews }: { data: PolishdDesignData; previews:
 
 // ── Contrast ─────────────────────────────────────────────────────────────────
 
-function ContrastRow({ p, first }: { p: PolishdDesignData["contrast"][number]; first: boolean }) {
+function ContrastRow({
+  p,
+  first,
+  dismissal,
+}: {
+  p: PolishdDesignData["contrast"][number];
+  first: boolean;
+  dismissal?: DesignDismissal;
+}) {
   return (
     <div className={`flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5 ${first ? "" : divider}`}>
       <span
@@ -414,6 +499,7 @@ function ContrastRow({ p, first }: { p: PolishdDesignData["contrast"][number]; f
         {p.pages.slice(0, 2).join(", ")}
         {p.pages.length > 2 ? ", …" : ""}
       </span>
+      {dismissal && <DismissedBadge d={dismissal} />}
     </div>
   );
 }
@@ -442,11 +528,21 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
         ) : (
           <div>
             {visible.map((p, i) => (
-              <ContrastRow key={`${p.fg}|${p.bg}`} p={p} first={i === 0} />
+              <ContrastRow
+                key={`${p.fg}|${p.bg}`}
+                p={p}
+                first={i === 0}
+                dismissal={contrastDismissal(data.dismissed ?? {}, p.fg, p.bg)}
+              />
             ))}
             <ShowMore count={overflow.length} label="failing pairs">
               {overflow.map((p) => (
-                <ContrastRow key={`${p.fg}|${p.bg}`} p={p} first={false} />
+                <ContrastRow
+                  key={`${p.fg}|${p.bg}`}
+                  p={p}
+                  first={false}
+                  dismissal={contrastDismissal(data.dismissed ?? {}, p.fg, p.bg)}
+                />
               ))}
             </ShowMore>
           </div>
@@ -458,10 +554,18 @@ function ContrastSection({ data }: { data: PolishdDesignData }) {
 
 // ── Radii & spacing ──────────────────────────────────────────────────────────
 
-function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; previews: PreviewFor }) {
+function RadiusChip({
+  r,
+  previews,
+  dismissal,
+}: {
+  r: PolishdDesignData["radii"][number];
+  previews: PreviewFor;
+  dismissal?: DesignDismissal;
+}) {
   return (
     <Flaggable
-      flagged={r.outlier}
+      flagged={r.outlier || r.offScale}
       value={{ kind: "radius", value: r.value }}
       label={`${r.value} radius`}
       pages={r.pages}
@@ -477,7 +581,12 @@ function RadiusChip({ r, previews }: { r: PolishdDesignData["radii"][number]; pr
       />
       <div className="mt-0.5 flex items-center gap-1 text-[12px] text-fg-2">
         <span className="font-mono">{r.value}</span>
-        {r.outlier && <OutlierBadge />}
+        <ValueBadges
+          outlier={r.outlier}
+          offScale={r.offScale}
+          example={`rounded-[${r.value.replace(" (mixed)", "")}]`}
+          dismissal={dismissal}
+        />
       </div>
       <span className="text-[11.5px] tabular-nums text-fg-3" title={declLabel(r) || undefined}>
         ×{r.count.toLocaleString()}
@@ -493,7 +602,7 @@ function RadiusSection({ data, previews }: { data: PolishdDesignData; previews: 
   return (
     <DesignSection
       title="Corner radii"
-      tip="— rounding in use on visible boxes and controls. Hover a one-off to see where it renders."
+      tip="— rounding in use on visible boxes and controls. Hover a flagged radius to see where it renders."
     >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="radius" />
@@ -503,7 +612,12 @@ function RadiusSection({ data, previews }: { data: PolishdDesignData; previews: 
           rowClassName="flex flex-wrap items-end gap-5"
         >
           {radii.map((r) => (
-            <RadiusChip key={r.value} r={r} previews={previews} />
+            <RadiusChip
+              key={r.value}
+              r={r}
+              previews={previews}
+              dismissal={radiusDismissal(data.dismissed ?? {}, r.value)}
+            />
           ))}
         </OverflowRow>
       </div>
@@ -515,14 +629,16 @@ function SpacingRow({
   s,
   max,
   previews,
+  dismissal,
 }: {
   s: PolishdDesignData["spacing"][number];
   max: number;
   previews: PreviewFor;
+  dismissal?: DesignDismissal;
 }) {
   return (
     <Flaggable
-      flagged={s.offGrid}
+      flagged={s.offScale}
       value={{ kind: "spacing", px: s.px }}
       label={`${s.px}px padding`}
       pages={s.pages}
@@ -535,7 +651,7 @@ function SpacingRow({
       </span>
       <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-raised">
         <div
-          className={`h-full rounded-full ${s.offGrid ? "bg-warn/80" : "bg-accent/80"}`}
+          className={`h-full rounded-full ${s.offScale && !dismissal ? "bg-warn/80" : "bg-accent/80"}`}
           style={{ width: `${Math.max((s.px / max) * 100, 2)}%` }}
         />
       </div>
@@ -545,7 +661,9 @@ function SpacingRow({
       >
         ×{s.count.toLocaleString()}
       </span>
-      <span className="w-16 shrink-0">{s.offGrid && <Badge tone="warn">off-grid</Badge>}</span>
+      <span className="w-16 shrink-0">
+        <ValueBadges offScale={s.offScale} example={`p-[${s.px}px]`} dismissal={dismissal} />
+      </span>
     </Flaggable>
   );
 }
@@ -559,19 +677,31 @@ function SpacingSection({ data, previews }: { data: PolishdDesignData; previews:
   return (
     <DesignSection
       title="Spacing"
-      tip="— padding values in use, as a scale. Bars are to scale. Hover an off-grid value to see where it renders."
+      tip="— padding values in use, as a scale. Bars are to scale. Hover an off-scale value to see where it renders."
     >
       <div className={`${card} overflow-hidden pb-4`}>
         <SectionFlags flags={data.flags} section="spacing" />
         <div className="space-y-2 px-4 pb-1 pt-5 sm:px-5">
           {visible.map((s) => (
-            <SpacingRow key={s.px} s={s} max={max} previews={previews} />
+            <SpacingRow
+              key={s.px}
+              s={s}
+              max={max}
+              previews={previews}
+              dismissal={data.dismissed?.[spacingKey(s.px)]}
+            />
           ))}
         </div>
         <ShowMore count={overflow.length} label="padding values">
           <div className="mt-2 space-y-2 px-4 pb-1 sm:px-5">
             {overflow.map((s) => (
-              <SpacingRow key={s.px} s={s} max={max} previews={previews} />
+              <SpacingRow
+                key={s.px}
+                s={s}
+                max={max}
+                previews={previews}
+                dismissal={data.dismissed?.[spacingKey(s.px)]}
+              />
             ))}
           </div>
         </ShowMore>

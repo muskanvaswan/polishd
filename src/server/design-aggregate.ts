@@ -13,10 +13,11 @@
  * has nothing hand-typed. A malformed row is skipped, never fatal.
  */
 import {
-  isOffGrid,
+  isOffScale,
   isOneOff,
   mergeDeclarations,
   ONE_OFF_RULES,
+  radiusPx,
   sectionTotals,
   type DeclarationPart,
 } from "../shared/design-values";
@@ -283,6 +284,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
       tags: [...f.tags],
       pages: f.pages,
       outlier: isOneOff(f, fontTotals, ONE_OFF_RULES.font),
+      offScale: isOffScale(f.sizePx, f),
     }));
 
   const familyTally = new Map<string, number>();
@@ -347,9 +349,10 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
     .map((r) => ({
       ...r,
       outlier: r.value !== "full" && isOneOff(r, radiusTotals, ONE_OFF_RULES.radius),
+      offScale: isOffScale(radiusPx(r.value), r),
     }));
 
-  // The grid is 4px — plus, on a Tailwind site, Tailwind's own half steps.
+  // Padding is held to no grid: only a hand-typed value off the 2px scale is marked.
   const spacingShaped = [...spacing.entries()].map(([px, s]) => ({
     px,
     count: s.count,
@@ -361,7 +364,7 @@ export function aggregateDesignScans(scans: DesignScanRow[]): PolishdDesignData 
     .sort((a, b) => b.count - a.count)
     .map((s) => ({
       ...s,
-      offGrid: isOffGrid(s.px, { tailwind, remPx }),
+      offScale: isOffScale(s.px, s),
       outlier: isOneOff(s, spacingTotals, ONE_OFF_RULES.spacing),
     }));
 

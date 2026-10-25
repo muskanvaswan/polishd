@@ -324,7 +324,7 @@ export async function runSnapshotCapture(
 
   // A cell can look for 16 values. Hand out the ones looked for least so far,
   // so values that never turn up don't hold every slot while the rest of the
-  // list (off-grid paddings come last) never gets a turn. A review capture
+  // list (off-scale paddings come last) never gets a turn. A review capture
   // pictures values in the light rendering only: its dark cells are the first
   // screens alone.
   const findFor = (slot: ShotSlot): FindTarget[] =>

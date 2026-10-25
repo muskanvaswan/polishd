@@ -47,7 +47,7 @@ type PxSection = "font" | "spacing" | "radius";
 
 /**
  * Words that say which scale a px size belongs to. Checked against the whole
- * finding, so "13px padding is off-grid" reads 13px as padding even though
+ * finding, so "13px padding is off-scale" reads 13px as padding even though
  * the site may also set 13px type somewhere.
  */
 const SECTION_HINTS: Record<PxSection, RegExp> = {
@@ -71,20 +71,20 @@ function pxCandidates(px: number, data: DesignValueSource): Candidate[] {
       out.push({
         section: "font",
         ref: { kind: "font", family: f.family, sizePx: f.sizePx, weight: f.weight },
-        flagged: f.outlier,
+        flagged: f.outlier || f.offScale,
         count: f.count,
       });
     }
   }
   for (const s of data.spacing) {
     if (s.px === px) {
-      out.push({ section: "spacing", ref: { kind: "spacing", px: s.px }, flagged: s.offGrid, count: s.count });
+      out.push({ section: "spacing", ref: { kind: "spacing", px: s.px }, flagged: s.offScale, count: s.count });
     }
   }
   for (const r of data.radii) {
     // Radii read "6px", "6px (mixed)" — never "16px" for 6.
     if (new RegExp(`^${px}px(?:\\s|$)`).test(r.value)) {
-      out.push({ section: "radius", ref: { kind: "radius", value: r.value }, flagged: r.outlier, count: r.count });
+      out.push({ section: "radius", ref: { kind: "radius", value: r.value }, flagged: r.outlier || r.offScale, count: r.count });
     }
   }
   return out;
@@ -243,29 +243,36 @@ function usageOf(
     v.declarations === undefined || v.legacyUses
       ? {}
       : { declarations: v.declarations, ...(v.handTyped ? { handTyped: v.handTyped } : {}) };
+  // Why a value is flagged: a one-off first, as the Design tab badges it.
+  const flag = (oneOff: boolean, offScale: boolean) =>
+    oneOff
+      ? { flagged: true, flag: "one-off" as const }
+      : offScale
+        ? { flagged: true, flag: "off-scale" as const }
+        : { flagged: false };
   switch (ref.kind) {
     case "color": {
       const c = data.colors.find((x) => x.hex.toLowerCase() === ref.hex.toLowerCase());
       if (!c) return null;
       const roles = (["text", "background", "border"] as const).filter((r) => c.roles[r] > 0);
-      return { ...base, kind: "color", count: c.count, pages: c.pages, roles: [...roles], flagged: c.outlier, ...decl(c) };
+      return { ...base, kind: "color", count: c.count, pages: c.pages, roles: [...roles], ...flag(c.outlier, false), ...decl(c) };
     }
     case "font": {
       const f = data.fonts.find(
         (x) => x.family === ref.family && x.sizePx === ref.sizePx && x.weight === ref.weight,
       );
       if (!f) return null;
-      return { ...base, kind: "font", count: f.count, pages: f.pages, tags: f.tags, flagged: f.outlier, ...decl(f) };
+      return { ...base, kind: "font", count: f.count, pages: f.pages, tags: f.tags, ...flag(f.outlier, f.offScale), ...decl(f) };
     }
     case "radius": {
       const r = data.radii.find((x) => x.value === ref.value);
       if (!r) return null;
-      return { ...base, kind: "radius", count: r.count, pages: r.pages, flagged: r.outlier, ...decl(r) };
+      return { ...base, kind: "radius", count: r.count, pages: r.pages, ...flag(r.outlier, r.offScale), ...decl(r) };
     }
     case "spacing": {
       const s = data.spacing.find((x) => x.px === ref.px);
       if (!s) return null;
-      return { ...base, kind: "spacing", count: s.count, pages: s.pages, flagged: s.offGrid, ...decl(s) };
+      return { ...base, kind: "spacing", count: s.count, pages: s.pages, ...flag(false, s.offScale), ...decl(s) };
     }
   }
 }
@@ -321,7 +328,7 @@ export function usageFacts(u: PolishdDesignUsage): string {
         (u.handTyped ? `, ${u.handTyped === u.declarations ? "" : `${n(u.handTyped)} `}hand-typed` : ""),
     );
   }
-  if (u.flagged) parts.push(u.kind === "spacing" ? "off-grid" : "one-off");
+  if (u.flagged) parts.push(u.flag ?? (u.kind === "spacing" ? "off-scale" : "one-off"));
   return parts.join(" · ");
 }
 

@@ -3,7 +3,7 @@
 /**
  * Polishd — "where does this render?" for a flagged design value.
  *
- * Wraps a one-off type style, color, radius or off-grid padding on the Design
+ * Wraps a flagged type style, color, radius or padding (one-off or off-scale) on the Design
  * tab. Hovering (or focusing, or tapping) it opens a card with a picture of
  * the element that carries the value — ringed, with the component around it —
  * and the page it's on. The pictures are shot during a snapshot capture (see

@@ -26,7 +26,7 @@ function data(overrides: Partial<PolishdDesignData>): PolishdDesignData {
 }
 
 function font(family: string, sizePx: number, weight: number, count: number, extra: Partial<DesignFontUsage> = {}): DesignFontUsage {
-  return { family, sizePx, weight, count, sample: "Sample text", tags: ["p"], pages: ["/", "/about"], outlier: false, ...extra };
+  return { family, sizePx, weight, count, sample: "Sample text", tags: ["p"], pages: ["/", "/about"], outlier: false, offScale: false, ...extra };
 }
 
 function color(hex: string, count: number, roles: Partial<DesignColorUsage["roles"]>, extra: Partial<DesignColorUsage> = {}): DesignColorUsage {
@@ -47,8 +47,8 @@ test("one-offs the Design tab badges never reach the kit", () => {
       fonts: [font("Inter", 16, 400, 200), font("Inter", 17, 500, 1, { outlier: true, pages: ["/"] })],
       colors: [color("#111111", 300, { text: 300 }), color("#fafafa", 1, { background: 1 }, { outlier: true })],
       radii: [
-        { value: "8px", count: 40, pages: ["/"], outlier: false },
-        { value: "7px", count: 1, pages: ["/"], outlier: true },
+        { value: "8px", count: 40, pages: ["/"], outlier: false, offScale: false },
+        { value: "7px", count: 1, pages: ["/"], outlier: true, offScale: false },
       ] satisfies DesignRadiusUsage[],
     }),
   );
@@ -61,18 +61,18 @@ test("one-offs the Design tab badges never reach the kit", () => {
   );
 });
 
-test("padding one-offs stay out too; off-grid alone doesn't", () => {
+test("padding one-offs stay out too; off-scale alone doesn't", () => {
   const spacing = (px: number, count: number, outlier = false): DesignSpacingUsage => ({
     px,
     count,
     pages: outlier ? ["/"] : ["/", "/about"],
-    offGrid: px % 4 !== 0,
+    offScale: px % 2 !== 0,
     outlier,
   });
   const many = buildBrandKit(data({ spacing: [spacing(8, 60), spacing(16, 40), spacing(7, 1, true)] }));
   assert.deepEqual(many.spacing.map((s) => s.px), [8, 16]);
   assert.deepEqual(many.omitted, [{ kind: "spacing", label: "7px" }]);
-  // Off-grid but not a one-off is part of the system.
+  // Hand-typed or not, a value that isn't a one-off is part of the system.
   const systemic = buildBrandKit(data({ spacing: [spacing(8, 60), spacing(6, 40)] }));
   assert.deepEqual(systemic.spacing.map((s) => [s.token, s.px]), [["1", 6], ["2", 8]]);
 });
@@ -229,11 +229,11 @@ test("as CSS: one size per step, ranked aliases, and no comments when asked", ()
       fonts: [font("Inter", 16, 400, 100), font("Inter", 16, 600, 20), font("Inter", 32, 700, 10)],
       colors: [color("#2563eb", 50, { background: 50 }), color("#111111", 400, { text: 400 })],
       radii: [
-        { value: "8px", count: 30, pages: ["/"], outlier: false },
-        { value: "8px (mixed)", count: 3, pages: ["/"], outlier: false },
-        { value: "full", count: 9, pages: ["/"], outlier: false },
+        { value: "8px", count: 30, pages: ["/"], outlier: false, offScale: false },
+        { value: "8px (mixed)", count: 3, pages: ["/"], outlier: false, offScale: false },
+        { value: "full", count: 9, pages: ["/"], outlier: false, offScale: false },
       ],
-      spacing: [{ px: 4, count: 10, pages: ["/"], offGrid: false, outlier: false }],
+      spacing: [{ px: 4, count: 10, pages: ["/"], offScale: false, outlier: false }],
     }),
   );
   const css = brandKitCss(kit, "Acme");

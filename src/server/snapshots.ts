@@ -105,7 +105,8 @@ export interface PolishdSnapshotShot {
 
 /**
  * A cropped picture of one flagged design value in place — the element that
- * carries a one-off type style, color, radius or off-grid padding, ringed,
+ * carries a one-off or off-scale type style, a one-off color, a one-off or
+ * off-scale radius, or an off-scale padding, ringed,
  * with the component around it. Shot from the same rendering as the route's
  * full shot.
  */

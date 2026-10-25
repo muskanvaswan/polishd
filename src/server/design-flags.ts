@@ -3,10 +3,18 @@
  *
  * Rule-based checks over the aggregated design data (server/design.ts),
  * against widely accepted UI practice: a bounded type scale, one or two
- * families, a palette without near-duplicates, WCAG contrast, spacing on a
- * grid, and values drawn from a theme rather than typed by hand. They
- * produce `flags` — no model involved — and the AI design review quotes the
- * same findings.
+ * families, a palette without near-duplicates, WCAG contrast, and sizes that
+ * come from a theme or at least a scale. They produce `flags` — no model
+ * involved — and the AI design review quotes the same findings.
+ *
+ * Sizes aren't held to a 4px or 8px grid. What's pointed out is a font size,
+ * radius or padding hand-typed as an arbitrary value (`p-[13px]`) that also
+ * sits off the 2px scale (shared/design-values.ts): a value from the theme is
+ * the system, and an even hand-typed one still keeps the rhythm.
+ *
+ * Values the owner dismissed through a review issue (design-dismissals.ts)
+ * are left out of every check in their section: answered once, a finding
+ * isn't raised again here either.
  *
  * Where it matters, the rules count declarations, not rendered elements: a
  * padding class repeated down a 38-row table is one decision to revisit,
@@ -14,7 +22,16 @@
  *
  * Pure: types only, no store — the test file drives it with plain objects.
  */
-import type { DesignFlag, DesignHandTypedCategory, PolishdDesignData } from "./design";
+import type { DesignFlag, PolishdDesignData } from "./design";
+import {
+  colorKey,
+  contrastDismissal,
+  radiusKey,
+  spacingKey,
+  typeKey,
+  type DesignDismissedValues,
+} from "./design-dismissals";
+import { radiusPx } from "../shared/design-values";
 
 /** Cohesion thresholds, drawn from common design-system practice. */
 const LIMITS = {
@@ -27,15 +44,14 @@ const LIMITS = {
 };
 
 /**
- * Hand-typed values: past `share` of a category's declarations, the theme is
+ * Hand-typed colors: past `share` of the palette's declarations, the theme is
  * mostly bypassed; past `noLayer`, there's effectively no token layer at all.
- * Each category needs a few declarations before a share means anything.
+ * It takes a few declarations before a share means anything.
  */
-const HAND_TYPED = {
-  share: 0.5,
-  noLayer: 0.8,
-  minDeclarations: { color: 10, fontSize: 6, radius: 5, spacing: 8 } satisfies Record<DesignHandTypedCategory, number>,
-};
+const HAND_TYPED_COLOR = { share: 0.5, noLayer: 0.8, minDeclarations: 10 };
+
+/** Text at or below this size, px, is too small to read on most screens. */
+const TINY_TEXT_PX = 8;
 
 function rgbOf(hex: string): [number, number, number] | null {
   const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
@@ -51,96 +67,106 @@ function colorDistance(a: string, b: string): number | null {
   return Math.sqrt((ra[0] - rb[0]) ** 2 + (ra[1] - rb[1]) ** 2 + (ra[2] - rb[2]) ** 2);
 }
 
-/**
- * The decisions behind a value, for weighing shares: its declarations, plus
- * one per use from scans that predate them (the old reading). A value with
- * neither recorded weighs its uses.
- */
-function decisions(v: { count: number; declarations?: number; legacyUses?: number }): number {
-  if (v.declarations === undefined && v.legacyUses === undefined) return v.count;
-  return (v.declarations ?? 0) + (v.legacyUses ?? 0);
-}
-
 const list = (values: string[], cap: number) =>
   `${values.slice(0, cap).join(", ")}${values.length > cap ? ", …" : ""}`;
 
 /**
- * The hand-typed finding for one category, or null when it's mostly themed
- * (or too little was measured to say).
+ * The hand-typed color finding, or null when the palette is mostly themed (or
+ * too little was measured to say). Dismissed colors are taken out of the
+ * totals as well as the list.
  */
-function handTypedFlag(
+function handTypedColorFlag(
   data: PolishdDesignData,
-  category: DesignHandTypedCategory,
+  colors: PolishdDesignData["colors"],
 ): DesignFlag | null {
-  const totals = data.system?.handTyped[category];
-  if (!totals || totals.declarations < HAND_TYPED.minDeclarations[category]) return null;
-  const share = totals.handTyped / totals.declarations;
-  if (share <= HAND_TYPED.share) return null;
-  const pct = Math.round(share * 100);
-  const ofN = `(${totals.handTyped} of ${totals.declarations})`;
-  const byHand = <T extends { handTyped?: number; count: number }>(values: T[]) =>
-    values.filter((v) => (v.handTyped ?? 0) > 0).sort((a, b) => b.handTyped! - a.handTyped! || b.count - a.count);
-  const noLayer = share >= HAND_TYPED.noLayer;
-
-  switch (category) {
-    case "color": {
-      const top = byHand(data.colors).map((c) => c.hex);
-      return {
-        section: "color",
-        severity: "warn",
-        message:
-          `${pct}% of color declarations ${ofN} are hand-typed arbitrary values (text-[#…], bg-[#…]) rather than theme tokens` +
-          `${noLayer ? " — there is no color token layer" : " — most colors bypass the theme"}` +
-          `${top.length ? ` (most hand-typed: ${list(top, 4)})` : ""}.`,
-      };
-    }
-    case "fontSize": {
-      const top = [...new Set(byHand(data.fonts).map((f) => `${f.sizePx}px`))];
-      return {
-        section: "typography",
-        severity: "warn",
-        message:
-          `${pct}% of font-size declarations ${ofN} are hand-typed (text-[…px]) rather than steps of a type scale` +
-          `${noLayer ? " — there is no type-scale token layer" : ""}` +
-          `${top.length ? ` (most hand-typed: ${list(top, 4)})` : ""}.`,
-      };
-    }
-    case "radius": {
-      const top = byHand(data.radii).map((r) => r.value);
-      return {
-        section: "radius",
-        severity: "info",
-        message:
-          `${pct}% of corner-radius declarations ${ofN} are hand-typed (rounded-[…]) rather than theme radii` +
-          `${top.length ? ` (most hand-typed: ${list(top, 4)})` : ""}.`,
-      };
-    }
-    case "spacing": {
-      const top = byHand(data.spacing).map((s) => `${s.px}px`);
-      return {
-        section: "spacing",
-        severity: "info",
-        message:
-          `${pct}% of padding declarations ${ofN} are hand-typed (p-[…]) rather than spacing-scale steps` +
-          `${top.length ? ` (most hand-typed: ${list(top, 4)})` : ""}.`,
-      };
-    }
+  const totals = data.system?.handTyped.color;
+  if (!totals) return null;
+  let { declarations, handTyped } = totals;
+  for (const c of data.colors) {
+    if (colors.includes(c)) continue;
+    declarations -= c.declarations ?? 0;
+    handTyped -= c.handTyped ?? 0;
   }
+  if (declarations < HAND_TYPED_COLOR.minDeclarations) return null;
+  const share = handTyped / declarations;
+  if (share <= HAND_TYPED_COLOR.share) return null;
+  const top = colors
+    .filter((c) => (c.handTyped ?? 0) > 0)
+    .sort((a, b) => b.handTyped! - a.handTyped! || b.count - a.count)
+    .map((c) => c.hex);
+  return {
+    section: "color",
+    severity: "warn",
+    message:
+      `${Math.round(share * 100)}% of color declarations (${handTyped} of ${declarations}) are hand-typed ` +
+      `arbitrary values (text-[#…], bg-[#…]) rather than theme tokens` +
+      `${share >= HAND_TYPED_COLOR.noLayer ? " — there is no color token layer" : " — most colors bypass the theme"}` +
+      `${top.length ? ` (most hand-typed: ${list(top, 4)})` : ""}.`,
+  };
+}
+
+/** One section's off-scale values, as the finding lists them. */
+interface OffScaleValue {
+  px: number;
+  handTyped: number;
+  count: number;
+}
+
+/**
+ * The off-scale finding for one section: the hand-typed values off the 2px
+ * scale, most hand-typed first, or null when there are none.
+ */
+function offScaleFlag(
+  section: "typography" | "radius" | "spacing",
+  values: OffScaleValue[],
+): DesignFlag | null {
+  // One entry per px: a size hand-typed in two type styles is one value to move.
+  const byPx = new Map<number, OffScaleValue>();
+  for (const v of values) {
+    const seen = byPx.get(v.px);
+    byPx.set(v.px, seen ? { px: v.px, handTyped: seen.handTyped + v.handTyped, count: seen.count + v.count } : v);
+  }
+  if (byPx.size === 0) return null;
+  const px = [...byPx.values()]
+    .sort((a, b) => b.handTyped - a.handTyped || b.count - a.count)
+    .map((v) => `${v.px}px`);
+  const what = {
+    typography: ["font sizes", "text-[…]", "a step of the type scale"],
+    radius: ["corner radii", "rounded-[…]", "a theme radius"],
+    spacing: ["padding values", "p-[…]", "a spacing-scale step"],
+  }[section];
+  return {
+    section,
+    severity: section === "typography" ? "warn" : "info",
+    message:
+      `Hand-typed ${what[0]} off the 2px scale (${what[1]}): ${list(px, 6)} — ` +
+      `use ${what[2]}, or at least an even value.`,
+  };
 }
 
 /**
  * Rule-based checks over the aggregated data. Pure function of its input so
  * it's easy to test and the AI layer can quote the same findings verbatim.
+ * `dismissed` values are left out of every check in their section.
  */
-export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
+export function buildDesignFlags(
+  data: PolishdDesignData,
+  dismissed: DesignDismissedValues = {},
+): DesignFlag[] {
   const flags: DesignFlag[] = [];
   if (data.pages.length === 0) return flags;
   const pushIf = (flag: DesignFlag | null) => {
     if (flag) flags.push(flag);
   };
+  const kept = (key: string | null) => key === null || !(key in dismissed);
+  const fonts = data.fonts.filter((f) => kept(typeKey(f.sizePx)));
+  const colors = data.colors.filter((c) => kept(colorKey(c.hex)));
+  const contrast = data.contrast.filter((p) => !contrastDismissal(dismissed, p.fg, p.bg));
+  const radii = data.radii.filter((r) => kept(radiusKey(r.value)));
+  const spacing = data.spacing.filter((s) => kept(spacingKey(s.px)));
 
   // Typography ---------------------------------------------------------------
-  const sizes = [...new Set(data.fonts.map((f) => f.sizePx))].sort((a, b) => a - b);
+  const sizes = [...new Set(fonts.map((f) => f.sizePx))].sort((a, b) => a - b);
   if (sizes.length > LIMITS.fontSizes) {
     flags.push({
       section: "typography",
@@ -164,7 +190,7 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
       });
     }
   }
-  const weights = [...new Set(data.fonts.map((f) => f.weight))].sort((a, b) => a - b);
+  const weights = [...new Set(fonts.map((f) => f.weight))].sort((a, b) => a - b);
   if (weights.length > LIMITS.fontWeights) {
     flags.push({
       section: "typography",
@@ -172,15 +198,16 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
       message: `${weights.length} font weights in use (${weights.join(", ")}) — hierarchies usually need 3–4.`,
     });
   }
-  const tiny = data.fonts.filter((f) => f.sizePx < 11 && f.count >= 3);
+  const tiny = fonts.filter((f) => f.sizePx <= TINY_TEXT_PX && f.count >= 3);
   if (tiny.length > 0) {
+    const tinySizes = [...new Set(tiny.map((t) => t.sizePx))].sort((a, b) => b - a);
     flags.push({
       section: "typography",
       severity: "warn",
-      message: `Text below 11px found (${[...new Set(tiny.map((t) => `${t.sizePx}px`))].join(", ")}) — hard to read on most screens.`,
+      message: `Text at ${TINY_TEXT_PX}px or smaller (${tinySizes.map((s) => `${s}px`).join(", ")}) — too small to read on most screens.`,
     });
   }
-  const oneOffs = data.fonts.filter((f) => f.outlier);
+  const oneOffs = fonts.filter((f) => f.outlier);
   if (oneOffs.length >= 3) {
     const declared = oneOffs.every((f) => f.declarations !== undefined);
     flags.push({
@@ -191,10 +218,15 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
         : `${oneOffs.length} one-off type styles appear on a single page each — candidates to fold into the scale.`,
     });
   }
-  pushIf(handTypedFlag(data, "fontSize"));
+  pushIf(
+    offScaleFlag(
+      "typography",
+      fonts.filter((f) => f.offScale).map((f) => ({ px: f.sizePx, handTyped: f.handTyped ?? 0, count: f.count })),
+    ),
+  );
 
   // Color ----------------------------------------------------------------------
-  const opaque = data.colors.filter((c) => c.hex.length === 7);
+  const opaque = colors.filter((c) => c.hex.length === 7);
   if (opaque.length > LIMITS.colors) {
     flags.push({
       section: "color",
@@ -202,7 +234,7 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
       message: `${opaque.length} distinct colors rendered site-wide — palettes past ~${LIMITS.colors} usually mean drifted one-off values rather than a system.`,
     });
   }
-  pushIf(handTypedFlag(data, "color"));
+  pushIf(handTypedColorFlag(data, colors));
   // Near-duplicates among the meaningfully used colors.
   const used = opaque.filter((c) => c.count >= 3).slice(0, 32);
   const dupes: string[] = [];
@@ -221,7 +253,7 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
   }
 
   // Contrast -------------------------------------------------------------------
-  const failing = data.contrast.filter((p) => !p.passes && p.count >= 2);
+  const failing = contrast.filter((p) => !p.passes && p.count >= 2);
   for (const p of failing.slice(0, 5)) {
     flags.push({
       section: "contrast",
@@ -233,7 +265,7 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
   }
 
   // Radius ----------------------------------------------------------------------
-  const distinctRadii = data.radii.filter((r) => r.value !== "full" && !r.value.includes("mixed"));
+  const distinctRadii = radii.filter((r) => r.value !== "full" && !r.value.includes("mixed"));
   if (distinctRadii.length > LIMITS.radii) {
     flags.push({
       section: "radius",
@@ -243,36 +275,29 @@ export function buildDesignFlags(data: PolishdDesignData): DesignFlag[] {
         `most systems settle on 2–4 (e.g. small, medium, full).`,
     });
   }
-  pushIf(handTypedFlag(data, "radius"));
+  pushIf(
+    offScaleFlag(
+      "radius",
+      radii.filter((r) => r.offScale).map((r) => ({ px: radiusPx(r.value), handTyped: r.handTyped ?? 0, count: r.count })),
+    ),
+  );
 
   // Spacing ----------------------------------------------------------------------
-  // Share of decisions, not of rendered sides: one off-grid class repeated
-  // down a table is one thing to fix.
-  // Scans from before declarations weigh each use as a decision, row by row.
-  const declared =
-    data.spacing.length > 0 && data.spacing.every((v) => v.declarations !== undefined && !v.legacyUses);
-  const weight = decisions;
-  const totalPad = data.spacing.reduce((s, v) => s + weight(v), 0);
-  const offGrid = data.spacing.filter((v) => v.offGrid).sort((a, b) => weight(b) - weight(a) || b.count - a.count);
-  const offGridShare = totalPad > 0 ? offGrid.reduce((s, v) => s + weight(v), 0) / totalPad : 0;
-  if (offGridShare > 0.25 && offGrid.length >= 3) {
-    const grid = data.system?.tailwind ? "the 4px grid and Tailwind's spacing scale" : "a 4px grid";
+  // Only what's hand-typed off the 2px scale is pointed out: there is no grid
+  // to hold padding to, and a value from the theme is the system.
+  pushIf(
+    offScaleFlag(
+      "spacing",
+      spacing.filter((s) => s.offScale).map((s) => ({ px: s.px, handTyped: s.handTyped ?? 0, count: s.count })),
+    ),
+  );
+  if (spacing.length > LIMITS.spacingValues) {
     flags.push({
       section: "spacing",
       severity: "info",
-      message:
-        `${Math.round(offGridShare * 100)}% of padding ${declared ? "declarations" : "values"} sit off ${grid} ` +
-        `(${list(offGrid.map((v) => `${v.px}px`), 6)}) — consistent rhythm usually comes from a 4px or 8px base unit.`,
+      message: `${spacing.length} distinct padding values in use — a spacing scale of 6–10 steps covers most interfaces.`,
     });
   }
-  if (data.spacing.length > LIMITS.spacingValues) {
-    flags.push({
-      section: "spacing",
-      severity: "info",
-      message: `${data.spacing.length} distinct padding values in use — a spacing scale of 6–10 steps covers most interfaces.`,
-    });
-  }
-  pushIf(handTypedFlag(data, "spacing"));
 
   return flags;
 }
