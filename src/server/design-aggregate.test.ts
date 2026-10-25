@@ -5,7 +5,7 @@
  * shapes included, since installs on older package versions (and the
  * telemetry collector, which ingests every version at once) keep writing
  * them. An old payload must aggregate exactly as it always did: counts kept,
- * declarations unknown, the per-use one-off reading, the plain 4px grid.
+ * declarations unknown, the per-use one-off reading, nothing hand-typed.
  *
  * The subject imports its siblings without file extensions, as the build
  * requires, so this file teaches its own test process to try `.ts` for those
@@ -70,12 +70,12 @@ test("an old-shape payload aggregates as it always did", () => {
   );
   assert.equal(data.colors.find((c) => c.hex === "#fafafa")?.outlier, true);
   assert.equal(data.radii.find((r) => r.value === "6px")?.outlier, true);
-  // No class names were read: not a Tailwind site, nothing hand-typed, 6/10/2px off the 4px grid.
+  // No class names were read: not a Tailwind site, nothing hand-typed, so nothing off-scale.
   assert.equal(data.system?.tailwind, false);
   assert.deepEqual(data.system?.handTyped.color, { declarations: 0, handTyped: 0 });
-  assert.deepEqual(data.spacing.filter((s) => s.offGrid).map((s) => s.px), [6, 10, 2]);
-  assert.ok(data.flags.some((f) => f.message.startsWith("29% of padding values sit off a 4px grid (6px, 10px, 2px)")));
-  assert.ok(!data.flags.some((f) => /hand-typed/.test(f.message)));
+  assert.deepEqual(data.spacing.filter((s) => s.offScale).map((s) => s.px), []);
+  assert.ok(!data.flags.some((f) => /grid|off the 2px scale/.test(f.message)));
+  assert.ok(!data.flags.some((f) => /hand-typed/i.test(f.message)));
 });
 
 test("old and new scans merge row by row: old uses beside new declarations", () => {
@@ -179,13 +179,14 @@ test("declarations merge across pages by id: a shared class is one decision", ()
     });
   const data = aggregateDesignScans([page("/", [[6, 40, 2, 0, "d1 d2"]]), page("/orders"), page("/about")]);
   const radius = data.radii.find((r) => r.value === "6px")!;
-  assert.deepEqual([radius.count, radius.declarations, radius.handTyped], [123, 1, 1]);
+  assert.deepEqual([radius.count, radius.declarations, radius.handTyped, radius.offScale], [123, 1, 1, false]);
   const nine = data.spacing.find((s) => s.px === 9)!;
-  assert.deepEqual([nine.count, nine.declarations, nine.offGrid], [456, 5, true]);
+  assert.deepEqual([nine.count, nine.declarations, nine.offScale], [456, 5, true]);
   // 8px had 6 declarations but only 5 ids fit: a lower bound, never more than measured.
   assert.equal(data.spacing.find((s) => s.px === 8)!.declarations, 6);
-  // Tailwind's 6px step is on-grid here.
-  assert.equal(data.spacing.find((s) => s.px === 6)!.offGrid, false);
+  // 6px is on the 2px scale, and from the theme besides.
+  assert.equal(data.spacing.find((s) => s.px === 6)!.offScale, false);
+  assert.ok(data.flags.some((f) => f.message.startsWith("Hand-typed padding values off the 2px scale (p-[…]): 9px")));
 });
 
 test("malformed rows are skipped, never fatal", () => {

@@ -4,7 +4,7 @@
  * Run with `npm test`. The cases to hold: the pages are the ones visitors
  * reach; every first screen goes, light then dark; the value pictures go in
  * the order a picture can settle them — contrast first, a spread of
- * one-offs next, off-grid padding only to fill — and never past the cap.
+ * one-offs next, off-scale padding only to fill — and never past the cap.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -37,6 +37,7 @@ const font = (family: string, sizePx: number, weight: number, outlier: boolean) 
   tags: ["p"],
   pages: ["/pricing"],
   outlier,
+  offScale: false,
 });
 const color = (hex: string, outlier: boolean, roles = { text: 1, background: 0, border: 0 }) => ({
   hex,
@@ -46,8 +47,8 @@ const color = (hex: string, outlier: boolean, roles = { text: 1, background: 0, 
   pct: 1,
   outlier,
 });
-const radius = (value: string, outlier: boolean) => ({ value, count: 2, pages: ["/"], outlier });
-const spacing = (px: number, offGrid: boolean) => ({ px, count: 2, pages: ["/"], offGrid, outlier: offGrid });
+const radius = (value: string, outlier: boolean) => ({ value, count: 2, pages: ["/"], outlier, offScale: false });
+const spacing = (px: number, offScale: boolean) => ({ px, count: 2, pages: ["/"], offScale, outlier: offScale });
 
 const data: PolishdDesignData = {
   ...EMPTY_DESIGN_DATA,
@@ -105,7 +106,7 @@ test("values are described from the measurements behind their keys", () => {
   assert.equal(describeValue("color:#777777", data), "text color #777777, failing WCAG AA on #ffffff (4.48:1 at 13px)");
   assert.equal(describeValue("color:#fafafa", data), "background color #fafafa (one-off)");
   assert.equal(describeValue("radius:6px", data), "corner radius 6px (one-off)");
-  assert.equal(describeValue("spacing:13", data), "padding 13px (off-grid)");
+  assert.equal(describeValue("spacing:13", data), "padding 13px (off-scale)");
   assert.equal(describeValue("spacing:16", data), "padding 16px");
   assert.equal(describeValue("odd:thing", data), "odd:thing");
 });

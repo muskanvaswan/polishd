@@ -358,8 +358,10 @@ export interface PolishdDesignUsage {
   /** Distinct declarations choosing it, and how many hand-typed it. Absent on older scans. */
   declarations?: number;
   handTyped?: number;
-  /** Flagged by the deterministic review: a one-off, or off-grid padding. */
+  /** Flagged by the deterministic review: a one-off, or hand-typed off the 2px scale. */
   flagged: boolean;
+  /** Which of the two, when flagged; a one-off that's also off-scale reads as a one-off. */
+  flag?: "one-off" | "off-scale";
   preview?: PolishdDesignUsagePreview;
 }
 

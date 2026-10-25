@@ -211,10 +211,9 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
 
   const system = data.system;
   if (system?.tailwind) {
-    // `px` is a literal 1px; the half steps scale with the root size.
-    const halfSteps = [1, ...[2, 6, 10, 14].map((n) => Math.round((n * system.remPx) / 16))];
     lines.push(
-      `STYLING: Tailwind CSS. Its default spacing scale is on-grid, including the ${halfSteps.join(", ")}px steps.`,
+      "STYLING: Tailwind CSS. A value from its theme is a token whatever it renders as (the 6px `1.5` spacing " +
+        "step included); only a hand-typed arbitrary value (p-[13px]) bypasses the theme.",
     );
   }
   if (system) {
@@ -244,7 +243,8 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
     for (const f of data.fonts.slice(0, 20)) {
       lines.push(
         `  - ${f.family} ${f.sizePx}px/${f.weight}: ${usage(f)}, ${f.pages.length} pages` +
-          `${f.tags.length ? ` (${f.tags.join(",")})` : ""}${f.outlier ? " [one-off]" : ""}`,
+          `${f.tags.length ? ` (${f.tags.join(",")})` : ""}${f.outlier ? " [one-off]" : ""}` +
+          `${f.offScale ? " [off-scale]" : ""}`,
       );
     }
   }
@@ -277,20 +277,27 @@ export function buildDesignDigest(data: PolishdDesignData, context?: string): st
   if (data.radii.length) {
     lines.push(
       `CORNER RADII (value ×uses${declared ? "/decl" : ""}): ` +
-        data.radii.map((r) => `${r.value} ${tally(r)}${r.outlier ? " [one-off]" : ""}`).join(", ") +
+        data.radii
+          .map((r) => `${r.value} ${tally(r)}${r.outlier ? " [one-off]" : ""}${r.offScale ? " [off-scale]" : ""}`)
+          .join(", ") +
         marks,
     );
   }
 
   if (data.spacing.length) {
-    const grid = system?.tailwind ? "the 4px grid and Tailwind's scale" : "the 4px grid";
     lines.push(
       `PADDING VALUES (px ×uses${declared ? "/decl" : ""}): ` +
         data.spacing
           .slice(0, 18)
-          .map((s) => `${s.px} ${tally(s)}${s.offGrid ? "*" : ""}`)
+          .map((s) => `${s.px} ${tally(s)}${s.offScale ? " [off-scale]" : ""}`)
           .join(", ") +
-        `  (* = off ${grid})${marks}`,
+        marks,
+    );
+  }
+  if ([data.fonts, data.radii, data.spacing].some((l) => l.some((v) => v.offScale))) {
+    lines.push(
+      "[off-scale] = hand-typed as an arbitrary value and not a multiple of 2px. Sizes are not held to a 4px or " +
+        "8px grid: an even value, or any value from the theme, is on the scale.",
     );
   }
 

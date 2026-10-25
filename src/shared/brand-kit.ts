@@ -8,8 +8,8 @@
  *
  *   • **One-offs are left out.** Anything the Design tab badges one-off, plus
  *     the padding values that pass the same test (the tab marks padding by
- *     grid instead — off-grid is a different question, and a value used all
- *     over the site is part of the system whatever grid it sits on). A
+ *     scale instead — off-scale is a different question, and a value used all
+ *     over the site is part of the system however it was typed). A
  *     one-off is a value decided once (shared/design-values.ts), so a badge
  *     class repeated down a table is still one.
  *   • **Near-duplicate colors fold together.** `#fefefe` beside `#ffffff` is

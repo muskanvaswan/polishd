@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Design tab: quieter notes, a 2px scale for hand-typed values, and ignored issues leave the checks
+
+The Design tab opened each section with a large amber callout, held padding to
+a 4px grid it was never meant to follow, called 9–10px text unreadable, and
+kept raising a finding after the owner had ignored the review issue about it.
+
+- Each section's rule-based findings sit in one quiet neutral note, a dot per
+  line in its severity's color. Amber stays on the values themselves.
+- Nothing is held to a 4px or 8px grid. A font size, corner radius or padding
+  is flagged only when it's hand-typed as an arbitrary value (`text-[15px]`,
+  `rounded-[5px]`, `p-[13px]`) and isn't a multiple of 2px. Values from the
+  theme are never flagged, nor are even hand-typed ones. Rows badge these
+  `off-scale` (it replaces `off-grid`), and the share-based "hand-typed font
+  sizes / radii / padding" findings are gone. Hand-typed colors are still
+  reported by share.
+- Text is flagged as too small to read only at 8px or below.
+- Ignoring a design-review issue, or marking it fixed, takes the values it
+  cites out of every check in their section (`server/design-dismissals.ts`):
+  the notes and counts leave them out, and their rows show a neutral
+  `ignored`/`fixed` badge with the issue and reason on hover. Undoing the
+  dismissal brings them back. An issue whose evidence names no values is read
+  from its wording instead; one that names none anywhere can't be placed.
+- The AI review's digest marks `[off-scale]` values and no longer describes a
+  4px grid.
+
 ### JavaScript errors are no longer tracked
 
 An error reached the dashboard as a message and a position in a minified

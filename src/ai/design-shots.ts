@@ -65,7 +65,7 @@ const contrastKey = (fg: string) => `color:${fg.toLowerCase()}`;
  * The values a review capture looks for: the text colors of measured
  * contrast failures first — the one finding a picture can show plainly —
  * then everything the Design tab flags (one-off type styles, colors and
- * radii, off-grid padding), each once.
+ * radii, off-scale type, radii and padding), each once.
  */
 export function designReviewTargets(data: PolishdDesignData): DesignPreviewTarget[] {
   const out: DesignPreviewTarget[] = [];
@@ -117,7 +117,7 @@ const kindOf = (key: string): "font" | "color" | "radius" | "spacing" | null => 
  * The order flagged values are worth a look in. Contrast failures first: a
  * picture settles legibility. Then one-off type styles, colors and radii in
  * turn, each list in the Design tab's order (most used first), so the model
- * sees a spread rather than six strays of one kind. Off-grid padding last,
+ * sees a spread rather than six strays of one kind. Off-scale padding last,
  * and only to fill: a pixel of padding isn't something a scaled screenshot
  * can show.
  */
@@ -155,7 +155,7 @@ export function describeValue(key: string, data: PolishdDesignData): string {
       const measured = data.fonts.find(
         (f) => f.family === family && String(f.sizePx) === size && String(f.weight) === weight,
       );
-      return measured?.outlier ? `${style} (one-off)` : style;
+      return measured?.outlier ? `${style} (one-off)` : measured?.offScale ? `${style} (off-scale)` : style;
     }
     case "color": {
       const hex = rest.toLowerCase();
@@ -171,11 +171,11 @@ export function describeValue(key: string, data: PolishdDesignData): string {
     }
     case "radius": {
       const measured = data.radii.find((r) => r.value === rest);
-      return `corner radius ${rest}${measured?.outlier ? " (one-off)" : ""}`;
+      return `corner radius ${rest}${measured?.outlier ? " (one-off)" : measured?.offScale ? " (off-scale)" : ""}`;
     }
     case "spacing": {
       const measured = data.spacing.find((s) => String(s.px) === rest);
-      return `padding ${rest}px${measured?.offGrid ? " (off-grid)" : ""}`;
+      return `padding ${rest}px${measured?.offScale ? " (off-scale)" : ""}`;
     }
     default:
       return key;

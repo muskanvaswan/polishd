@@ -749,7 +749,11 @@ function VerdictDialog({
         <h2 id="polishd-verdict-title" className="text-[16px] font-semibold text-fg">
           {copy.title}
         </h2>
-        <p className="mt-2 text-[12.5px] leading-relaxed text-fg-3">{copy.body}</p>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-fg-3">
+          {copy.body}
+          {item.a.finding?.source === "design" &&
+            " The values it cites also leave the Design tab's rule-based checks."}
+        </p>
         <label className="mt-4 block">
           <span className="sr-only">{copy.placeholder}</span>
           {/* Body-sized and quiet on focus: a note, not a form. ⌘/Ctrl+Enter

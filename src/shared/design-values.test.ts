@@ -5,12 +5,13 @@ import type { PolishdDesignData } from "../server/design";
 import {
   designPreviewTargets,
   designValueKey,
-  isOffGrid,
+  isOffScale,
   isOneOff,
   mergeDeclarations,
+  onScale,
   ONE_OFF_RULES,
+  radiusPx,
   sectionTotals,
-  tailwindSpacingPx,
   unpicturedReason,
 } from "./design-values.ts";
 
@@ -40,12 +41,13 @@ function data(overrides: Partial<PolishdDesignData>): PolishdDesignData {
   };
 }
 
-test("only flagged values become targets, one-offs before off-grid spacing", () => {
+test("only flagged values become targets: one-offs, then off-scale type and radii, then padding", () => {
   const targets = designPreviewTargets(
     data({
       fonts: [
-        { family: "Inter", sizePx: 16, weight: 400, count: 400, sample: null, tags: [], pages: ["/"], outlier: false },
-        { family: "Inter", sizePx: 17, weight: 500, count: 1, sample: null, tags: [], pages: ["/pricing"], outlier: true },
+        { family: "Inter", sizePx: 16, weight: 400, count: 400, sample: null, tags: [], pages: ["/"], outlier: false, offScale: false },
+        { family: "Inter", sizePx: 13, weight: 400, count: 30, sample: null, tags: [], pages: ["/"], outlier: false, offScale: true },
+        { family: "Inter", sizePx: 17, weight: 500, count: 1, sample: null, tags: [], pages: ["/pricing"], outlier: true, offScale: false },
       ],
       colors: [
         {
@@ -57,20 +59,23 @@ test("only flagged values become targets, one-offs before off-grid spacing", () 
           outlier: true,
         },
       ],
-      radii: [{ value: "7px", count: 1, pages: ["/"], outlier: true }],
+      radii: [
+        { value: "7px", count: 1, pages: ["/"], outlier: true, offScale: true },
+        { value: "5px", count: 9, pages: ["/"], outlier: false, offScale: true },
+      ],
       spacing: [
-        { px: 8, count: 90, pages: ["/"], offGrid: false, outlier: false },
-        { px: 7, count: 3, pages: ["/"], offGrid: true, outlier: false },
-        { px: 9, count: 40, pages: ["/", "/about"], offGrid: true, outlier: false },
+        { px: 8, count: 90, pages: ["/"], offScale: false, outlier: false },
+        { px: 7, count: 3, pages: ["/"], offScale: true, outlier: false },
+        { px: 9, count: 40, pages: ["/", "/about"], offScale: true, outlier: false },
       ],
     }),
   );
   assert.deepEqual(
     targets.map((t) => t.key),
-    ["font:Inter|17|500", "color:#fafafa", "radius:7px", "spacing:9", "spacing:7"],
+    ["font:Inter|17|500", "color:#fafafa", "radius:7px", "font:Inter|13|400", "radius:5px", "spacing:9", "spacing:7"],
   );
   assert.deepEqual(targets[1].ref, { kind: "color", hex: "#fafafa", roles: ["background"] });
-  assert.deepEqual(targets[3].pages, ["/", "/about"]);
+  assert.deepEqual(targets[5].pages, ["/", "/about"]);
 });
 
 test("a value measured only on dashboard pseudo-pages waits for a local capture", () => {
@@ -87,11 +92,11 @@ test("a value whose pages the latest snapshot didn't shoot says so", () => {
   assert.equal(unpicturedReason([], ["/"]), "capture");
 });
 
-test("every off-grid padding is a target, most used first", () => {
+test("every off-scale padding is a target, most used first", () => {
   const spacing = Array.from({ length: 12 }, (_, i) => ({
     px: 3 + i * 2,
     count: i + 1,
-    offGrid: true,
+    offScale: true,
     pages: ["/"],
   }));
   const data = { fonts: [], colors: [], radii: [], spacing } as unknown as PolishdDesignData;
@@ -189,16 +194,16 @@ test("a large old page never loosens the declaration check for new pages", () =>
   assert.ok(rare.every((v) => !isOneOff(v, withOld, ONE_OFF_RULES.font)), "still declared twice each");
 });
 
-test("Tailwind's half steps are on-grid on a Tailwind site, and only there", () => {
-  const tailwind = { tailwind: true, remPx: 16 };
-  for (const px of [1, 2, 6, 10, 14]) {
-    assert.equal(isOffGrid(px, tailwind), false, `${px}px`);
-    assert.equal(isOffGrid(px), true, `${px}px without Tailwind`);
-  }
-  for (const px of [3, 5, 7, 9, 13, 15, 18]) assert.equal(isOffGrid(px, tailwind), true, `${px}px`);
-  for (const px of [4, 8, 12, 24]) assert.equal(isOffGrid(px), false);
-  // The scale is in rem: at a 10px root, `p-1.5` renders 4px and `p-3.5` 9px.
-  assert.equal(tailwindSpacingPx(10).has(9), true);
-  assert.equal(isOffGrid(9, { tailwind: true, remPx: 10 }), false);
-  assert.equal(isOffGrid(9, tailwind), true);
+test("the scale is 2px steps, and only hand-typed values are held to it", () => {
+  for (const px of [0, 2, 4, 6, 10, 14, 18, 22]) assert.equal(onScale(px), true, `${px}px`);
+  for (const px of [1, 3, 9, 13, 15, 12.5, 14.4]) assert.equal(onScale(px), false, `${px}px`);
+  // Read to the hundredth: a rem value that lands a hair off still counts.
+  assert.equal(onScale(16.001), true);
+  // From the theme — or a site whose class names were never read — nothing is off-scale.
+  assert.equal(isOffScale(13, { handTyped: 0 }), false);
+  assert.equal(isOffScale(13, {}), false);
+  assert.equal(isOffScale(13, { handTyped: 1 }), true);
+  assert.equal(isOffScale(18, { handTyped: 4 }), false, "an even hand-typed value keeps the rhythm");
+  assert.equal(isOffScale(radiusPx("full"), { handTyped: 1 }), false);
+  assert.equal(radiusPx("5px (mixed)"), 5);
 });
