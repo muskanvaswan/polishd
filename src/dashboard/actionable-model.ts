@@ -147,6 +147,30 @@ export function groupActionables(
   return { open, tracked };
 }
 
+/**
+ * Whether an actionable is done with as far as the tracker goes: its issue
+ * is closed on GitHub (fixed or not planned), or GitHub won't return it any
+ * more — deleted, transferred, or beyond what the token covers — so polishd
+ * can't follow it. Only known when the tracker was read: an issue filed in
+ * this session, or listed without its live state, isn't either.
+ */
+export function isClosedOrUntracked(a: Actionable): boolean {
+  return !!a.filed && (a.filed.detail === null || a.filed.detail.state === "closed");
+}
+
+/**
+ * The list split as the tab shows it: what's current in the main list, and
+ * what's closed or untracked, tucked into the collapsed Closed menu at the
+ * bottom. Order is kept within each. `of` reads the actionable out of
+ * whatever the list holds (the client list's rows carry one each).
+ */
+export function splitClosed<T>(list: readonly T[], of: (t: T) => Actionable): { current: T[]; closed: T[] } {
+  const current: T[] = [];
+  const closed: T[] = [];
+  for (const t of list) (isClosedOrUntracked(of(t)) ? closed : current).push(t);
+  return { current, closed };
+}
+
 /** The list as rendered: open first, then tracked. */
 export function buildActionables(
   losses: readonly PolishdLossItem[],

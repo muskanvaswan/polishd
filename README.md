@@ -503,8 +503,10 @@ The **Actionables** tab is the one list of everything worth fixing: the
 summary's losses, the design review's issues, and every issue polishd has
 filed for any of them, whether you clicked **File bug** yourself or auto-filing
 did it for you. What still needs a decision comes first — losses, then design
-issues, each in its review's order — then what's already in the tracker, open
-before closed, newest first. A filed issue whose finding is no longer in the
+issues, each in its review's order — then what's open in the tracker, newest
+first. Issues closed on GitHub, and ones GitHub no longer returns (deleted,
+transferred, or beyond what the token covers), leave it for a separate
+**Closed** list below, collapsed until opened, rows and drawer intact. A filed issue whose finding is no longer in the
 current summary or review (fixed, dismissed, or re-worded away) stays listed on
 its own, so filing is never the last you hear of it. The tab is always there;
 without a GitHub connection it lists the findings and lets them be ignored, and

@@ -7,7 +7,9 @@ import {
   actionableTitle,
   buildActionables,
   groupActionables,
+  isClosedOrUntracked,
   logKey,
+  splitClosed,
 } from "./actionable-model.ts";
 
 const loss = (issue: string, evidence: string, extra: Partial<PolishdLossItem> = {}): PolishdLossItem => ({
@@ -114,4 +116,30 @@ test("two design issues citing the same evidence are two actionables sharing one
   assert.equal(all.length, 2);
   assert.ok(all.every((a) => a.link?.number === 21));
   assert.notEqual(all[0].id, all[1].id);
+});
+
+test("closed and untracked issues are split off for the Closed menu, order kept", () => {
+  const list = buildActionables(
+    [loss("Export does nothing", "ExportButton"), loss("Hero looks clickable", "div.hero"), loss("Not filed yet", "div.x")],
+    [],
+    [
+      filed(12, "ExportButton", "open", 3),
+      filed(11, "div.hero", "closed", 2),
+      // GitHub won't return it: deleted, transferred, or out of the token's reach.
+      filed(9, "OldThing", null, 1),
+      filed(8, "Older", "closed", 0),
+    ],
+  );
+  const { current, closed } = splitClosed(list, (a) => a);
+  assert.deepEqual(
+    current.map((a) => actionableTitle(a)),
+    ["Not filed yet", "Export does nothing"],
+  );
+  assert.deepEqual(
+    closed.map((a) => a.link?.number),
+    [9, 11, 8],
+  );
+  // An issue filed this session, or listed without its live state, isn't known to be either.
+  const unread = buildActionables([loss("Just filed", "div.y", { issueUrl: "https://github.com/o/r/issues/20", issueNumber: 20 })], [], []);
+  assert.equal(isClosedOrUntracked(unread[0]), false);
 });

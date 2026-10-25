@@ -49,6 +49,12 @@ the trigger phrase, so filing never starts a run, and a fix is asked for after.
   with the tab open or not: the tab reads every filed issue when it loads, and
   an issue again when it's opened; while an agent is still working, it reads
   again every 30 seconds. All reads.
+- **Closed issues get a list of their own.** Issues closed on GitHub, and ones
+  it no longer returns (deleted, transferred, or out of the token's reach),
+  leave the Actionables list for a separate **Closed** list below it, with its
+  own heading and card, collapsed until opened; it says how many there are
+  and how many can't be read, and its rows and drawer work as before
+  (`splitClosed` in `actionable-model.ts`).
 - **Suggest a fix steps aside for the agent.** The drawer's model-written fix
   plan now shows only where no coding agent can be asked — none set up,
   dispatch paused, or a new-issues-only workflow and an issue filed without a

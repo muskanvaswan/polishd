@@ -5,7 +5,9 @@
  *
  * One list for everything worth acting on: the analytics summary's losses,
  * the design review's issues, and the GitHub issues already filed for any of
- * them. Each row is one actionable (actionable-model.ts); clicking it opens a
+ * them — with the ones closed on GitHub, or that GitHub no longer returns,
+ * in a separate Closed list under the main one, collapsed until opened. The
+ * list draws its own cards, so the two can sit apart. Each row is one actionable (actionable-model.ts); clicking it opens a
  * drawer with everything behind it, so the dashboard stays in view while you
  * decide what to do with one.
  *
@@ -87,6 +89,7 @@ import {
   actionableTitle,
   buildActionables,
   findingKey,
+  splitClosed,
   type Actionable,
   type ActionableLink,
 } from "./actionable-model";
@@ -103,8 +106,10 @@ import {
   ChevronRightIcon,
   DropletIcon,
   IssueIcon,
+  SectionHeader,
   SpinnerIcon,
   XIcon,
+  card,
   divider,
   eyebrowCls,
   ghostBtn,
@@ -1846,6 +1851,53 @@ function ActionableDrawer({
   );
 }
 
+// ── The Closed list (below the main one) ──────────────────────────────────────
+
+/**
+ * Closed and untracked issues, as a list of their own under the main one,
+ * collapsed until asked for: closed on GitHub (fixed, or not planned), or no
+ * longer readable there (deleted, transferred, or beyond what the token
+ * covers). Their rows work as they do above — the drawer opens from them.
+ */
+function ClosedList({ items, row }: { items: Item[]; row: (item: Item) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  const untracked = items.filter((it) => it.a.filed?.detail === null).length;
+  return (
+    <section className="mt-10">
+      <SectionHeader
+        title={
+          <button
+            type="button"
+            data-component="actionable-closed-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-left transition-colors hover:text-fg-2"
+          >
+            <span aria-hidden className={`inline-flex text-fg-3 transition-transform duration-200 ${open ? "rotate-90" : ""}`}>
+              <ChevronRightIcon size={14} />
+            </span>
+            Closed
+            <span className="font-normal tabular-nums text-fg-3">{items.length}</span>
+          </button>
+        }
+        description={
+          <>
+            Issues closed on GitHub, and ones GitHub no longer returns
+            {untracked > 0 ? ` (${untracked} here, deleted, transferred or beyond what the token covers)` : ""}.
+            {!open && " Open it to see them."}
+          </>
+        }
+      />
+      {open && (
+        <div className={`${card} overflow-hidden`}>
+          <ul>{items.map(row)}</ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Exported list + drawer ────────────────────────────────────────────────────
 
 export interface ActionableListProps {
@@ -2176,8 +2228,11 @@ export default function ActionableList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey]);
 
-  const shown = limit !== undefined ? items.slice(0, limit) : items;
-  const hidden = items.length - shown.length;
+  // Closed and untracked issues leave the main list for the Closed menu at
+  // the bottom; what's current stays in view.
+  const { current: currentItems, closed: closedItems } = splitClosed(items, (it) => it.a);
+  const shown = limit !== undefined ? currentItems.slice(0, limit) : currentItems;
+  const hidden = currentItems.length - shown.length;
   const selected = items.find((it) => it.a.id === selectedId) ?? null;
 
   // Opening an issue reads it again: the agent may have answered since the
@@ -2189,38 +2244,47 @@ export default function ActionableList({
   }, [selectedNumber]);
   const confirmingItem = confirming ? (items.find((it) => it.a.id === confirming.id) ?? null) : null;
 
-  if (items.length === 0) return <>{empty}</>;
+  if (items.length === 0) return <div className={`${card} overflow-hidden`}>{empty}</div>;
+
+  const row = (item: Item) => (
+    <Row
+      key={item.a.id}
+      item={item}
+      canFile={githubConnected}
+      fileMode={fileMode}
+      onOpen={() => setSelectedId(item.a.id)}
+      onFile={(startFix) => void file(item.a, startFix)}
+      onVerdict={(kind) => verdict(item.a, kind)}
+      onCreateFix={() => item.link && void createFix(item.link.number)}
+      onCreatePr={() => item.link && void createPull(item.link.number)}
+    />
+  );
 
   return (
     <>
-      <ul>
-        {shown.map((item) => (
-          <Row
-            key={item.a.id}
-            item={item}
-            canFile={githubConnected}
-            fileMode={fileMode}
-            onOpen={() => setSelectedId(item.a.id)}
-            onFile={(startFix) => void file(item.a, startFix)}
-            onVerdict={(kind) => verdict(item.a, kind)}
-            onCreateFix={() => item.link && void createFix(item.link.number)}
-            onCreatePr={() => item.link && void createPull(item.link.number)}
-          />
-        ))}
-      </ul>
-      {hidden > 0 && (
-        <div className={`${divider} px-4 py-3 sm:px-5`}>
-          <TabLink
-            tab="actionables"
-            className="group inline-flex items-center gap-1 text-[12.5px] font-medium text-fg-2 transition-colors hover:text-fg"
-          >
-            {hidden} more {hidden === 1 ? "actionable" : "actionables"}
-            <span className="transition-transform group-hover:translate-x-0.5">
-              <ArrowRightIcon />
-            </span>
-          </TabLink>
-        </div>
-      )}
+      <div className={`${card} overflow-hidden`}>
+        {shown.length > 0 ? (
+          <ul>{shown.map(row)}</ul>
+        ) : (
+          <p className="px-4 py-4 text-[13px] leading-relaxed text-fg-3 sm:px-5">
+            Nothing open — everything here is closed on GitHub, or no longer readable there.
+          </p>
+        )}
+        {hidden > 0 && (
+          <div className={`${divider} px-4 py-3 sm:px-5`}>
+            <TabLink
+              tab="actionables"
+              className="group inline-flex items-center gap-1 text-[12.5px] font-medium text-fg-2 transition-colors hover:text-fg"
+            >
+              {hidden} more {hidden === 1 ? "actionable" : "actionables"}
+              <span className="transition-transform group-hover:translate-x-0.5">
+                <ArrowRightIcon />
+              </span>
+            </TabLink>
+          </div>
+        )}
+      </div>
+      <ClosedList items={closedItems} row={row} />
       <ActionableDrawer
         item={selected}
         repo={repo}
