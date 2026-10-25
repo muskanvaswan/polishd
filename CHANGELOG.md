@@ -291,8 +291,8 @@ of design tokens instead of hex values repeated across thirty files.
 - **Ink, in light and dark.** Pure neutral greys with no tint. The accent is
   the text colour itself, so the only colour on the page is status: green for
   healthy, amber for dead clicks, red for rage clicks and errors. Dark is
-  the default; a sun/moon toggle beside the wordmark switches to light and
-  back. The choice is remembered in a `polishd_theme` cookie scoped to the
+  the default; a muted sun/moon icon at the foot of the sidebar (beside the
+  wordmark on narrow screens) switches to light and back. The choice is remembered in a `polishd_theme` cookie scoped to the
   dashboard's path, so the server renders it on the next load with no flash
   of the other theme. Nothing is drawn with a gradient.
 - **The landing site's wordmark.** The sidebar and the lock screens carry the

@@ -35,6 +35,7 @@ import {
   useTransition,
   type MouseEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 import {
@@ -49,7 +50,6 @@ import {
   SpinnerIcon,
   SunIcon,
   card,
-  iconBtn,
 } from "./ui";
 import { POLISHD_THEME_COOKIE, type PolishdTheme } from "./theme";
 
@@ -162,6 +162,7 @@ export default function DashboardChrome({
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
   const [pending, startNav] = useTransition();
+  const [currentTheme, toggleTheme] = useThemeToggle(rootRef, theme);
   // The tab the owner asked for, held only until the server render arrives.
   const [target, setTarget] = useState<PolishdDashboardTab | null>(null);
 
@@ -196,7 +197,10 @@ export default function DashboardChrome({
       >
         <div className="flex flex-col gap-6 lg:flex-row lg:gap-12">
           <aside className="shrink-0 lg:w-48">
-            <div className="lg:sticky lg:top-10">
+            {/* Full height on wide screens, so the theme switch can sit at
+                the foot of the rail; the shell's top and bottom padding
+                (2.5rem + 4rem) is what's left of the viewport. */}
+            <div className="lg:sticky lg:top-10 lg:flex lg:h-[calc(100dvh-6.5rem)] lg:flex-col">
               <div className="lg:px-2.5">
                 <div className="flex items-start justify-between gap-3">
                   <TabLink
@@ -206,7 +210,8 @@ export default function DashboardChrome({
                   >
                     <BrandWordmark height={44} />
                   </TabLink>
-                  <ThemeToggle initial={theme} />
+                  {/* Narrow screens have no rail foot: it sits by the wordmark. */}
+                  <ThemeToggle theme={currentTheme} onToggle={toggleTheme} className="lg:hidden" />
                 </div>
                 <p className="mt-2 text-[11.5px] leading-snug text-fg-3">
                   What gets measured gets improved
@@ -247,6 +252,9 @@ export default function DashboardChrome({
                   );
                 })}
               </nav>
+              <div className="mt-auto hidden pt-6 lg:block">
+                <ThemeToggle theme={currentTheme} onToggle={toggleTheme} />
+              </div>
             </div>
           </aside>
           <div className="min-w-0 flex-1">
@@ -259,39 +267,57 @@ export default function DashboardChrome({
 }
 
 /**
- * The light/dark switch. Flips `data-theme` on the scope root at once — the
- * palette is all `--pd-*` variables, so nothing re-renders — and remembers the
- * choice in a cookie scoped to the dashboard's own path, which the server
- * reads to render the same theme on the next load (no flash of the other).
+ * The owner's light/dark choice. Flips `data-theme` on the scope root at once
+ * — the palette is all `--pd-*` variables, so nothing re-renders — and
+ * remembers it in a cookie scoped to the dashboard's own path, which the
+ * server reads to render the same theme on the next load (no flash).
  */
-function ThemeToggle({ initial }: { initial: PolishdTheme }) {
-  const ref = useRef<HTMLButtonElement>(null);
+function useThemeToggle(
+  inside: RefObject<HTMLElement | null>,
+  initial: PolishdTheme,
+): [PolishdTheme, () => void] {
   const [theme, setTheme] = useState<PolishdTheme>(initial);
 
   // A host rendering the chrome itself (PolishdDashboard) may not have read
   // the cookie: the root's attribute is the truth once we're on the page.
   useEffect(() => {
-    const current = ref.current?.closest(".polishd-root")?.getAttribute("data-theme");
+    const current = inside.current?.closest(".polishd-root")?.getAttribute("data-theme");
     if (current === "light" || current === "dark") setTheme(current);
-  }, []);
+  }, [inside]);
 
-  const next: PolishdTheme = theme === "dark" ? "light" : "dark";
   const toggle = () => {
-    ref.current?.closest(".polishd-root")?.setAttribute("data-theme", next);
+    const next: PolishdTheme = theme === "dark" ? "light" : "dark";
+    inside.current?.closest(".polishd-root")?.setAttribute("data-theme", next);
     document.cookie =
       `${POLISHD_THEME_COOKIE}=${next}; path=${location.pathname}; max-age=31536000; samesite=lax`;
     setTheme(next);
   };
+  return [theme, toggle];
+}
 
+/**
+ * The switch itself: just the icon, muted, brightening on hover. fg-3 keeps a
+ * lone icon control above the 3:1 non-text contrast it needs; the padding
+ * matches the tab rail's, so on the rail it lines up with the tab icons.
+ */
+function ThemeToggle({
+  theme,
+  onToggle,
+  className = "",
+}: {
+  theme: PolishdTheme;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const next: PolishdTheme = theme === "dark" ? "light" : "dark";
   return (
     <button
-      ref={ref}
       type="button"
       data-component="theme-toggle"
-      onClick={toggle}
+      onClick={onToggle}
       aria-label={`Switch to ${next} mode`}
       title={`Switch to ${next} mode`}
-      className={iconBtn}
+      className={`inline-flex h-8 shrink-0 items-center rounded-lg px-2.5 text-fg-3 transition-colors hover:text-fg ${className}`}
     >
       {theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />}
     </button>
