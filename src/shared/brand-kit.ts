@@ -740,7 +740,8 @@ export function buildBrandKit(data: PolishdDesignData): BrandKit {
 
 // ── As code ──────────────────────────────────────────────────────────────────
 
-function cssFamily(t: BrandKitTypeface): string {
+/** The typeface as a CSS `font-family` value: the family, then a fitting generic fallback. */
+export function cssFamily(t: BrandKitTypeface): string {
   const generic = t.generic ? t.family : `"${t.family.replace(/"/g, '\\"')}"`;
   const fallback = t.role === "Monospace" ? "ui-monospace, monospace" : /serif/i.test(t.name) && !/sans/i.test(t.name) ? "ui-serif, serif" : "ui-sans-serif, system-ui, sans-serif";
   return t.generic ? generic : `${generic}, ${fallback}`;

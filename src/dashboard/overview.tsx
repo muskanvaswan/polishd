@@ -3,54 +3,48 @@
 /**
  * Polishd — the Overview tab (client).
  *
- * The dashboard's front page: how many people use the site, what the
- * analytics summary and the design review found, and the site as it last
- * rendered — then the step after reading, a prompt that hands every problem
- * to the coding agent working in the repo. One button copies all of it; each
- * review's own button copies just its half.
+ * The dashboard's front page, laid out as a board: the site as it last
+ * rendered, in a gallery of its snapshots; its brand, the colors and
+ * typefaces the pages actually ship; who's using it, every headline number;
+ * and the story both reviews tell, as one summary. Then the step after
+ * reading — a prompt that hands every problem to the coding agent working in
+ * the repo, copied by the button in the header.
  *
- * The review cards are the very components the Analytics and Design tabs
- * render, so everything they do works here too: regenerate, ignore a loss,
- * file a bug. The panel listens to them and mirrors what they show, and the
- * prompt is built from that mirror at the moment of the click — an ignored
- * loss is already gone from it, a regenerated review already in it, a bug
- * filed a second ago already cited.
+ * The problems themselves aren't on this page. The losses and the design
+ * issues live on the Analytics and Design tabs with the controls that act on
+ * them (ignore, file a bug); the prompt still carries all of them, built at
+ * the moment of the click from the latest summary and review this page has —
+ * a regenerate from the summary card is in the very next copy.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import type {
   PolishdAISettingsPublic,
   PolishdDesignReview,
-  PolishdProjectProfile,
   PolishdSummary,
 } from "../ai/types";
 import type { DeviceBucket, MetricTrends, OverviewStats } from "../server/queries";
 import type { PolishdSnapshot } from "../server/snapshots";
-import { TabLink, type PolishdDashboardTab } from "./chrome";
+import type { BrandKit } from "../shared/brand-kit";
+import BrandBoard from "./brand-board";
+import BrandKitButton from "./brand-kit-button";
+import { TabLink } from "./chrome";
 import { copyText } from "./color-chip";
-import DesignReviewCard from "./design-review-card";
-import {
-  buildFixPrompt,
-  fixableCounts,
-  type FixPromptInput,
-  type FixPromptScope,
-} from "./fix-prompt";
+import { buildFixPrompt, fixableCounts, type FixPromptInput } from "./fix-prompt";
 import OverviewTiles from "./metric-trends";
-import { SnapshotStrip } from "./snapshots";
-import SummaryCard, { type LossChange } from "./summary";
+import Section from "./overview-section";
+import OverviewSummary from "./overview-summary";
+import SnapshotGallery from "./snapshot-gallery";
 import {
   CheckIcon,
   CopyIcon,
   InfoTip,
   border,
   card,
-  ghostBtn,
   inputCls,
   labelCls,
   primaryBtn,
 } from "./ui";
-
-type Filed = { url: string; number: number };
 
 export interface OverviewPanelProps {
   overview: OverviewStats;
@@ -59,17 +53,14 @@ export interface OverviewPanelProps {
   settings: PolishdAISettingsPublic;
   summary: PolishdSummary | null;
   summaryStale: boolean;
-  profile: PolishdProjectProfile | null;
-  /** Component identifiers in the analytics that the profile doesn't cover. */
-  gaps: string[];
-  /** Whether the app's source tree is on disk here. */
-  sourceAvailable: boolean;
   review: PolishdDesignReview | null;
   reviewStale: boolean;
-  /** Pages with a design scan — the review card needs at least one. */
+  /** Pages with a design scan — the review needs at least one. */
   scannedPages: number;
   /** The newest snapshot with any pictures in it, or null. */
   snapshot: PolishdSnapshot | null;
+  /** The brand kit curated from the design scans; null before the first scan. */
+  kit: BrandKit | null;
 }
 
 export default function OverviewPanel({
@@ -79,39 +70,17 @@ export default function OverviewPanel({
   settings,
   summary: initialSummary,
   summaryStale,
-  profile,
-  gaps,
-  sourceAvailable,
   review: initialReview,
   reviewStale,
   scannedPages,
   snapshot,
+  kit,
 }: OverviewPanelProps) {
-  // The cards own what they display; these mirror it for the prompt.
+  // The summary card owns what it displays; these mirror it for the prompt.
   const [summary, setSummary] = useState(initialSummary);
   const [review, setReview] = useState(initialReview);
-  const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
-  const [filedLosses, setFiledLosses] = useState<ReadonlyMap<string, Filed>>(() => new Map());
-  const [filedDesign, setFiledDesign] = useState<ReadonlyMap<string, Filed>>(() => new Map());
   /** Set when the clipboard refused a copy: the prompt, to copy by hand. */
   const [manual, setManual] = useState<string | null>(null);
-
-  const onLossChange = useCallback((evidence: string, change: LossChange) => {
-    if ("filed" in change) {
-      setFiledLosses((prev) => new Map(prev).set(evidence, change.filed));
-      return;
-    }
-    setIgnored((prev) => {
-      const next = new Set(prev);
-      if (change.ignored) next.add(evidence);
-      else next.delete(evidence);
-      return next;
-    });
-  }, []);
-
-  const onIssueFiled = useCallback((evidence: string, filed: Filed) => {
-    setFiledDesign((prev) => new Map(prev).set(evidence, filed));
-  }, []);
 
   const input: FixPromptInput = {
     context: settings.context,
@@ -126,36 +95,10 @@ export default function OverviewPanel({
           devices: devices.map((d) => ({ category: d.category, pct: d.pct })),
         }
       : null,
-    summary: summary && {
-      ...summary,
-      losses: summary.losses
-        ?.filter((l) => !ignored.has(l.evidence))
-        .map((l) => withFiled(l, filedLosses.get(l.evidence))),
-    },
-    review: review && {
-      ...review,
-      issues: review.issues?.map((iss) => withFiled(iss, filedDesign.get(iss.evidence))),
-    },
+    summary,
+    review,
   };
   const counts = fixableCounts(input);
-  const githubConnected = settings.hasGithubToken && !!settings.githubRepo;
-
-  const copyButton = (scope: FixPromptScope, label: string, primary = false) => {
-    const count =
-      scope === "all" ? counts.analytics + counts.design : counts[scope];
-    return (
-      <CopyPromptButton
-        label={label}
-        count={count}
-        primary={primary}
-        component={scope === "all" ? "overview-copy-prompt" : `overview-copy-prompt-${scope}`}
-        emptyTitle={emptyTitle(scope, summary !== null, review !== null)}
-        build={() => buildFixPrompt(input, scope)}
-        onCopied={() => setManual(null)}
-        onFailed={setManual}
-      />
-    );
-  };
 
   return (
     <main className="text-white">
@@ -166,11 +109,23 @@ export default function OverviewPanel({
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-white">Overview</h1>
           <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#666]">
-            Who&apos;s using the site, what the analytics and design reviews found, and the site
-            as it last rendered — with a prompt that hands every problem to your coding agent.
+            The site as it last rendered, its brand, who&apos;s using it and what both reviews
+            make of it — with a prompt that hands every problem to your coding agent.
           </p>
         </div>
-        <div className="shrink-0">{copyButton("all", "Copy fix prompt", true)}</div>
+        <div className="shrink-0">
+          <CopyPromptButton
+            count={counts.analytics + counts.design}
+            emptyTitle={
+              summary === null && review === null
+                ? "Generate the summary first"
+                : "Neither review found anything to fix"
+            }
+            build={() => buildFixPrompt(input, "all")}
+            onCopied={() => setManual(null)}
+            onFailed={setManual}
+          />
+        </div>
       </div>
 
       {manual !== null && <ManualCopy text={manual} onClose={() => setManual(null)} />}
@@ -183,7 +138,39 @@ export default function OverviewPanel({
         </div>
       )}
 
-      <Section title="Visitors" link={{ tab: "analytics", label: "All metrics" }}>
+      <Section
+        title="Site snapshots"
+        links={[{ tab: "design", label: snapshot ? "All snapshots" : "Capture one" }]}
+      >
+        {snapshot ? (
+          <SnapshotGallery snapshot={snapshot} />
+        ) : (
+          <Hint>
+            No snapshots yet. Capture one on the{" "}
+            <TabLink tab="design" className="text-[#aaa] underline decoration-[#444] underline-offset-2 hover:text-white">
+              Design tab
+            </TabLink>{" "}
+            to see every page of the site as it renders right now.
+          </Hint>
+        )}
+      </Section>
+
+      <Section
+        title="Brand"
+        action={kit && <BrandKitButton kit={kit} />}
+        links={[{ tab: "design", label: "Design" }]}
+      >
+        {kit ? (
+          <BrandBoard kit={kit} />
+        ) : (
+          <Hint>
+            No design scans yet. Each page measures its own colors and type once per visitor
+            session — browse a few pages of the site and the brand board appears here.
+          </Hint>
+        )}
+      </Section>
+
+      <Section title="Visitors" links={[{ tab: "analytics", label: "All metrics" }]}>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <OverviewTiles
             overview={overview}
@@ -193,127 +180,53 @@ export default function OverviewPanel({
           />
           <DepthTile overview={overview} />
           <MobileTile devices={devices} />
+          <OverviewTiles
+            overview={overview}
+            trends={trends}
+            metrics={["rageClicks", "deadClicks", "jsErrors", "totalEvents"]}
+            gridClassName="contents"
+          />
         </div>
       </Section>
 
-      <Section
-        title="Analytics review"
-        action={copyButton("analytics", "Copy prompt")}
-        link={{ tab: "analytics", label: "Analytics" }}
-      >
-        <SummaryCard
-          initialSummary={initialSummary}
-          initialSettings={settings}
-          initialStale={summaryStale}
-          initialProfile={profile}
-          initialGaps={gaps}
-          sourceAvailable={sourceAvailable}
-          onSummaryChange={setSummary}
-          onLossChange={onLossChange}
-        />
-      </Section>
-
-      <Section
-        title="Design review"
-        action={copyButton("design", "Copy prompt")}
-        link={{ tab: "design", label: "Design" }}
-      >
-        <DesignReviewCard
-          initialReview={initialReview}
-          initialStale={reviewStale}
-          hasApiKey={settings.hasApiKey}
-          provider={settings.provider}
-          model={settings.model}
-          scannedPages={scannedPages}
-          githubConnected={githubConnected}
-          onReviewChange={setReview}
-          onIssueFiled={onIssueFiled}
-        />
-      </Section>
-
-      {snapshot && (
-        <Section title="Site snapshots" link={{ tab: "design", label: "All snapshots" }}>
-          <SnapshotStrip snapshot={snapshot} />
-        </Section>
-      )}
+      <OverviewSummary
+        initialSummary={initialSummary}
+        initialSummaryStale={summaryStale}
+        initialReview={initialReview}
+        initialReviewStale={reviewStale}
+        settings={settings}
+        scannedPages={scannedPages}
+        onSummaryChange={setSummary}
+        onReviewChange={setReview}
+      />
     </main>
   );
 }
 
-/** A finding with the issue filed for it this session, if one was. */
-function withFiled<T extends { issueUrl?: string; issueNumber?: number }>(
-  item: T,
-  filed: Filed | undefined,
-): T {
-  return filed ? { ...item, issueUrl: filed.url, issueNumber: filed.number } : item;
-}
-
-/** Why a copy button is off — what's missing before it has anything to copy. */
-function emptyTitle(scope: FixPromptScope, hasSummary: boolean, hasReview: boolean): string {
-  if (scope === "analytics") {
-    return hasSummary
-      ? "The analytics summary found nothing to fix"
-      : "Generate the analytics summary first";
-  }
-  if (scope === "design") {
-    return hasReview ? "The design review found nothing to fix" : "Generate the design review first";
-  }
-  if (!hasSummary && !hasReview) return "Generate the analytics summary and design review first";
-  return "Neither review found anything to fix";
-}
-
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
-function Section({
-  title,
-  action,
-  link,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  link: { tab: PolishdDashboardTab; label: string };
-  children: ReactNode;
-}) {
+/** A section with nothing to show yet: one line on how it fills. */
+function Hint({ children }: { children: React.ReactNode }) {
   return (
-    <section className="mb-8">
-      <div className="mb-3 flex min-h-7 items-center justify-between gap-3">
-        <span className={labelCls}>{title}</span>
-        <div className="flex items-center gap-3">
-          {action}
-          <TabLink
-            tab={link.tab}
-            className="whitespace-nowrap text-[11px] text-[#666] transition-colors hover:text-white"
-          >
-            {link.label} →
-          </TabLink>
-        </div>
-      </div>
+    <div className={`${card} px-4 py-3 text-[12px] leading-relaxed text-[#777] sm:px-5`}>
       {children}
-    </section>
+    </div>
   );
 }
 
 /**
- * Copies one scope's prompt. The label and "Copied" share a grid cell, so
- * the button holds its width when the confirmation swaps in.
+ * Copies the fix prompt. The label and "Copied" share a grid cell, so the
+ * button holds its width when the confirmation swaps in.
  */
 function CopyPromptButton({
-  label,
   count,
-  primary,
-  component,
   emptyTitle: disabledTitle,
   build,
   onCopied,
   onFailed,
 }: {
-  label: string;
   /** Problems the prompt carries; 0 disables the button. */
   count: number;
-  primary: boolean;
-  /** `data-component` name for the dashboard's own telemetry. */
-  component: string;
   emptyTitle: string;
   build: () => string | null;
   onCopied: () => void;
@@ -344,19 +257,21 @@ function CopyPromptButton({
     <>
       <button
         type="button"
-        data-component={component}
+        data-component="overview-copy-prompt"
         onClick={copy}
         disabled={count === 0}
         title={count === 0 ? disabledTitle : `Copy a prompt that hands ${problems} to a coding agent`}
-        aria-label={count === 0 ? label : `${label} (${problems})`}
-        className={primary ? primaryBtn : ghostBtn}
+        aria-label={count === 0 ? "Copy fix prompt" : `Copy fix prompt (${problems})`}
+        className={primaryBtn}
       >
         <span className="flex items-center gap-1.5">
-          <span className={copied ? (primary ? "text-emerald-700" : "text-emerald-400") : ""}>
+          <span className={copied ? "text-emerald-700" : ""}>
             {copied ? <CheckIcon /> : <CopyIcon />}
           </span>
           <span className="grid">
-            <span className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`}>{label}</span>
+            <span className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`}>
+              Copy fix prompt
+            </span>
             <span
               aria-hidden
               className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`}
@@ -367,9 +282,7 @@ function CopyPromptButton({
           {count > 0 && (
             <span
               aria-hidden
-              className={`rounded px-1 text-[10px] font-semibold tabular-nums ${
-                primary ? "bg-black/10 text-black/60" : "bg-[#1a1a1a] text-[#888]"
-              }`}
+              className="rounded bg-black/10 px-1 text-[10px] font-semibold tabular-nums text-black/60"
             >
               {count}
             </span>

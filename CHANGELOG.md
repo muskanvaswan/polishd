@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### The Overview is a board of the site
+
+The Overview opened on four audience numbers and the two review cards stacked
+one above the other, with the newest snapshot as a strip at the bottom. It
+now reads top to bottom as the site itself.
+
+- **Site snapshots** lead, as a mosaic rather than a strip: desktop shots two
+  columns wide, phone shots one, light and dark side by side, laid straight
+  on the page with no device or theme toggles in front. Every page appears
+  once at each size — the themes alternate route by route, so a site with a
+  dark mode shows both without any page appearing twice, and a site without
+  one shows light. Up to twelve tiles; the rest of the capture is one link
+  away on the Design tab. In the lightbox, phone shots now open at phone
+  width instead of being blown up to desktop width, and Escape closes it.
+- **Brand** is new: the colors and typefaces the pages actually ship, curated
+  the way the brand kit is (one-offs left out). The palette as a strip
+  proportioned by how much of the UI each color covers, the brand colors as
+  named swatches with the neutrals beside them, and each typeface set in its
+  own face with the weights in use. The **Brand kit** download sits in its
+  header.
+- **Visitors** shows every headline number, not four: sessions, page views,
+  views per session and the share on mobile, then rage clicks, dead clicks,
+  JS errors and events — each tile opening its chart over time, as on the
+  Analytics tab.
+- **Summary** replaces the two review cards with one: the analytics summary
+  and the design review as consecutive paragraphs, what's working under both,
+  and when each was written. One refresh regenerates both; a half that fails
+  reports on its own. The losses and the design issues — and the ignore and
+  file-bug controls that act on them — stay on the Analytics and Design tabs.
+  The Overview is for reading, not triage.
+
+**Copy fix prompt** is unchanged: it still carries every problem both reviews
+found, built from the latest summary and review the page has.
+
 ### Runtime JavaScript errors are captured again
 
 Uncaught runtime errors never reached the dashboard. A runtime throw fires its

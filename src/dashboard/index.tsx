@@ -69,6 +69,7 @@ import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/su
 import { getDesignData } from "../server/design";
 import { resolveSiteOrigin } from "../server/site-origin";
 import { listSnapshots, snapshotAvailability } from "../server/snapshots";
+import { buildBrandKit } from "../shared/brand-kit";
 import type {
   PolishdAISettingsPublic,
   PolishdProjectProfile,
@@ -956,16 +957,16 @@ function AnalyticsStream() {
 async function OverviewTabData() {
   // Both reviews, so both datasets: the summary's staleness hashes the whole
   // analytics set, the design review's hashes the design metrics. Each comes
-  // from the same loaders the other tabs use.
+  // from the same loaders the other tabs use; the brand board is the Design
+  // tab's kit, curated from the same scans.
   const [data, settings, design, snapshots] = await Promise.all([
     loadDashboardData(),
     getAISettingsPublic(),
     getDesignData(),
     listSnapshots(),
   ]);
-  const [summaryState, profileState, reviewState] = await Promise.all([
+  const [summaryState, reviewState] = await Promise.all([
     loadSummaryState(data),
-    loadProfileState(data),
     loadDesignReviewState(design),
   ]);
   scheduleSummaryRefresh(data, settings, summaryState);
@@ -977,14 +978,12 @@ async function OverviewTabData() {
       settings={settings}
       summary={summaryState.summary}
       summaryStale={summaryState.stale}
-      profile={profileState.profile}
-      gaps={profileState.gaps}
-      sourceAvailable={profileState.sourceAvailable}
       review={reviewState.review}
       reviewStale={reviewState.stale}
       scannedPages={design.pages.length}
-      // Only the newest snapshot that has pictures — the strip shows no history.
+      // Only the newest snapshot that has pictures — the gallery shows no history.
       snapshot={snapshots.find((s) => s.shots.some((shot) => shot.file.length > 0)) ?? null}
+      kit={design.pages.length > 0 ? buildBrandKit(design) : null}
     />
   );
 }

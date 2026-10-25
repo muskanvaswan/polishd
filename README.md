@@ -293,17 +293,32 @@ in production, because that is the only place it is worth acting on.
 
 ## Overview
 
-The dashboard opens on the **Overview**: the headline audience numbers
-(sessions, page views, views per session, the share on mobile), the
-[AI summary](#ai-summary) and the [design review](#design-review) one above the
-other, and the newest [site snapshot](#site-snapshots) when there is one. Both
-review cards are the full cards from their own tabs, so regenerating, ignoring
-a loss and filing a bug all work from here.
+The dashboard opens on the **Overview**, laid out as a board of the site, top
+to bottom:
+
+- **Site snapshots** — the newest [snapshot](#site-snapshots) as a mosaic:
+  desktop shots two columns wide, phone shots one, light and dark side by
+  side, with no device or theme toggles in front. Every page appears once at
+  each size; a click opens the full-height shot, and the rest of the capture
+  is one link away on the Design tab.
+- **Brand** — the colors and typefaces the pages actually ship, curated the
+  way the brand kit is (one-offs left out): the palette as a strip
+  proportioned by how much of the UI each color covers, the brand colors as
+  named swatches with the neutrals beside them, and each typeface set in its
+  own face with the weights in use. The **Brand kit** PDF downloads from here
+  too.
+- **Visitors** — every headline number from the Analytics tab: sessions, page
+  views, views per session, the share on mobile, rage clicks, dead clicks, JS
+  errors and events, each tile opening its chart over time.
+- **Summary** — the [AI summary](#ai-summary) and the
+  [design review](#design-review) as one story: how visitors use the site, how
+  the design holds together, and what's working under both. One refresh
+  regenerates both. The problems each review found stay on its own tab, with
+  the ignore and file-bug controls that act on them.
 
 **Copy fix prompt** turns every problem the two reviews found into one message
 for the coding agent working in your repo — Claude Code, Cursor, or anything
-else that reads a prompt. Each review's own **Copy prompt** button copies just
-its half. A prompt carries:
+else that reads a prompt. A prompt carries:
 
 - the site description and audience from Settings, and the traffic so far;
 - each review's summary, and what's working, so the agent doesn't regress it;
@@ -314,10 +329,9 @@ its half. A prompt carries:
   finding the code shows isn't real, keep each change scoped, and report back
   per problem.
 
-The prompt is built in the browser from what the cards show at the moment you
-click, so a loss you've just ignored is already out of it and a review you've
-just regenerated is already in. It sends nothing anywhere: it's text on your
-clipboard.
+The prompt is built in the browser from the latest summary and review the
+page has, so a review you've just regenerated is already in it. It sends
+nothing anywhere: it's text on your clipboard.
 
 ## AI summary
 
