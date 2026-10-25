@@ -9,7 +9,9 @@
  * reason is worth giving: it's replayed to the model on every later run, so
  * "the second CTA is deliberate" stops the same finding coming back in
  * different words. It can be added or edited afterwards from the struck-out
- * row, which is all the "ignored" a row needs to say.
+ * row, which is all the "ignored" a row needs to say. Marking a finding fixed
+ * is the same verdict with a different reason — done, the site changed —
+ * stored and shown the same way, with a check for its mark.
  *
  * The dismissal is stored server-side immediately; the row stays put, struck
  * through with an undo, and only disappears on the next render. A dismissal
@@ -21,7 +23,7 @@
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 
 import type { IgnoreLossResult, PolishdIgnoredLoss, UnignoreLossResult } from "../ai/types";
-import { XIcon, microBtn } from "./ui";
+import { CheckIcon, XIcon, microBtn } from "./ui";
 
 /** The verdict buttons on a finding share their style with the shared microBtn. */
 export const microLink =
@@ -34,7 +36,8 @@ export interface Dismissal {
   ignored: PolishdIgnoredLoss | null;
   pending: boolean;
   error: string | null;
-  ignore: (reason?: string) => void;
+  /** Dismiss, or re-save the reason; `fixed` marks it fixed rather than not a problem. */
+  ignore: (reason?: string, fixed?: boolean) => void;
   undo: () => void;
 }
 
@@ -48,7 +51,7 @@ export function useDismissal({
   onChange,
   adopted,
 }: {
-  dismiss: (reason?: string) => Promise<IgnoreLossResult>;
+  dismiss: (reason?: string, fixed?: boolean) => Promise<IgnoreLossResult>;
   restore: () => Promise<UnignoreLossResult>;
   onChange?: (ignored: boolean) => void;
   /** A dismissal recorded for this finding somewhere else. */
@@ -64,11 +67,11 @@ export function useDismissal({
 
   // A throw inside a transition is rethrown into the nearest error boundary,
   // and the dashboard has none: catch it here and say so on the card.
-  const ignore = (reason?: string) =>
+  const ignore = (reason?: string, fixed?: boolean) =>
     start(async () => {
       setError(null);
       try {
-        const res = await dismiss(reason);
+        const res = await dismiss(reason, fixed);
         if (res.ok) {
           setIgnored(res.ignored);
           onChange?.(true);
@@ -161,6 +164,7 @@ export function DismissedCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const ignored = state.ignored!;
+  const fixed = ignored.fixed === true;
 
   // A saved reason replaces the entry; that's what closes the form. A failed
   // save leaves it open, with the error beside it.
@@ -169,9 +173,11 @@ export function DismissedCard({
   return (
     <li className={className}>
       <div className="flex gap-3">
-        {/* Muted, like the text: the strike-through is what says ignored. */}
-        <span aria-hidden className="mt-[3px] inline-flex shrink-0 text-fg-4">
-          {marker ?? <XIcon size={13} />}
+        {/* Muted, like the text: the strike-through is what says ignored. A
+            fix gets a check instead, which is the one thing that tells the two
+            apart. */}
+        <span aria-hidden className={`mt-[3px] inline-flex shrink-0 ${fixed ? "text-ok" : "text-fg-4"}`}>
+          {fixed ? <CheckIcon size={13} /> : (marker ?? <XIcon size={13} />)}
         </span>
         <span className="line-through decoration-fg-4">{issue}</span>
       </div>
@@ -184,7 +190,8 @@ export function DismissedCard({
             draft={draft}
             setDraft={setDraft}
             pending={state.pending}
-            label={`Reason for ignoring this ${noun}`}
+            label={fixed ? `What changed for this ${noun}` : `Reason for ignoring this ${noun}`}
+            placeholder={fixed ? "What changed?" : "Why isn't this a problem?"}
             onSubmit={() => state.ignore(draft.trim() || undefined)}
             onCancel={() => setEditing(false)}
           />
@@ -198,10 +205,14 @@ export function DismissedCard({
                 setEditing(true);
               }}
               disabled={state.pending}
-              title={`Tell the model why this isn't a problem — it reads this on every later ${readBy}`}
+              title={
+                fixed
+                  ? `Tell the model what changed — it reads this on every later ${readBy}`
+                  : `Tell the model why this isn't a problem — it reads this on every later ${readBy}`
+              }
               className={microLink}
             >
-              {ignored.reason ? "Edit reason" : "Add a reason"}
+              {ignored.reason ? (fixed ? "Edit note" : "Edit reason") : fixed ? "Add a note" : "Add a reason"}
             </button>
             <button
               type="button"
@@ -227,6 +238,7 @@ function ReasonForm({
   setDraft,
   pending,
   label,
+  placeholder,
   onSubmit,
   onCancel,
 }: {
@@ -234,6 +246,7 @@ function ReasonForm({
   setDraft: (v: string) => void;
   pending: boolean;
   label: string;
+  placeholder: string;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
@@ -253,7 +266,7 @@ function ReasonForm({
           if (e.key === "Escape") onCancel();
         }}
         maxLength={240}
-        placeholder="Why isn't this a problem?"
+        placeholder={placeholder}
         aria-label={label}
         className="h-7 w-full rounded-md border border-line-strong bg-canvas px-2 text-[12px] text-fg placeholder:text-fg-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
       />

@@ -167,15 +167,18 @@ export async function suggestIssueFixAction(
 /**
  * The other verdict on a loss: dismiss it, with an optional reason. The loss
  * leaves every summary from here on, and the dismissal — reason included — is
- * replayed into later model calls so the problem isn't reported again. Calling
- * it on an already-dismissed loss just updates the reason.
+ * replayed into later model calls so the problem isn't reported again. With
+ * `fixed`, the same with the verdict "fixed": the model is told the site
+ * changed here. Calling it on an already-dismissed loss just updates the
+ * reason and keeps the verdict it had.
  */
 export async function ignoreLossAction(
   loss: Pick<PolishdLossItem, "issue" | "evidence">,
   reason?: string,
+  fixed = false,
 ): Promise<IgnoreLossResult> {
   await requirePolishdAuth();
-  const ignored = await ignoreLoss(loss, reason);
+  const ignored = await ignoreLoss(loss, reason, { fixed });
   return ignored
     ? { ok: true, ignored }
     : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };
@@ -197,9 +200,10 @@ export async function unignoreLossAction(evidence: string): Promise<UnignoreLoss
 export async function ignoreDesignIssueAction(
   issue: Pick<PolishdDesignIssue, "issue" | "evidence">,
   reason?: string,
+  fixed = false,
 ): Promise<IgnoreLossResult> {
   await requirePolishdAuth();
-  const ignored = await ignoreDesignIssue(issue, reason);
+  const ignored = await ignoreDesignIssue(issue, reason, { fixed });
   return ignored
     ? { ok: true, ignored }
     : { ok: false, message: "Couldn't save that — the analytics store didn't accept the write." };

@@ -15,7 +15,9 @@
  *
  * Each value is tallied twice over: the elements rendering it (uses), and the
  * declarations behind them (design-declarations.ts) — so a badge repeated
- * down a table reads as one decision. Loading skeletons, busy regions and
+ * down a table reads as one decision. Backgrounds painted on controls are
+ * tallied once more on their own: that is where a site shows its action
+ * color, which the dashboard's brand board leads with. Loading skeletons, busy regions and
  * closed overlays are left out: they are states the page passes through,
  * not its design.
  */
@@ -48,7 +50,7 @@ export { serializeDesignScan };
 /** Hard bound on elements measured, so a huge DOM can't stall the main thread. */
 const MAX_ELEMENTS = 1500;
 /** Per-list caps applied before serializing — one page stays a few KB. */
-const CAPS = { fonts: 60, colors: 48, pairs: 60, radii: 24, pad: 40 };
+const CAPS = { fonts: 60, colors: 48, controls: 12, pairs: 60, radii: 24, pad: 40 };
 /** Declaration ids sent per value — enough to dedupe the rare ones across pages. */
 const DECL_IDS = 5;
 
@@ -172,6 +174,7 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
   const text = new Tally();
   const bg = new Tally();
   const border = new Tally();
+  const controls = new Tally();
   const radii = new Tally();
   const pad = new Tally();
   const pairs = new Map<string, { count: number; minSize: number; boldAtMin: boolean }>();
@@ -307,7 +310,14 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
       }
     }
 
-    if (ownBg) bg.add(ownBg, declOf(el), handTyped(el, "background", ownBg));
+    if (ownBg) {
+      bg.add(ownBg, declOf(el), handTyped(el, "background", ownBg));
+      // A painted control — a button, a link styled as one, an input — is
+      // where a site shows its action color.
+      if (INTERACTIVE_TAGS.has(el.tagName) || el.getAttribute("role") === "button") {
+        controls.add(ownBg, declOf(el), handTyped(el, "background", ownBg));
+      }
+    }
     if (hasBorder) {
       const bc = normalizeColor(cs.borderTopColor);
       if (bc) border.add(bc, declOf(el), handTyped(el, "border", bc));
@@ -381,6 +391,7 @@ export function collectDesignScan(root: Element = document.body): PolishdDesignS
     text: colorTuples(text),
     bg: colorTuples(bg),
     border: colorTuples(border),
+    ctl: controls.top(CAPS.controls),
     pairs: pairTuples,
     radii: radiusTuples,
     pad: padTuples,

@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   MAX_PREVIEWS_PER_SHOT,
+  SNAPSHOT_RENDERINGS,
+  captureOrder,
   capturePathFor,
   dashboardTabOf,
   darkModeVerdict,
@@ -89,6 +91,34 @@ test("no complete pairs says nothing about dark mode", () => {
     ]),
     { noDarkMode: false, redundant: [] },
   );
+});
+
+test("the landing page's phone view goes first, light then dark", () => {
+  const { probe, rest } = captureOrder(["/pricing", "/", "/blog"], SNAPSHOT_RENDERINGS);
+  assert.deepEqual(probe, [
+    { route: "/", device: "phone", theme: "light" },
+    { route: "/", device: "phone", theme: "dark" },
+  ]);
+  // The rest stay rendering-major, every cell exactly once.
+  assert.equal(rest.length, 3 * 4 - 2);
+  assert.deepEqual(rest.slice(0, 3).map((s) => `${s.route} ${s.device} ${s.theme}`), [
+    "/pricing desktop light",
+    "/ desktop light",
+    "/blog desktop light",
+  ]);
+  assert.ok(!rest.some((s) => s.route === "/" && s.device === "phone"));
+});
+
+test("without a homepage the first route probes; without phones, the first device in both themes", () => {
+  assert.equal(captureOrder(["/pricing", "/about"], SNAPSHOT_RENDERINGS).probe[0].route, "/pricing");
+  const review = captureOrder(["/a", "/b"], [
+    { device: "desktop", theme: "light" },
+    { device: "desktop", theme: "dark" },
+  ]);
+  assert.deepEqual(review.probe.map((s) => `${s.route} ${s.device} ${s.theme}`), ["/a desktop light", "/a desktop dark"]);
+  assert.deepEqual(review.rest.map((s) => `${s.route} ${s.theme}`), ["/b light", "/b dark"]);
+  const lightOnly = captureOrder(["/"], [{ device: "phone", theme: "light" }]);
+  assert.deepEqual(lightOnly, { probe: [], rest: [{ route: "/", device: "phone", theme: "light" }] });
 });
 
 test("a value is missed only if it was pictured nowhere", () => {

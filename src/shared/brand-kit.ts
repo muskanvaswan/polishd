@@ -50,6 +50,11 @@ export interface BrandKitColor {
   pages: number;
   /** 0–1; 1 for an opaque color. */
   alpha: number;
+  /**
+   * How often it painted a control — a button, a link styled as one, an
+   * input. The site's action color has the most; 0 until a scan measures it.
+   */
+  controls: number;
 }
 
 export interface BrandKitPairing {
@@ -346,6 +351,7 @@ interface ColorAcc {
   hex: string;
   count: number;
   roles: Record<BrandKitColorRole, number>;
+  controls: number;
   pages: Set<string>;
   pct: number;
 }
@@ -371,6 +377,7 @@ function curateColors(data: PolishdDesignData) {
     );
     if (into) {
       into.count += c.count;
+      into.controls += c.controls ?? 0;
       into.pct += c.pct;
       for (const r of ["text", "background", "border"] as const) into.roles[r] += c.roles[r];
       for (const p of c.pages) into.pages.add(p);
@@ -378,7 +385,14 @@ function curateColors(data: PolishdDesignData) {
       folded.push({ from: c.hex, into: into.hex });
       continue;
     }
-    kept.push({ hex: c.hex, count: c.count, roles: { ...c.roles }, pages: new Set(c.pages), pct: c.pct });
+    kept.push({
+      hex: c.hex,
+      count: c.count,
+      roles: { ...c.roles },
+      controls: c.controls ?? 0,
+      pages: new Set(c.pages),
+      pct: c.pct,
+    });
     alias.set(c.hex, c.hex);
   }
 
@@ -429,6 +443,7 @@ function curateColors(data: PolishdDesignData) {
       pct: Math.round(c.pct * 10) / 10,
       pages: c.pages.size,
       alpha,
+      controls: c.controls,
     };
   };
 

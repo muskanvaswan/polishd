@@ -173,6 +173,12 @@ export interface PolishdDesignScanPayload {
   bg: DesignColorTuple[];
   /** Border color tallies (visible borders only). */
   border: DesignColorTuple[];
+  /**
+   * Background tallies on controls — buttons, links styled as them, inputs:
+   * the colors a site paints its actions in. A subset of `bg`. Absent from
+   * scans written before it was measured.
+   */
+  ctl?: DesignColorTuple[];
   /** Text-on-background pairs, for contrast checking. */
   pairs: DesignPairTuple[];
   /** Border-radius tallies (elements whose radius is visible). */

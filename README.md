@@ -299,13 +299,17 @@ The dashboard opens on the **Overview**, laid out as a board of the site:
   newest [snapshot](#site-snapshots) as a small bento of the site's top pages:
   the homepage hero largest, the homepage on a phone beside it, and the two
   most visited other pages under them, with no device or theme toggles in
-  front. A click opens the full-height shot, and the rest of the capture is
-  one link away on the Design tab. On the right, the system the pages
+  front. A site with fewer pages lends their other renderings to the
+  remaining tiles. A click opens the full-height shot, and the rest of the
+  capture is one link away on the Design tab. On the right, the system the pages
   actually ship, curated the way the brand kit is (one-offs left out), as two
-  hierarchies. The palette: Primary largest, Secondary and Accent beside it,
-  and the neutrals as one scale from light to dark — not every color the site
-  paints. The type: "Title", "Subtitle", "Body" and "Caption", each word set
-  in its own face at the size the site really uses that style.
+  hierarchies. The palette: the color the site paints its buttons and calls
+  to action in as Primary — a white site's white, a blue site's blue, never a
+  status red — the page itself as Secondary, the next distinct color as
+  Accent, then the next six most used as one scale from light to dark; not
+  every color the site paints. The type: "Title",
+  "Subtitle", "Body" and "Caption", each word set in its own face at the size
+  the site really uses that style.
 - **Overview** — one paragraph, written by the model from the
   [AI summary](#ai-summary) and the [design review](#design-review): the
   overall picture, the one or two things most worth fixing, and what to
@@ -445,10 +449,10 @@ authoritative context, so:
 > provide. Your source is read only during an explicit scan (or a targeted
 > gap-fill), and always under strict size budgets.
 
-### Two verdicts on an actionable: file it, or ignore it
+### Three verdicts on an actionable: file it, mark it fixed, or ignore it
 
 Every actionable — a loss from the summary, an issue from the design review —
-carries both answers, on its row and in its drawer.
+carries all three, on its row and in its drawer.
 
 **File bug** (with GitHub connected) verifies the report against your repo's
 source before anything is filed: confirmed reports become an issue with the
@@ -466,12 +470,19 @@ public Vercel Blob store that GitHub can fetch. A picture in a private store or
 on local disk is named in the body rather than embedded. The dashboard shows
 the same pictures on the actionable itself.
 
+**Mark fixed** says the opposite of a bug report: done, the site changed here.
+It works exactly like ignoring — the finding leaves every later review and the
+dismissal is replayed to the model — except that the model is told it was
+fixed, and on which day, so the data it still sees from before the fix reads
+as history rather than a live problem. A note on what changed is optional,
+asked for in the same dialog.
+
 **Ignore** is the other answer: this isn't a problem, stop showing it to me. It
-takes one click and no explanation. The loss drops out of the card and out of
-every later summary — including the cached one, immediately — and the model is
-told about the dismissal on every subsequent call, so it doesn't spend a loss
-slot rediscovering it. Dismissing one loss doesn't shrink the list; the next
-real problem takes its place.
+asks once, in a dialog with an optional reason, and happens on its second
+Ignore. The finding drops out of every later review — including the cached
+one, immediately — and the model is told about the dismissal on every
+subsequent call, so it doesn't spend a slot rediscovering it. Dismissing one
+finding doesn't shrink the list; the next real problem takes its place.
 
 A **reason** is optional and offered after the fact — *"the second CTA is
 deliberate"*, *"that page is staff-only"*. It's worth adding: reasons are
@@ -499,8 +510,8 @@ says that filing needs a repository.
 Each row is the finding, the icon of the tab it came from, and one status tag
 — *fix suggested*, *verifying…*, *filed*, *in progress*, *closed*, *not
 planned*, *not a bug*, *unreadable* — with the issue it's tracked in linked
-beneath. Hovering a row brings up **File bug** and **Ignore**; Ignore asks
-once, with an optional reason. Everything else is in the drawer a click opens:
+beneath. Hovering a row brings up **File bug**, **Mark fixed** and **Ignore**;
+the last two each ask once, with an optional note. Everything else is in the drawer a click opens:
 the **evidence** — the selector, component or path the analytics cited, or the
 color, size or page the design review cited — the volume behind it, the source
 file it was matched to, the suggested fix, the pictures of where a design value
