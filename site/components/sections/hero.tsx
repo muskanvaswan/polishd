@@ -1,8 +1,8 @@
-import DotBottle from "@/components/dot-bottle";
 import InstallCommand from "@/components/install-command";
 import ScrubHero from "@/components/scrub-hero";
 import { DOCS_URL } from "@/lib/links";
 import { Eyebrow, GhostLink, Wrap } from "@/components/ui";
+import Wordmark from "@/components/wordmark";
 
 /**
  * The hero: the wordmark set in the highway alphabet — the halftone bottle
@@ -18,24 +18,21 @@ export default function Hero() {
 
           {/* The bottle stands in for the h — legs notched into its base. */}
           <h1
-            aria-label="polishd"
-            className="r font-highway mt-4 text-[clamp(64px,13vw,160px)] font-extrabold lowercase leading-[0.95] tracking-[-0.03em]"
+            className="r mt-4 text-[clamp(64px,13vw,160px)] leading-[0.95]"
             style={{ "--d": "70ms" } as React.CSSProperties}
           >
-            <span aria-hidden>polis</span>
-            <DotBottle className="mx-[0.02em] inline-block h-[0.73em]" />
-            <span aria-hidden>d</span>
+            <Wordmark />
           </h1>
 
           <p
-            className="r font-heading mt-3 text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[0.015em] text-[#e5e5e5]"
+            className="r font-heading mt-3 text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[0.015em] text-fg"
             style={{ "--d": "140ms" } as React.CSSProperties}
           >
             Build fast, refine relentlessly.
           </p>
 
           <p
-            className="r mt-6 max-w-[62ch] font-mono text-[12.5px] leading-[1.7] text-[#888] md:text-[13.5px]"
+            className="r mt-6 max-w-[62ch] font-mono text-[12.5px] leading-[1.7] text-fg-3 md:text-[13.5px]"
             style={{ "--d": "200ms" } as React.CSSProperties}
           >
             Vibe coding gets you to a working build in a weekend, and hands the rough edges to your

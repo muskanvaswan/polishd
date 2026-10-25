@@ -40,6 +40,31 @@
   the last 300 scans, so one busy page can no longer push the others out of
   the tab.
 
+### The screenshot service recovers from a wedged browser
+
+Production captures failed for an afternoon with every cell skipped as
+`net::ERR_INSUFFICIENT_RESOURCES`, while the service's health check said ok.
+The service runs one Chromium per function instance, single-process, and only
+ever replaced it when it disconnected; one that had run out of sockets or
+memory stayed connected and failed every shot in under a second for as long
+as the platform kept the instance.
+
+- **The capture core names browser faults.** `browserFaultOf` tells
+  Chromium's resource ceiling, a lost target, and a compositor that can't
+  rasterise apart from a page that merely didn't load, and `ShootDeps` gains
+  an optional `onBrowserFault` so the host hears about them. Shots still
+  never throw; the cell is skipped as before.
+- **The service replaces the browser.** A pool (`service/lib/pool.ts`)
+  leases one Chromium to the captures on an instance and retires it on a
+  fault — the capture takes a fresh one and tries the shot once more — after
+  a number of shots, when its process is over a memory or descriptor line,
+  or when it disconnects. `GET /api/v1` now opens and screenshots a blank
+  page and reports `browser: ok | wedged | busy | unavailable`, retiring a
+  wedged one as it goes. Captures in flight per instance drop from 3 to 2.
+- **Full-page shots stop at 12,000 device pixels** rather than 16,000: the
+  bitmap exists twice over in the one process every capture shares. Taller
+  pages keep their top and are marked `truncated`, as before.
+
 ### Snapshots spend fewer shots
 
 - **One page per dynamic route.** Pages that read as instances of one route —

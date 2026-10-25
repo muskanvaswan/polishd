@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
-/* ── Design tokens — lifted from the @polishd/next dashboard ──────────────
-   #000 page · #0a0a0a cards · #2e2e2e hairlines · 11px/0.08em uppercase
-   labels · tabular numerals · red / amber / emerald / blue / violet accents. */
+/* ── Design tokens — the @polishd/next dashboard's own, dark scheme ──────
+   Lifted from src/dashboard/dashboard.css so the infographics on this page
+   are the real thing: a #0a0a0a canvas, #121212 cards on #262626 hairlines,
+   a four-step grey ink scale, and colour reserved for status — green ok,
+   amber warn, red bad, a warm tan where another tool would reach for violet.
+   One blue, for the Design source mark; the accent is the text colour itself. */
 @theme {
   /* Nohemi is the voice of the site: everything that isn't code or a
      dashboard-replica infographic. */
@@ -21,10 +24,30 @@
   --font-heading: var(--font-nohemi-face), "Open Sauce One", "Helvetica Neue",
     Arial, sans-serif;
 
-  --color-line: #2e2e2e;
-  --color-line-soft: #1a1a1a;
-  --color-card: #0a0a0a;
-  --color-raised: #111111;
+  --color-canvas: #0a0a0a;
+  --color-sunken: #0d0d0d;
+  --color-surface: #121212;
+  --color-raised: #1a1a1a;
+  --color-overlay: #202020;
+  --color-line: #262626;
+  --color-line-strong: #363636;
+  --color-fg: #f5f5f5;
+  --color-fg-2: #b8b8b8;
+  --color-fg-3: #8f8f8f;
+  --color-fg-4: #5e5e5e;
+  --color-accent: #f5f5f5;
+  --color-accent-fg: #0a0a0a;
+  --color-ok: #4ade80;
+  --color-warn: #fbbf24;
+  --color-bad: #f87171;
+  --color-info: #d4d4d4;
+  --color-violet: #c9b08f;
+  /* The one blue: the Design source mark on an actionable, paired with red
+     for Analytics. Not a status colour. */
+  --color-blue: #60a5fa;
+
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.75);
 }
 
 @layer base {
@@ -61,13 +84,14 @@
 }
 
 @layer components {
-  /* Uppercase micro-label — the dashboard's `label` token. */
+  /* Uppercase micro-label — the dashboard's eyebrow. */
   .label {
-    @apply text-[11px] font-medium uppercase tracking-[0.08em] text-[#666];
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3;
   }
 
+  /* The dashboard's card. */
   .card {
-    @apply rounded-lg border border-[#2e2e2e] bg-[#0a0a0a];
+    @apply rounded-xl border border-line bg-surface shadow-card;
   }
 }
 
@@ -182,6 +206,28 @@
   transition: width 1.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Sparklines draw themselves in when their card is revealed: the line runs
+   left to right (pathLength="1" makes one dash the whole path) and the area
+   under it fades up behind. */
+.r .spark .line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.25s;
+}
+
+.r .spark .area {
+  opacity: 0;
+  transition: opacity 0.9s ease 1s;
+}
+
+.r.in .spark .line {
+  stroke-dashoffset: 0;
+}
+
+.r.in .spark .area {
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -203,6 +249,16 @@
   .ring-arc,
   .ring-node circle,
   .ring-node text {
+    transition: none;
+  }
+
+  .r .spark .line {
+    stroke-dashoffset: 0;
+    transition: none;
+  }
+
+  .r .spark .area {
+    opacity: 1;
     transition: none;
   }
 }

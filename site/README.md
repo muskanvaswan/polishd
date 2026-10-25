@@ -72,19 +72,38 @@ API for the unshipped half isn't settled. Nothing claims to exist that doesn't.
 | Section | Does |
 |---|---|
 | `hero` | The thesis — *Build fast, refine relentlessly* |
+| `design` | The Design tab's measurements as cards: the palette as the Overview's brand board draws it, type specimens, contrast, the aesthetic review, radii and spacing |
+| `proof` | The shipped half, as the Analytics tab's components: stat tiles with sparklines, device sizes, the summary with its pointer to the actionables |
+| `actionables` | The Actionables tab — both reviews' findings in one list, with Mark fixed / Ignore / File bug and the GitHub state — beside the fix prompt and its verdicts |
 | `loop` | The centrepiece — the six-stage ring |
-| `proof` | The shipped half, as real dashboard output |
 | `frontier` | Stages 05–06, drawn dashed |
 | `install` | Three commands |
 | `closing` | *Make your website look polishd* |
 
 ## How it's put together
 
-Tailwind v4, with design tokens taken straight from the package's own dashboard
-(`src/dashboard/index.tsx`): `#000` page, `#0a0a0a` cards, `#2e2e2e` hairlines,
-11px/`0.08em` uppercase labels, tabular numerals, and the same red / amber /
-emerald / blue / violet accents.
+Tailwind v4, on the package's own dashboard tokens (`src/dashboard/dashboard.css`,
+dark scheme): a `#0a0a0a` canvas, `#121212` cards on `#262626` hairlines, the
+four-step grey ink scale (`fg` … `fg-4`), and colour reserved for status — green
+ok, amber warn, red bad, a warm tan where another tool would reach for violet.
+Nothing blue; the accent is the text colour itself. The page itself stays jet
+black around them. Open Sauce One is the dashboard's UI face, Nohemi its titles,
+JetBrains Mono its code — the same three the site uses.
 
+- `components/dash/` — the dashboard's own components, replicated for the
+  product sections: `ui.tsx` its vocabulary (card, header strip, badges,
+  status pill, callout, colour and contrast chips, illustrative buttons),
+  `icons.tsx` the glyph set, `tiles.tsx` the stat tiles with sparklines,
+  `brand-board.tsx` the Overview's brand board (its palette), `pointer.tsx`
+  the line a review card ends on, pointing at the actionables. Sections compose these as
+  cards rather than drawing a whole tab. When the dashboard changes, this is
+  the folder to bring along.
+- `components/wordmark.tsx` — the logo: "polis" and "d" in the highway face
+  (Overpass) with the halftone polish bottle for the h, the same mark the
+  dashboard's sidebar carries. Used in the header and the hero.
+  The favicon in `app/layout.tsx` is the bottle as a solid silhouette,
+  derived from the dot field in `components/dot-bottle.tsx` — the dots don't
+  survive 16px, the shape does.
 - `components/loop-ring.tsx` — the ring. Six nodes; the shipped arc is solid and
   the beta arc dashed. A white arc travels the shipped stretch and an amber one
   continues into beta, closing the circle on the last stage.
@@ -92,11 +111,13 @@ emerald / blue / violet accents.
   across the middle of the viewport decides which stage you're reading; the ring
   is sticky beside it on `lg`, and sits above the stage list on smaller screens.
 - `components/scroll-fx.tsx` — one page-wide observer that reveals anything
-  tagged `className="r"`, counts up `[data-count]` figures and fills `.fill`
-  meters. Elements already scrolled past on load reveal instantly rather than
-  staying hidden.
+  tagged `className="r"`, counts up every `[data-count]` figure inside it,
+  fills `.fill` meters and lets the `.spark` sparklines draw in. Elements
+  already scrolled past on load reveal instantly rather than staying hidden.
 - Reduced motion is honoured, and a `<noscript>` block unhides everything for
   visitors without JS.
 
-The dashboard numbers in `proof` are illustrative — they mirror a real Polishd
-install so the layout is shown at realistic density.
+The dashboard numbers in `design`, `proof` and `actionables` are illustrative —
+they mirror a real Polishd install (a desktop-first publication read mostly on phones, set in
+Georgia and Helvetica with one rust for actions) so the layout is shown at
+realistic density. Every component is the dashboard's own, on its tokens.

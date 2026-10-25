@@ -35,7 +35,7 @@ export default function Loop() {
         <Heading>
           Every rough edge,
           <br />
-          <span className="text-[#666]">from signal to shipped fix.</span>
+          <span className="text-fg-4">from signal to shipped fix.</span>
         </Heading>
         <Sub>
           Six stages, one cycle. Four of them are live now — the last two are coming soon.
@@ -55,7 +55,7 @@ export default function Loop() {
                   ref={(el) => {
                     cards.current[i] = el;
                   }}
-                  className="flex flex-col justify-center border-t border-[#2e2e2e] py-9 first:border-t-0 lg:min-h-[52vh] lg:border-t-0 lg:py-0"
+                  className="flex flex-col justify-center border-t border-line py-9 first:border-t-0 lg:min-h-[52vh] lg:border-t-0 lg:py-0"
                 >
                   <div
                     className={`transition-opacity duration-500 ${
@@ -63,7 +63,7 @@ export default function Loop() {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-[11px] text-[#555]">{stage.id}</span>
+                      <span className="font-mono text-[11px] text-fg-3">{stage.id}</span>
                       <span className="text-[13px] font-medium uppercase tracking-[0.14em]">
                         {stage.name}
                       </span>
@@ -74,7 +74,7 @@ export default function Loop() {
                       {stage.lead}
                     </h3>
 
-                    <p className="mt-3.5 max-w-[46ch] text-[14.5px] leading-[1.25] text-[#888]">
+                    <p className="mt-3.5 max-w-[46ch] text-[14.5px] leading-[1.25] text-fg-3">
                       {stage.body}
                     </p>
 
@@ -83,7 +83,7 @@ export default function Loop() {
                         {stage.tags.map((t) => (
                           <span
                             key={t}
-                            className="rounded-[5px] bg-[#1a1a1a] px-2 py-1 font-mono text-[10px] text-[#888]"
+                            className="rounded-[5px] bg-raised px-2 py-1 font-mono text-[10px] text-fg-3"
                           >
                             {t}
                           </span>
@@ -95,11 +95,11 @@ export default function Loop() {
               );
             })}
 
-            <div className="flex items-center gap-3 border-t border-[#2e2e2e] pt-9 lg:border-t-0 lg:pt-0">
-              <span className="font-mono text-[11px] text-[#555]">↺</span>
-              <p className="text-[14px] text-[#666]">
+            <div className="flex items-center gap-3 border-t border-line pt-9 lg:border-t-0 lg:pt-0">
+              <span className="font-mono text-[11px] text-fg-3">↺</span>
+              <p className="text-[14px] text-fg-3">
                 Deploy if the answer is yes.{" "}
-                <span className="text-[#e4e4e4]">Otherwise, back to stage 01.</span>
+                <span className="text-fg">Otherwise, back to stage 01.</span>
               </p>
             </div>
           </div>

@@ -10,7 +10,7 @@ export default function Install() {
         <Heading>
           Three commands.
           <br />
-          <span className="text-[#666]">Then your own dashboard.</span>
+          <span className="text-fg-4">Then your own dashboard.</span>
         </Heading>
         <Sub>
           No third-party service, no script tag, no account. Events land in your database —
@@ -32,8 +32,8 @@ export default function Install() {
           <Step n="03" title="Look" body="Run the app and open the dashboard." delay={180}>
             <Prompt /> npm run dev
             {"\n"}
-            <span className="text-[#444]"># →</span>{" "}
-            <span className="text-emerald-400">/polishd</span>
+            <span className="text-fg-4"># →</span>{" "}
+            <span className="text-ok">/polishd</span>
           </Step>
         </div>
       </Wrap>
@@ -42,7 +42,7 @@ export default function Install() {
 }
 
 function Prompt() {
-  return <span className="text-[#444]">$</span>;
+  return <span className="text-fg-4">$</span>;
 }
 
 function Step({
@@ -63,10 +63,10 @@ function Step({
       className="card r rounded-[11px] p-5"
       style={{ "--d": `${delay}ms` } as React.CSSProperties}
     >
-      <div className="font-mono text-[10.5px] text-[#444]">{n}</div>
+      <div className="font-mono text-[10.5px] text-fg-4">{n}</div>
       <h3 className="mt-3 text-[15px] font-semibold tracking-[-0.01em]">{title}</h3>
-      <p className="mt-2 text-[13.5px] leading-[1.2] text-[#666]">{body}</p>
-      <pre className="mt-3.5 overflow-x-auto rounded-lg border border-[#1a1a1a] bg-[#050505] px-3 py-[11px] font-mono text-[11.5px] leading-[1.7] text-[#e4e4e4]">
+      <p className="mt-2 text-[13.5px] leading-[1.2] text-fg-3">{body}</p>
+      <pre className="mt-3.5 overflow-x-auto rounded-lg border border-line bg-canvas px-3 py-[11px] font-mono text-[11.5px] leading-[1.7] text-fg">
         {children}
       </pre>
     </div>

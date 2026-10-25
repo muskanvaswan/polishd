@@ -6,7 +6,7 @@
  * src/capture/protocol.ts for the wire contract.
  */
 import { MAX_REQUEST_BYTES, parseShootRequest } from "../../../../../src/capture/protocol.ts";
-import { getBrowser, withCaptureSlot } from "../../../../lib/browser.ts";
+import { withBrowser } from "../../../../lib/browser.ts";
 import { loadConfig } from "../../../../lib/config.ts";
 import { CORS_HEADERS, errorResponse, json, readBodyCapped } from "../../../../lib/http.ts";
 import { LimiterUnavailableError } from "../../../../lib/limiter.ts";
@@ -87,10 +87,9 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
-    const shots = await withCaptureSlot(async () => {
-      const browser = await getBrowser(config);
-      return shootAll(browser, origin.origin, request, started + SHOOT_BUDGET_MS);
-    });
+    const shots = await withBrowser(config, (lease, pool) =>
+      shootAll(pool, lease, origin.origin, request, started + SHOOT_BUDGET_MS),
+    );
     return json({ v: 1, origin: origin.origin, shots });
   } catch (err) {
     // The message only — never the URL or anything the page returned.

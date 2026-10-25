@@ -76,6 +76,41 @@ export interface ShootDeps {
   preparePage(page: CapturePage): Promise<void>;
   looksLikeAuthWall(path: string): boolean;
   looksLikeBotCheck(status: number, title: string): boolean;
+  /**
+   * Told when a shot failed because of the browser rather than the page
+   * (`browserFaultOf`). The shot still comes back as a skipped cell; this is
+   * for the host, which owns the browser and can replace it.
+   */
+  onBrowserFault?(fault: BrowserFault): void;
+}
+
+// ── Browser faults ───────────────────────────────────────────────────────────
+
+/**
+ * A failure that belongs to the browser, not the page. The service runs one
+ * Chromium per function instance, single-process as `@sparticuz/chromium`
+ * builds it, so every context's renderer and the GPU share a process whose
+ * sockets, file descriptors and memory accumulate across requests. Once it
+ * runs out it stays alive and connected — nothing fires `disconnected` — and
+ * every later shot fails the same way, in under a second, until the browser
+ * is replaced. Telling these apart from a page that merely didn't load is
+ * what lets the host do that.
+ *
+ * - `resources`  Chromium's own ceiling: it couldn't open a socket or
+ *                allocate (`net::ERR_INSUFFICIENT_RESOURCES`, `ERR_OUT_OF_MEMORY`)
+ * - `closed`     the page, context or browser is gone, or a page crashed
+ * - `screenshot` the compositor couldn't produce the bitmap
+ */
+export type BrowserFault = "resources" | "closed" | "screenshot";
+
+/** Classify an error's message, or null for an ordinary page failure. */
+export function browserFaultOf(message: string): BrowserFault | null {
+  if (/ERR_INSUFFICIENT_RESOURCES|ERR_OUT_OF_MEMORY/.test(message)) return "resources";
+  if (/Page\.captureScreenshot|Unable to capture screenshot/i.test(message)) return "screenshot";
+  if (/has been closed|Target closed|Target crashed|Page crashed|Browser closed|Connection closed/i.test(message)) {
+    return "closed";
+  }
+  return null;
 }
 
 // ── Origin pinning ───────────────────────────────────────────────────────────
@@ -566,8 +601,14 @@ export const ENCODE_STEPS: readonly { quality: number; scale: number }[] = [
   { quality: 0.55, scale: 0.5 },
 ];
 
-/** Tallest image the core will produce, in device pixels — under WebP's 16383 cap. */
-export const MAX_SHOT_PIXEL_HEIGHT = 16_000;
+/**
+ * Tallest image the core will produce, in device pixels. WebP caps at 16383;
+ * this stops well short of it because a full-page bitmap costs
+ * width × height × 4 bytes twice over (the shot, then the encoder's copy),
+ * and on the service that memory is shared by every capture in the one
+ * Chromium process. A taller page keeps its top and is marked `truncated`.
+ */
+export const MAX_SHOT_PIXEL_HEIGHT = 12_000;
 
 /**
  * Encode a PNG as WebP within `maxBase64Bytes`, or null when even the
@@ -683,8 +724,7 @@ export async function shootRendering(
       timeout: input.navigationTimeoutMs,
     });
   } catch (err) {
-    const { reason, text } = shortError(err instanceof Error ? err.message : String(err));
-    return skip(input, reason, text);
+    return failed(input, deps, err);
   }
 
   try {
@@ -736,7 +776,7 @@ export async function shootRendering(
     }
     if (truncated) image.truncated = true;
 
-    const pictured = await pictureValues(page, blank, input);
+    const pictured = await pictureValues(page, blank, input, deps);
     return {
       route: input.route,
       device: input.device.name as SnapshotDevice,
@@ -750,9 +790,17 @@ export async function shootRendering(
       looked: pictured.looked,
     };
   } catch (err) {
-    const { reason, text } = shortError(err instanceof Error ? err.message : String(err));
-    return skip(input, reason, text);
+    return failed(input, deps, err);
   }
+}
+
+/** The skipped cell for an error, after telling the host if it was the browser's. */
+function failed(input: ShootInput, deps: ShootDeps, err: unknown): ShotResult {
+  const message = err instanceof Error ? err.message : String(err);
+  const fault = browserFaultOf(message);
+  if (fault) deps.onBrowserFault?.(fault);
+  const { reason, text } = shortError(message);
+  return skip(input, reason, text);
 }
 
 /** Wait for the page to stop moving, without hanging on polling apps. */
@@ -774,6 +822,7 @@ async function pictureValues(
   page: CapturePage,
   blank: CapturePage,
   input: ShootInput,
+  deps: ShootDeps,
 ): Promise<{ previews: ShotPreview[]; looked: string[] }> {
   const previews: ShotPreview[] = [];
   if (input.find.length === 0) return { previews, looked: [] };
@@ -806,8 +855,12 @@ async function pictureValues(
       const image = await encodeImage(blank, png, MAX_PREVIEW_BYTES);
       if (image) previews.push({ key: target.key, image });
     }
-  } catch {
-    // The page navigated or crashed mid-pass; keep what was pictured.
+  } catch (err) {
+    // The page navigated or crashed mid-pass; keep what was pictured. A
+    // browser fault here still needs the host to know, since the next shot
+    // on the same browser would fail outright.
+    const fault = browserFaultOf(err instanceof Error ? err.message : String(err));
+    if (fault) deps.onBrowserFault?.(fault);
   }
   return { previews, looked };
 }
