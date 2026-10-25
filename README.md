@@ -520,6 +520,24 @@ cite a token that actually appears in the metrics (a hex value, a px size, a
 page path), and its fix should move the outlier onto a value the site already
 uses.
 
+The model also sees the pages. Generating a review first runs a small
+capture of its own, through the same machinery as [site snapshots](#site-snapshots)
+but separate from the gallery: the first screen of the three most-visited
+pages (ranked like the Top pages table: distinct sessions, then page views),
+desktop, in light and dark — a site with no dark mode drops the dark shots —
+plus each flagged value pictured in place: the element carrying it, ringed,
+with its surroundings, from the light rendering only. Failing contrast pairs
+are looked for first, then one-off type styles, colors and radii in turn, and
+off-grid padding only to fill the last of at most six pictures. The shots are
+context, not evidence: an issue still has to cite a measured token, and the
+model is told they're scaled down. The card says which pages and how many
+values were shown, and why the review went without pictures when it did. The
+screenshots travel to your model provider with the metrics, on a regenerate
+only; a model or endpoint that doesn't take images gets the metrics alone. In
+production the capture uses Polishd's screenshot service, so the first review
+there asks the same consent question the Site snapshots card does, and a
+declined service or a missing Blob store means reviews from the metrics alone.
+
 Its fixes are then checked against the review itself. A fix that clearly
 removes a value the same review praised is withheld, and the card says why:
 one that replaces the value with a different one of the same kind
@@ -540,8 +558,9 @@ failure's sizes must be the same when both state them, so dismissing it at
 still matches, and of two issues citing identical evidence, a dismissal hides
 only the one worded closest to it. It
 follows the summary's token-thrift rules: the
-model sees a few hundred tokens of aggregated metrics, the result is cached and
-fingerprinted, and regenerating over unchanged metrics is free. Refresh buttons
+model sees a few hundred tokens of aggregated metrics plus a dozen small
+screenshots at most, the result is cached and fingerprinted, and regenerating
+over unchanged metrics is free. Refresh buttons
 for both the metrics and the analysis are on the tab.
 
 **Brand kit.** The **Brand kit** button in the tab's header downloads the

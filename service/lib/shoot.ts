@@ -144,6 +144,7 @@ export async function shootAll(
               device,
               theme,
               find: request.find.filter((t) => !found.has(t.key)),
+              viewportOnly: request.viewport === true,
               navigationTimeoutMs: NAVIGATION_TIMEOUT_MS,
               previewBudgetMs: PREVIEW_BUDGET_MS,
               // Leave room for the previews and the rest of the envelope.
