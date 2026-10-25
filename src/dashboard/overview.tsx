@@ -295,7 +295,8 @@ export default function OverviewPanel({
           onSummaryChange={onSummaryChange}
           onReviewChange={onReviewChange}
         />
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+        {/* One row of three under the paragraph on small screens; one column beside it from lg. */}
+        <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
           <OverviewTiles
             overview={overview}
             trends={trends}
@@ -705,9 +706,10 @@ function PlainTile({
 }) {
   return (
     <div className={`${card} px-4 pb-3 pt-4`}>
+      {/* The label wraps rather than truncates: three tiles share a phone's width. */}
       <div className={`flex items-center gap-1.5 ${labelCls}`}>
         <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg-4" />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 leading-tight">{label}</span>
         <InfoTip text={tip} />
       </div>
       <div className="mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums text-fg">

@@ -214,7 +214,7 @@ function StatTile({
     <>
       <div className={`flex items-center gap-1.5 ${labelCls}`}>
         <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneDot[meta.tone]}`} />
-        <span className="truncate">{meta.label}</span>
+        <span className="min-w-0 leading-tight">{meta.label}</span>
         <InfoTip text={meta.tip} focusable={false} />
       </div>
       <div className="mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums text-fg">
