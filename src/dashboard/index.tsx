@@ -63,6 +63,8 @@ import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReviewState } from "../ai/design";
 import { loadOverviewState } from "../ai/overview";
+import { loadDispatchState } from "../ai/dispatch";
+import { isDispatchReady } from "../ai/dispatch-readiness";
 import { listFixSuggestions } from "../ai/fix";
 import { isGithubConnected } from "../ai/github";
 import { listFiledIssues } from "../ai/issues";
@@ -955,10 +957,11 @@ async function DesignTabData() {
 async function IssuesTabData({ connected }: { connected: boolean }) {
   // Reachable by URL with nothing connected, in which case the listing is
   // empty and the view says how to fix that.
-  const [issues, settings, suggestions] = await Promise.all([
+  const [issues, settings, suggestions, dispatch] = await Promise.all([
     listFiledIssues(),
     getAISettingsPublic(),
     listFixSuggestions(),
+    loadDispatchState(),
   ]);
   return (
     <IssuesView
@@ -967,6 +970,7 @@ async function IssuesTabData({ connected }: { connected: boolean }) {
       connected={connected}
       suggestions={suggestions}
       canSuggest={settings.hasApiKey}
+      dispatchReady={isDispatchReady(dispatch.readiness?.status)}
     />
   );
 }
@@ -983,10 +987,11 @@ async function SettingsTabData() {
   // `loadProfileState` only reads component identifiers out of the dashboard
   // data, so this tab loads those two queries rather than the whole analytics
   // set it would otherwise never look at.
-  const [settings, monitored, topUsed] = await Promise.all([
+  const [settings, monitored, topUsed, dispatch] = await Promise.all([
     getAISettingsPublic(),
     loadMonitored(),
     loadTopUsed(),
+    loadDispatchState(),
   ]);
   const profileState = await loadProfileState({ monitored, topUsed });
   return (
@@ -995,6 +1000,7 @@ async function SettingsTabData() {
       initialProfile={profileState.profile}
       initialGaps={profileState.gaps}
       sourceAvailable={profileState.sourceAvailable}
+      initialDispatch={dispatch}
     />
   );
 }

@@ -29,10 +29,12 @@ import {
 import type {
   PolishdAIProvider,
   PolishdAISettingsPublic,
+  PolishdDispatchState,
   PolishdGithubStatus,
   PolishdProjectProfile,
   PolishdRefreshCadence,
 } from "../ai/types";
+import DispatchCard, { type DispatchChoices } from "./dispatch-card";
 import {
   Badge,
   Callout,
@@ -229,6 +231,8 @@ export interface SettingsViewProps {
   initialGaps: string[];
   /** Whether the app's source tree is on disk here. A scan can also read the connected repo. */
   sourceAvailable: boolean;
+  /** What the Fix dispatch card last found and tested. */
+  initialDispatch: PolishdDispatchState;
 }
 
 export default function SettingsView({
@@ -236,6 +240,7 @@ export default function SettingsView({
   initialProfile,
   initialGaps,
   sourceAvailable,
+  initialDispatch,
 }: SettingsViewProps) {
   const router = useRouter();
   const [settings, setSettings] = useState(initialSettings);
@@ -304,6 +309,7 @@ export default function SettingsView({
           profile={profile}
           gaps={gaps}
           sourceAvailable={sourceAvailable}
+          dispatch={initialDispatch}
           onSaved={(next) => {
             setSettings(next);
             setError(null);
@@ -915,6 +921,7 @@ function SettingsForm({
   profile,
   gaps,
   sourceAvailable,
+  dispatch,
   onSaved,
   onProfile,
   onError,
@@ -923,6 +930,7 @@ function SettingsForm({
   profile: PolishdProjectProfile | null;
   gaps: string[];
   sourceAvailable: boolean;
+  dispatch: PolishdDispatchState;
   onSaved: (next: PolishdAISettingsPublic) => void;
   onProfile: (p: PolishdProjectProfile) => void;
   onError: (msg: string) => void;
@@ -942,10 +950,19 @@ function SettingsForm({
   const [githubRepo, setGithubRepo] = useState(settings.githubRepo ?? "");
   const [githubToken, setGithubToken] = useState("");
   const [autoIssues, setAutoIssues] = useState(settings.githubAutoIssues ?? false);
+  // The Fix dispatch card's choices live here so the one Save button covers them.
+  const [dispatchChoices, setDispatchChoices] = useState<DispatchChoices>({
+    auto: settings.dispatchAuto,
+    label: settings.dispatchLabel,
+    cap: String(settings.dispatchDailyCap),
+    paused: settings.dispatchPaused,
+  });
   const [saved, setSaved] = useState(false);
   const [pending, startSave] = useTransition();
 
   const prov = PROVIDERS.find((p) => p.value === provider);
+  // The card only means something once there's a repo to look at.
+  const dispatchRepo = settings.hasGithubToken ? settings.githubRepo : undefined;
 
   const save = () => {
     setSaved(false);
@@ -964,6 +981,17 @@ function SettingsForm({
         githubRepo,
         githubToken, // blank keeps the stored token
         githubAutoIssues: autoIssues,
+        dispatchAuto: dispatchChoices.auto,
+        dispatchLabel: dispatchChoices.label,
+        dispatchDailyCap: Number(dispatchChoices.cap),
+        dispatchPaused: dispatchChoices.paused,
+      });
+      // The server may have trimmed, defaulted or clamped: show what it kept.
+      setDispatchChoices({
+        auto: next.dispatchAuto,
+        label: next.dispatchLabel,
+        cap: String(next.dispatchDailyCap),
+        paused: next.dispatchPaused,
       });
       onSaved(next);
       setApiKey("");
@@ -1192,6 +1220,20 @@ function SettingsForm({
           />
         </label>
       </Group>
+
+      {dispatchRepo && (
+        <Group
+          title="Fix dispatch"
+          hint="The coding agent that will take verified fixes off your hands — what the repo has, a live test of the wiring, and how much polishd may send. Nothing is dispatched yet; this is the ground it will stand on."
+        >
+          <DispatchCard
+            repo={dispatchRepo}
+            initialState={dispatch}
+            choices={dispatchChoices}
+            onChoices={setDispatchChoices}
+          />
+        </Group>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 pb-4 pt-1">
         <button type="button" onClick={save} disabled={pending} className={primaryBtn}>

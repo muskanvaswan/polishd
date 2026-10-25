@@ -493,6 +493,67 @@ Opening the tab costs a single GitHub API call in the ordinary case, not one
 per issue: the repo's issue list hands back a hundred whole issues at a time,
 which is more than polishd is ever likely to have filed.
 
+### Connect a coding agent
+
+Filing an issue is where polishd's part ends today, and where a coding agent's
+could begin: the Claude Code GitHub Action answers an issue that mentions it,
+and the Copilot coding agent answers one it's assigned. polishd is building
+toward handing verified fixes to whichever of those the repo already runs, and
+reading the verdict back. That loop isn't wired yet. What ships now is the
+ground it stands on — a **Fix dispatch** card at the bottom of the Settings
+tab, shown once a repository is connected, that says what the repo has and
+proves it works.
+
+**What polishd found.** The card reads every workflow under
+`.github/workflows/` on the default branch (with the same token, no extra
+permissions) and reports: which agent is there — a workflow using
+`anthropics/claude-code-action`, or Copilot's agent if it's assignable, or
+neither; how it fires — a workflow that listens for new issues lets polishd put
+the trigger phrase in the issue body, one that listens for comments only means
+polishd comments after filing; the trigger phrase (from a `trigger_phrase`
+input or the job's `if:` condition, `@claude` otherwise); the billing path —
+whether the step passes `claude_code_oauth_token` (runs draw on your Claude
+plan's usage limits) or `anthropic_api_key` (metered API usage, covered by a
+Max or Team plan's monthly credit when linked), read from which input is
+named, never from a value; and whether the token's user has write access,
+which the Action requires of whoever triggers it. It warns when a `prompt`
+input puts the workflow in automation mode (every issue starts a run), and when
+the workflow sits in an unmerged pull request, since GitHub runs issue-event
+workflows only from the default branch. Two things can't be read with any
+token polishd holds: whether the Claude GitHub App is installed and whether
+the secret exists.
+
+**Live test.** That's what **Send test issue** is for. It files an issue titled
+"polishd dispatch test" the way a dispatch would — the phrase in the body or
+in a comment after, per the workflow; an assignment, for Copilot — waits up to
+three minutes for the agent to answer, then closes the issue with a note. A
+reply proves the App and the secret; no reply lists the likely causes in order
+(App not installed, secret missing, workflow on another branch, no write
+access). The issue number is stored the moment it exists, so **Check again**
+picks the test back up after the page is gone, and a test issue is never left
+open silently.
+
+**Setting one up** when nothing is found, least effort first: if you use
+Claude Code, `claude` in the repo then `/install-github-app` does the App, the
+secret and a workflow pull request in one go. Otherwise three links: install
+the [Claude GitHub App](https://github.com/apps/claude/installations/new); add
+the repository secret — a radio picks between a **subscription token**
+(`CLAUDE_CODE_OAUTH_TOKEN`, made with `claude setup-token`, uses your plan's
+limits) and an **API key** (`ANTHROPIC_API_KEY` from the Console, metered,
+covered by a Max or Team monthly credit when linked), and the card names the
+secret to create; then add the workflow through a link that opens GitHub's
+new-file editor with polishd's recommended `claude.yml` already in it — the
+stock example, with the secret line matching your choice and a `--max-turns`
+cap — plus a copy button. A third row points at the repository's Copilot
+setting. polishd could open that workflow pull request itself if its token
+were granted Contents (write) and Workflows (write); it doesn't today.
+
+**Your choices** are the only editable fields, saved with the rest of the
+settings and stored for the loop to come: send fixes automatically (off by
+default), the label put on dispatched issues (`polishd-fix`), a daily cap
+(5), and a pause switch. Nothing acts on them yet. Until the card says Ready,
+the Issues tab carries a one-line pointer to it.
+
 ## Design review
 
 The dashboard's **Design** tab (in the sidebar) is your site's brand guideline

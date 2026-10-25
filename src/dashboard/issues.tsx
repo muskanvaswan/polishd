@@ -28,12 +28,14 @@ import { TabLink } from "./chrome";
 import IssueList from "./issue-list";
 import {
   ArrowUpRightIcon,
+  Callout,
   EmptyState,
   PageHeader,
   Section,
   card,
   ghostBtn,
   labelCls as label,
+  textLink,
   toneDot,
   type Tone,
 } from "./ui";
@@ -67,6 +69,7 @@ export default function IssuesView({
   connected,
   suggestions,
   canSuggest,
+  dispatchReady,
 }: {
   issues: PolishdFiledIssue[];
   /** The connected repository, "owner/repo". */
@@ -77,6 +80,11 @@ export default function IssuesView({
   suggestions: Record<number, PolishdFixSuggestion>;
   /** True when a model API key is configured (fix suggestions need one). */
   canSuggest: boolean;
+  /**
+   * True once the Settings tab's Fix dispatch card found a coding agent that
+   * could take these issues. Until then the tab says where to set one up.
+   */
+  dispatchReady: boolean;
 }) {
   const open = issues.filter((i) => i.detail?.state === "open").length;
   const closed = issues.filter((i) => i.detail?.state === "closed").length;
@@ -127,6 +135,16 @@ export default function IssuesView({
               <Stat label="Closed" value={closed} tone="violet" />
               <Stat label="Verified against source" value={verified} />
             </div>
+            {!dispatchReady && (
+              <Callout tone="neutral" className="mt-4">
+                These issues stop here — no coding agent takes them yet. Set one up and test it
+                under{" "}
+                <TabLink tab="settings" className={textLink}>
+                  Settings → Fix dispatch
+                </TabLink>
+                .
+              </Callout>
+            )}
           </section>
 
           <Section title="Filed issues">
