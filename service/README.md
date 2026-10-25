@@ -39,7 +39,13 @@ contract is defined in [`src/capture/protocol.ts`](../src/capture/protocol.ts).
 | Skips | `auth_wall`, `off_origin`, `protected` (Vercel's login), `bot_check`, `http_error`, `timeout`, `budget`, `failed` |
 | Versioning | In the path. v1 only ever gains optional fields. A breaking change ships as `/api/v2` beside v1, and v1 stays up while released packages still call it |
 
-`GET /api/v1` reports the configured limits and whether the limiter is up.
+`GET /api/v1` reports the configured limits, whether the limiter is up, and
+`browser`: `ok` once a blank page has been opened and screenshotted on the
+instance's browser, `wedged` when it couldn't be (that browser is retired on
+the spot), `busy` when every capture slot was taken for the whole wait, or
+`unavailable` when none could be launched. `pool` carries the counts behind
+that. Point a monitor at `browser`, not `ok`: `ok` checks only the limiter,
+and stayed true through a whole outage.
 
 ## What it will and won't shoot
 
@@ -83,6 +89,36 @@ measure, then tune). Note that Hobby is for non-commercial use.
 per-instance memory isn't a limit once requests fan out. `SHOTS_LIMITER=memory`
 overrides that on purpose. Locally an in-memory limiter is used.
 
+## The browser
+
+One Chromium per function instance, shared by the captures on it
+([`lib/pool.ts`](./lib/pool.ts)), `SHOTS_MAX_CONCURRENT` of them at once
+(default 2: a dashboard's own pair of requests run together, a third caller
+waits). `@sparticuz/chromium` runs it single-process, so every context's
+renderer and the GPU share one process whose sockets, descriptors and memory
+accumulate across requests — and a browser that has run out stays alive and
+connected, failing every shot in under a second with
+`net::ERR_INSUFFICIENT_RESOURCES` (sometimes "Target page, context or browser
+has been closed", or `Page.captureScreenshot: Unable to capture screenshot`
+on a tall page). So a browser is never kept for good. It is replaced:
+
+- **when a shot hits one of those faults.** The capture retires it, takes a
+  fresh one and tries the shot once more; everything already shot is kept. A
+  cell that fails even on the fresh browser says "the screenshot service's
+  browser had to be replaced — try this page again".
+- **after `SHOTS_BROWSER_MAX_SHOTS` shots** (24), or when its process is over
+  `SHOTS_BROWSER_MAX_RSS_MB` (768) or `SHOTS_BROWSER_MAX_FDS` (700), read from
+  `/proc` whenever a capture takes it.
+- **when `GET /api/v1`'s probe fails**, which is why a monitor on that route
+  also heals the instance it lands on.
+
+A retired browser closes once the last capture on it finishes (killed after
+five seconds if closing hangs), and its proxy with it. `[shots] browser #n
+retired after k shots: …` in the function logs says why each one went. If
+replacements come thick and fast, the instance is short of memory for the
+concurrency it's given: lower `SHOTS_MAX_CONCURRENT`, or raise the
+function's memory.
+
 ## Deploying
 
 1. New Vercel project from this repository, **Root Directory `service`**.
@@ -94,7 +130,7 @@ overrides that on purpose. Locally an in-memory limiter is used.
 3. Domain: `shots.polishd.muskanvaswan.xyz`, the URL released packages call
    (`SNAPSHOT_SERVICE_URL` in `src/capture/protocol.ts`).
 4. Check `GET https://shots.polishd.muskanvaswan.xyz/api/v1` reports
-   `"ok": true, "limiter": "redis"`.
+   `"ok": true, "limiter": "redis", "browser": "ok"`.
 
 No other secrets: the service holds no credentials for any site.
 
@@ -125,4 +161,4 @@ POLISHD_SNAPSHOT_SERVICE=http://localhost:4100/api/v1
 
 Tests run with the package's: `npm test` at the repository root covers
 `service/lib/**/*.test.ts` (address blocking, the proxy over real sockets,
-origin parsing, limits).
+origin parsing, limits, the browser pool's recycling and replacement).

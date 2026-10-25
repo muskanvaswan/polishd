@@ -1,7 +1,7 @@
 /**
  * Polishd — the pixel size of a stored image, read from its header.
  *
- * A snapshot's full-page shot can be 16,000 pixels tall, and a model
+ * A snapshot's full-page shot can be 12,000 pixels tall, and a model
  * provider has a ceiling on what it accepts (Anthropic refuses an edge over
  * 8,000px). Nothing here decodes pixels: the two formats a snapshot stores
  * (WebP from the capture core, PNG from snapshots taken before it) both put
