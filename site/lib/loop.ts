@@ -1,8 +1,9 @@
 /**
  * The loop, end to end.
  *
- * Four stages ship today; the last two are what "beta" means. The page never
- * blurs that line — every stage carries its own status.
+ * Five stages ship today — fixes among them, since the agent hand-off landed;
+ * the last two are what "beta" means. The page never blurs that line — every
+ * stage carries its own status.
  */
 export type StageStatus = "live" | "coming";
 
@@ -47,13 +48,21 @@ export const STAGES: Stage[] = [
   },
   {
     id: "05",
-    name: "Experiment",
-    status: "coming",
-    lead: "Fix it behind a flag.",
-    body: "Ship the change to a slice of traffic and let the loop hold both versions side by side, measured the same way.",
+    name: "Fix",
+    status: "live",
+    lead: "Hand it to your coding agent.",
+    body: "Create fix briefs the Claude Code GitHub Action on the filed issue. It proves the bug is real, pushes a fix, and comes back as a pull request linked to the issue — or as a reason it changed nothing.",
+    tags: ["github actions", "claude-code-action", "Fixes #N", "verdict"],
   },
   {
     id: "06",
+    name: "Experiment",
+    status: "coming",
+    lead: "Ship it behind a flag.",
+    body: "Roll the fix out to a slice of traffic and let the loop hold both versions side by side, measured the same way.",
+  },
+  {
+    id: "07",
     name: "Verify",
     status: "coming",
     lead: "Did the signal actually move?",

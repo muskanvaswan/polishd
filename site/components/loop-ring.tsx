@@ -2,9 +2,10 @@ import type { Stage } from "@/lib/loop";
 import { StatusChip } from "@/components/ui";
 
 /**
- * The loop as a ring: six nodes, the shipped half drawn solid and the half
- * still in beta drawn dashed. The travelling arc closes the circle on the last
- * stage — the point being that this is a cycle, not a funnel.
+ * The loop as a ring: a node per stage, the shipped stretch drawn solid and
+ * the stretch still in beta drawn dashed. The travelling arc closes the
+ * circle on the last stage — the point being that this is a cycle, not a
+ * funnel.
  */
 
 const CX = 200;
@@ -12,9 +13,6 @@ const CY = 200;
 const R = 115;
 const LABEL_R = 141;
 const CIRC = 2 * Math.PI * R;
-const STEP = 60; // 6 stages around the ring
-
-const angleOf = (i: number) => -90 + i * STEP;
 
 function point(radius: number, deg: number) {
   const rad = (deg * Math.PI) / 180;
@@ -42,6 +40,9 @@ export default function LoopRing({
   stages: Stage[];
   active: number;
 }) {
+  // Evenly round the ring, starting at twelve o'clock.
+  const angleOf = (i: number) => -90 + (i * 360) / stages.length;
+
   const current = stages[active];
   const coming = current.status === "coming";
   const accent = coming ? "#fbbf24" : "#f5f5f5";
@@ -59,7 +60,9 @@ export default function LoopRing({
 
   return (
     <div className="relative mx-auto w-full max-w-[320px] sm:max-w-[380px]">
-      <svg viewBox="0 0 400 400" className="w-full" role="img" aria-label="The Polishd loop">
+      {/* A little room either side: with seven stages the labels nearest
+          three and nine o'clock reach almost to the ring's own width. */}
+      <svg viewBox="-12 0 424 400" className="w-full" role="img" aria-label="The Polishd loop">
         {/* Shipped half — solid. Beta half — dashed. */}
         <path
           d={arcPath(angleOf(0), angleOf(firstComing))}

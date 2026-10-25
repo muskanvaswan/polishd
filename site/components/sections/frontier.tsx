@@ -2,10 +2,10 @@ import { Eyebrow, Heading, StatusChip, Sub, Wrap } from "@/components/ui";
 
 const NEXT = [
   {
-    id: "05",
+    id: "06",
     name: "Experiment",
-    lead: "Fix it behind a flag.",
-    body: "Roll the change to a slice of traffic. Both versions stay live, measured by the same signals that found the problem.",
+    lead: "Ship it behind a flag.",
+    body: "Roll the fix out to a slice of traffic. Both versions stay live, measured by the same signals that found the problem.",
     frame: (
       <>
         <span className="text-fg-4">flag</span> polishd
@@ -15,7 +15,7 @@ const NEXT = [
     ),
   },
   {
-    id: "06",
+    id: "07",
     name: "Verify",
     lead: "Did the signal actually move?",
     body: "Rage clicks down, scroll depth up — or not. Deploy on a yes; run the loop again on a no.",
@@ -35,13 +35,13 @@ export default function Frontier() {
   return (
     <section id="next" className="py-[76px] md:py-28">
       <Wrap>
-        <Eyebrow>Next · stages 05–06</Eyebrow>
+        <Eyebrow>Next · stages 06–07</Eyebrow>
         <Heading>
           The half that <span className="text-fg-4">closes the loop.</span>
         </Heading>
         <Sub>
           Finding the rough edge is only worth something if the fix is proven. These two stages
-          are in build — what&apos;s live now is the first four.
+          are in build — what&apos;s live now is the first five.
         </Sub>
 
         <div className="mt-[38px] grid grid-cols-1 gap-3 md:grid-cols-2">

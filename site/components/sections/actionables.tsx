@@ -7,9 +7,9 @@ import {
   CopyIcon,
   DropletIcon,
 } from "@/components/dash/icons";
+import { Pointer } from "@/components/dash/pointer";
 import {
   Badge,
-  Callout,
   GhostBtn,
   PrimaryBtn,
   card,
@@ -32,7 +32,9 @@ import { Eyebrow, Heading, Sub, Wrap } from "@/components/ui";
  * decision first, then what's in the tracker. Each row carries its source
  * mark (the Analytics chart in red, the Design droplet in blue), a status, a
  * picture of where a design value renders, the GitHub issue it's filed as,
- * and three verdicts on hover — Mark fixed, Ignore, File bug.
+ * and three verdicts on hover — Mark fixed, Ignore, File bug. A filed issue
+ * also carries where its fix stands, once the coding agent has been asked for
+ * one; the Fix section picks #42 up from here.
  *
  * Beside the list, the Overview's other move: one prompt that hands every
  * open problem to the coding agent working in the repo, and the paste box
@@ -74,14 +76,14 @@ const ROWS: Row[] = [
   {
     source: "analytics",
     title: "The narration button throws on Safari: play() rejected without a gesture.",
-    status: { text: "in progress", tone: "ok" },
-    issue: { number: 42, meta: "opened 2h ago · 1 comment" },
+    status: { text: "agent working", tone: "info" },
+    issue: { number: 42, meta: "opened 2h ago · 2 comments" },
   },
   {
     source: "design",
     title: "A 21px subheading used three times stands in for the 28px step.",
-    status: { text: "closed", tone: "violet" },
-    issue: { number: 39, meta: "opened 3d ago · closed yesterday" },
+    status: { text: "fix merged", tone: "violet" },
+    issue: { number: 39, meta: "opened 3d ago · PR #40 merged yesterday" },
   },
   {
     source: "design",
@@ -183,14 +185,11 @@ export default function Actionables() {
               </ul>
             </div>
 
-            {/* Where the loop stops today, said the way the tab says it. */}
+            {/* Where a filed issue goes next: the fix pipeline. */}
             <div className="r font-chart text-fg" style={delay(120)}>
-              <Callout tone="neutral">
-                Filed issues stop at your tracker for now — no coding agent takes them yet. Handing
-                them to the one your repo already runs is in build; the{" "}
-                <span className="text-fg">Fix dispatch</span> card in Settings already checks your
-                setup and sends a test issue.
-              </Callout>
+              <Pointer tone="bg-ok" href="#fix" label="Create fix" className="">
+                Filed issues go on to your coding agent, and come back as pull requests.
+              </Pointer>
             </div>
           </div>
 
