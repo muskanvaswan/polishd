@@ -62,6 +62,7 @@ import { unlockPolishdDashboard } from "./unlock";
 import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReviewState } from "../ai/design";
+import { loadOverviewState } from "../ai/overview";
 import { listFixSuggestions } from "../ai/fix";
 import { isGithubConnected } from "../ai/github";
 import { listFiledIssues } from "../ai/issues";
@@ -905,10 +906,14 @@ async function OverviewTabData() {
     loadSummaryState(data),
     loadDesignReviewState(design),
   ]);
+  // The paragraph is written from the two reviews, so its staleness follows theirs.
+  const overviewState = await loadOverviewState(summaryState.summary, reviewState.review);
   scheduleSummaryRefresh(data, settings, summaryState);
   return (
     <OverviewPanel
       overview={data.overview}
+      story={overviewState.overview}
+      storyStale={overviewState.stale}
       trends={data.trends}
       devices={data.devices}
       settings={settings}

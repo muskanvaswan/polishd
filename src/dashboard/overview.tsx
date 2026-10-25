@@ -3,12 +3,13 @@
 /**
  * Polishd — the Overview tab (client).
  *
- * The dashboard's front page, laid out as a board: the site as it last
- * rendered, in a bento of its top pages' heroes; its brand, the colors and
- * type the pages actually ship; who's using it, every headline number; and
- * the story both reviews tell, as one summary. Then the step after reading —
- * a prompt that hands every problem to the coding agent working in the repo,
- * copied by the button in the header.
+ * The dashboard's front page, laid out as a board. One row: the site as it
+ * last rendered, in a bento of its top pages' heroes, beside its brand — the
+ * colors and type the pages actually ship. Under it, one column: the story
+ * both reviews tell, written as a single paragraph by the model, with the
+ * headline audience numbers beneath. Then the step after reading — a prompt
+ * that hands every problem to the coding agent working in the repo, copied
+ * by the button in the header.
  *
  * The problems themselves aren't on this page. The losses and the design
  * issues live on the Analytics and Design tabs with the controls that act on
@@ -30,6 +31,7 @@ import type {
   PolishdAISettingsPublic,
   PolishdDesignReview,
   PolishdIgnoredLoss,
+  PolishdOverview,
   PolishdSummary,
 } from "../ai/types";
 import type { DeviceBucket, MetricTrends, OverviewStats } from "../server/queries";
@@ -83,6 +85,10 @@ export interface OverviewPanelProps {
   trends: MetricTrends;
   devices: DeviceBucket[];
   settings: PolishdAISettingsPublic;
+  /** The model's one-paragraph story of both reviews, or null before the first. */
+  story: PolishdOverview | null;
+  /** True when a review has changed since the story was written. */
+  storyStale: boolean;
   summary: PolishdSummary | null;
   summaryStale: boolean;
   review: PolishdDesignReview | null;
@@ -104,6 +110,8 @@ export default function OverviewPanel({
   trends,
   devices,
   settings,
+  story,
+  storyStale,
   summary: initialSummary,
   summaryStale,
   review: initialReview,
@@ -246,40 +254,55 @@ export default function OverviewPanel({
         </Callout>
       )}
 
-      <Section
-        title="Site snapshots"
-        links={[{ tab: "design", label: snapshot ? "All snapshots" : "Capture one" }]}
-      >
-        {snapshot ? (
-          <SnapshotGallery snapshot={snapshot} topPages={topPages} />
-        ) : (
-          <Callout tone="neutral">
-            No snapshots yet. Capture one on the{" "}
-            <TabLink tab="design" className={textLink}>
-              Design tab
-            </TabLink>{" "}
-            to see every page of the site as it renders right now.
-          </Callout>
-        )}
-      </Section>
+      {/* One row: the site as it renders, beside the system it renders with. */}
+      <div className="mb-10 grid gap-6 lg:grid-cols-2">
+        <Section
+          title="Site snapshots"
+          links={[{ tab: "design", label: snapshot ? "All snapshots" : "Capture one" }]}
+          className=""
+        >
+          {snapshot ? (
+            <SnapshotGallery snapshot={snapshot} topPages={topPages} />
+          ) : (
+            <Callout tone="neutral">
+              No snapshots yet. Capture one on the{" "}
+              <TabLink tab="design" className={textLink}>
+                Design tab
+              </TabLink>{" "}
+              to see every page of the site as it renders right now.
+            </Callout>
+          )}
+        </Section>
 
-      <Section
-        title="Brand"
-        action={kit && <BrandKitButton kit={kit} />}
-        links={[{ tab: "design", label: "Design" }]}
-      >
-        {kit ? (
-          <BrandBoard kit={kit} />
-        ) : (
-          <Callout tone="neutral">
-            No design scans yet. Each page measures its own colors and type once per visitor
-            session — browse a few pages of the site and the brand board appears here.
-          </Callout>
-        )}
-      </Section>
+        <Section
+          title="Brand"
+          action={kit && <BrandKitButton kit={kit} />}
+          links={[{ tab: "design", label: "Design" }]}
+          className=""
+        >
+          {kit ? (
+            <BrandBoard kit={kit} />
+          ) : (
+            <Callout tone="neutral">
+              No design scans yet. Each page measures its own colors and type once per visitor
+              session — browse a few pages of the site and the brand board appears here.
+            </Callout>
+          )}
+        </Section>
+      </div>
 
-      <Section title="Visitors" links={[{ tab: "analytics", label: "All metrics" }]}>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* One column: the story, then the numbers it's told about. */}
+      <OverviewSummary
+        initialStory={story}
+        initialStale={storyStale}
+        summary={summary}
+        review={review}
+        settings={settings}
+        scannedPages={scannedPages}
+        onSummaryChange={onSummaryChange}
+        onReviewChange={onReviewChange}
+      >
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <OverviewTiles
             overview={overview}
             trends={trends}
@@ -288,25 +311,8 @@ export default function OverviewPanel({
           />
           <DepthTile overview={overview} />
           <MobileTile devices={devices} />
-          <OverviewTiles
-            overview={overview}
-            trends={trends}
-            metrics={["rageClicks", "deadClicks", "jsErrors", "totalEvents"]}
-            gridClassName="contents"
-          />
         </div>
-      </Section>
-
-      <OverviewSummary
-        initialSummary={initialSummary}
-        initialSummaryStale={summaryStale}
-        initialReview={initialReview}
-        initialReviewStale={reviewStale}
-        settings={settings}
-        scannedPages={scannedPages}
-        onSummaryChange={onSummaryChange}
-        onReviewChange={onReviewChange}
-      />
+      </OverviewSummary>
     </main>
   );
 }

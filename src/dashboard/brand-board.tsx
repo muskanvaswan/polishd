@@ -3,7 +3,8 @@
  *
  * The Design tab lists everything the pages paint, drift included, and the
  * brand kit PDF curates that into a guideline. This is the kit's first page
- * on screen, cut down to what a brand board says at a glance:
+ * on screen, cut down to what a brand board says at a glance and sized to
+ * share a row with the snapshot gallery:
  *
  *   • **The palette as a grid.** Primary largest, Secondary and Accent beside
  *     it, then the neutrals as one scale from light to dark. Not every color
@@ -51,36 +52,30 @@ export default function BrandBoard({ kit }: { kit: BrandKit }) {
   const type = typeRoles(kit);
 
   return (
-    <div data-component="overview-brand" className={`${card} overflow-hidden`}>
-      <div className="grid lg:grid-cols-2">
-        <div className="p-4 sm:p-5">
-          {brand.length === 0 && neutrals.length === 0 ? (
-            <p className="text-[13px] text-fg-3">No colors measured yet.</p>
-          ) : (
-            <>
-              {brand.length > 0 && <BrandGrid colors={brand} />}
-              {neutrals.length > 0 && (
-                <div className={brand.length > 0 ? "mt-4" : ""}>
-                  <div className={`${eyebrowCls} mb-2`}>Neutrals · light to dark</div>
-                  {/* Six across while the board is one column; three across once
-                      it splits, so the names stay legible in half the width. */}
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-3">
-                    {neutrals.map((c) => (
-                      <Swatch key={c.hex} color={c} className="aspect-[4/3]" small />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+    <div data-component="overview-brand" className={`${card} flex flex-1 flex-col p-4 sm:p-5`}>
+      {brand.length === 0 && neutrals.length === 0 ? (
+        <p className="text-[13px] text-fg-3">No colors measured yet.</p>
+      ) : (
+        <>
+          {brand.length > 0 && <BrandGrid colors={brand} />}
+          {neutrals.length > 0 && (
+            <div className={brand.length > 0 ? "mt-3" : ""}>
+              <div className={`${eyebrowCls} mb-1.5`}>Neutrals · light to dark</div>
+              <div className="grid grid-cols-6 gap-1.5">
+                {neutrals.map((c) => (
+                  <Swatch key={c.hex} color={c} className="aspect-[4/3]" small />
+                ))}
+              </div>
+            </div>
           )}
-        </div>
-        <div className="border-t border-line p-4 sm:p-5 lg:border-l lg:border-t-0">
-          {type.length === 0 ? (
-            <p className="text-[13px] text-fg-3">No type measured yet.</p>
-          ) : (
-            type.map((row, i) => <TypeRow key={row.role} row={row} kit={kit} first={i === 0} />)
-          )}
-        </div>
+        </>
+      )}
+      <div className="mt-4 flex-1 border-t border-line pt-4">
+        {type.length === 0 ? (
+          <p className="text-[13px] text-fg-3">No type measured yet.</p>
+        ) : (
+          type.map((row, i) => <TypeRow key={row.role} row={row} kit={kit} first={i === 0} />)
+        )}
       </div>
     </div>
   );
@@ -94,16 +89,13 @@ export default function BrandBoard({ kit }: { kit: BrandKit }) {
  * takes two columns of three; alone, it takes the row.
  */
 function BrandGrid({ colors }: { colors: BrandKitColor[] }) {
-  if (colors.length === 1) return <Swatch color={colors[0]} className="h-28" />;
+  if (colors.length === 1) return <Swatch color={colors[0]} className="h-20" />;
   const [primary, ...rest] = colors;
   return (
-    <div className="grid grid-cols-3 gap-2">
-      <Swatch
-        color={primary}
-        className={`col-span-2 ${rest.length > 1 ? "row-span-2 min-h-28" : "h-28"}`}
-      />
+    <div className="grid grid-cols-3 gap-1.5">
+      <Swatch color={primary} className={`col-span-2 ${rest.length > 1 ? "row-span-2 min-h-20" : "h-20"}`} />
       {rest.map((c) => (
-        <Swatch key={c.hex} color={c} className={rest.length > 1 ? "min-h-[3.25rem]" : "h-28"} />
+        <Swatch key={c.hex} color={c} className={rest.length > 1 ? "min-h-10" : "h-20"} />
       ))}
     </div>
   );
@@ -117,7 +109,7 @@ function Swatch({
 }: {
   color: BrandKitColor;
   className: string;
-  /** The neutral scale's cells: value only, no rank. */
+  /** The neutral scale's cells: name and value only, no rank. */
   small?: boolean;
 }) {
   // Legible on the swatch whatever its lightness: ink on light, paper on dark.
@@ -132,10 +124,14 @@ function Swatch({
     >
       <div className={`min-w-0 ${small ? "p-1.5" : "p-2.5"}`}>
         {!small && c.rank && (
-          <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${quiet}`}>{c.rank}</div>
+          <div className={`text-[9px] font-semibold uppercase tracking-[0.08em] ${quiet}`}>{c.rank}</div>
         )}
-        <div className={`truncate font-medium ${small ? "text-[11px]" : "text-[13px]"} ${ink}`}>{c.name}</div>
-        <div className={`truncate font-mono ${small ? "text-[10px]" : "text-[11px]"} ${quiet}`}>{c.hex}</div>
+        <div className={`truncate font-medium ${small ? "text-[10px] leading-tight" : "text-[12px]"} ${ink}`}>
+          {c.name}
+        </div>
+        <div className={`truncate font-mono ${small ? "text-[9px] leading-tight" : "text-[10px]"} ${quiet}`}>
+          {c.hex}
+        </div>
       </div>
     </div>
   );
@@ -143,8 +139,10 @@ function Swatch({
 
 // ── Type ─────────────────────────────────────────────────────────────────────
 
+type TypeRoleName = "Title" | "Subtitle" | "Body" | "Caption";
+
 interface TypeRole {
-  role: "Title" | "Subtitle" | "Body" | "Caption";
+  role: TypeRoleName;
   style: BrandKitTypeStyle;
 }
 
@@ -174,34 +172,36 @@ function typeRoles(kit: BrandKit): TypeRole[] {
   return rows;
 }
 
-/** Specimens are capped so a 72px display face doesn't take the card over. */
-const MAX_SPECIMEN_PX = 40;
+/**
+ * Specimens are capped per role so a 72px display face doesn't take the card
+ * over; the real size is in the label beside it.
+ */
+const SPECIMEN_CAP: Record<TypeRoleName, number> = { Title: 28, Subtitle: 20, Body: 15, Caption: 12 };
 
 function TypeRow({ row, kit, first }: { row: TypeRole; kit: BrandKit; first: boolean }) {
   const { role, style } = row;
   const face = kit.typefaces.find((t) => t.family === style.family);
   const family = face ? cssFamily(face) : `"${style.family}", ui-sans-serif, system-ui, sans-serif`;
   return (
-    <div className={`flex items-end justify-between gap-4 ${first ? "" : "mt-4 border-t border-line pt-4"}`}>
-      <div className="min-w-0 flex-1">
-        <div className={eyebrowCls}>{role}</div>
-        <div
-          className="mt-1.5 truncate text-fg"
-          style={{
-            fontFamily: family,
-            fontSize: `${Math.min(style.sizePx, MAX_SPECIMEN_PX)}px`,
-            fontWeight: style.weight,
-            lineHeight: 1.15,
-          }}
-        >
-          {style.sample || role}
-        </div>
+    <div
+      className={`grid grid-cols-[4.25rem_minmax(0,1fr)_auto] items-baseline gap-x-3 ${
+        first ? "" : "mt-2.5 border-t border-line pt-2.5"
+      }`}
+    >
+      <div className={eyebrowCls}>{role}</div>
+      <div
+        className="truncate text-fg"
+        style={{
+          fontFamily: family,
+          fontSize: `${Math.min(style.sizePx, SPECIMEN_CAP[role])}px`,
+          fontWeight: style.weight,
+          lineHeight: 1.2,
+        }}
+      >
+        {style.sample || role}
       </div>
-      <div className="shrink-0 text-right text-[12px] leading-snug tabular-nums text-fg-3">
-        <div className="text-fg-2">{style.familyName}</div>
-        <div>
-          {style.sizePx}px · {weightName(style.weight)}
-        </div>
+      <div className="whitespace-nowrap text-right text-[11px] tabular-nums text-fg-3">
+        <span className="text-fg-2">{style.familyName}</span> · {style.sizePx}px · {weightName(style.weight)}
       </div>
     </div>
   );

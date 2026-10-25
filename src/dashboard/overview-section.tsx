@@ -22,6 +22,7 @@ export default function Section({
   description,
   action,
   links = [],
+  className = "mb-10",
   children,
 }: {
   title: string;
@@ -29,10 +30,12 @@ export default function Section({
   /** Controls on the heading's right, before the links. */
   action?: ReactNode;
   links?: SectionLink[];
+  /** The section's own spacing; a section sharing a row with another passes none. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="mb-10">
+    <section className={`flex min-w-0 flex-col ${className}`}>
       <SectionHeader
         title={title}
         description={description}

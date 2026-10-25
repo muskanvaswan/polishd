@@ -6,31 +6,36 @@
 
 The Overview opened on four audience numbers and the two review cards stacked
 one above the other, with the newest snapshot as a strip at the bottom. It
-now reads top to bottom as the site itself.
+now reads as a board: one row of the site as it renders and the system it
+renders with, then one column of the story and the numbers.
 
-- **Site snapshots** lead, as a bento of the site's top pages rather than a
-  strip: the homepage hero largest, the next two most-visited pages' heroes
-  beside it, and the homepage on a phone — four pictures, laid straight on the
-  page with no device or theme toggles in front. A click still opens the
+- **Site snapshots** are a small bento of the site's top pages rather than a
+  strip: the homepage hero largest, the homepage on a phone beside it, and
+  the heroes of the two most visited other pages under them — four pictures,
+  laid straight on the page with no device or theme toggles in front. Pages
+  are ranked by the traffic the analytics saw. A click still opens the
   full-height shot; the rest of the capture is one link away on the Design
   tab. In the lightbox, phone shots now open at phone width instead of being
   blown up to desktop width, and Escape closes it.
-- **Brand** is new: the system the pages actually ship, curated the way the
-  brand kit is (one-offs left out), as two hierarchies. The palette: Primary
-  largest, Secondary and Accent beside it, the neutrals as one scale from
-  light to dark — not every color the site paints. The type: the title,
-  subtitle, body and caption styles stacked, each set in its own face at the
-  size the site really uses it.
-- **Visitors** shows every headline number, not four: sessions, page views,
-  views per session and the share on mobile, then rage clicks, dead clicks,
-  JS errors and events — each tile opening its chart over time, as on the
-  Analytics tab.
-- **Summary** replaces the two review cards with one: the analytics summary
-  and the design review as consecutive paragraphs, what's working under both,
-  and when each was written. One refresh regenerates both; a half that fails
-  reports on its own. The losses and the design issues — and the ignore and
-  file-bug controls that act on them — stay on the Analytics and Design tabs.
-  The Overview is for reading, not triage.
+- **Brand** is new, beside the snapshots: the system the pages actually ship,
+  curated the way the brand kit is (one-offs left out), as two hierarchies.
+  The palette: Primary largest, Secondary and Accent beside it, the neutrals
+  as one scale from light to dark — not every color the site paints. The
+  type: the title, subtitle, body and caption styles stacked, each set in
+  its own face at the size the site really uses it.
+- **Summary** is one paragraph, written by the model. The analytics summary
+  and the design review are handed to the same provider, model and key the
+  owner configured, with instructions to fold them into a single story — the
+  overall picture, the one or two things most worth fixing, what to protect —
+  and to say nothing the two reviews don't. It's cached under the reviews'
+  hash, goes stale when either changes, and is rewritten when the Overview
+  opens on a missing or stale paragraph. One refresh regenerates the summary,
+  the review and then the paragraph from them. The losses and the design
+  issues — and the ignore and file-bug controls that act on them — stay on
+  the Analytics and Design tabs.
+- **Visitors** — sessions, page views, views per session and the share on
+  mobile — sit under the paragraph in the same column; the friction counts
+  stay on the Analytics tab.
 
 **Copy fix prompt** and **Paste verdicts** are unchanged: the prompt still
 carries every problem both reviews found, built from the latest summary and
