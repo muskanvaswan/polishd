@@ -421,10 +421,12 @@ function VerdictFacts({ item }: { item: Item }) {
 type Verdict = "ignore" | "fixed";
 
 /**
- * The verdicts on a finding, as the row and the drawer both offer them: the
- * dashboard's own buttons, the same as everywhere else. File bug is offered
- * until an issue exists or filing found the report isn't a bug; Mark fixed
- * and Ignore each open their confirming dialog.
+ * The verdicts on a finding, as the row and the drawer both offer them: Mark
+ * fixed and Ignore on the left as quiet buttons, File bug on the right as the
+ * primary one — it's the verdict that produces something. File bug is offered
+ * until an issue exists or filing found the report isn't a bug; the other two
+ * each open their confirming dialog. `trailing` sits at the right beside File
+ * bug: the drawer puts the issue's link or the not-a-bug verdict there.
  */
 function VerdictButtons({
   item,
@@ -433,6 +435,7 @@ function VerdictButtons({
   onVerdict,
   component,
   className = "",
+  trailing,
 }: {
   item: Item;
   canFile: boolean;
@@ -442,36 +445,24 @@ function VerdictButtons({
   /** Where the buttons sit, for the dashboard's own telemetry: "row" or "drawer". */
   component: string;
   className?: string;
+  trailing?: ReactNode;
 }) {
   const { a, link, dismissal, rejected } = item;
   if (!a.finding) return null;
   const fileable = canFile && !link && !rejected;
   return (
     <div
-      className={`flex flex-wrap items-center gap-2 ${className}`}
+      className={`flex w-full flex-wrap items-center gap-2 ${className}`}
       // The row opens the drawer on click; its buttons must not.
       onClick={(e) => e.stopPropagation()}
     >
-      {fileable && (
-        <button
-          type="button"
-          data-component={`actionable-file-bug-${component}`}
-          onClick={onFile}
-          disabled={item.filing || dismissal.pending}
-          title="Verify this problem against the source code, then create a GitHub issue with the technical details — linked here"
-          className={primaryBtn}
-        >
-          {item.filing && <SpinnerIcon size={13} />}
-          {item.filing ? "Verifying…" : "File bug"}
-        </button>
-      )}
       <button
         type="button"
         data-component={`actionable-fixed-${component}`}
         onClick={() => onVerdict("fixed")}
         disabled={item.filing || dismissal.pending}
         title="Done — drop it from the reviews and tell the model the site changed here"
-        className={primaryBtn}
+        className={ghostBtn}
       >
         Mark fixed
       </button>
@@ -479,9 +470,27 @@ function VerdictButtons({
         state={dismissal}
         dataComponent={`actionable-ignore-${component}`}
         title="Not a problem — drop it from the reviews and stop the model reporting it again"
-        className={primaryBtn}
+        className={ghostBtn}
         onPress={() => onVerdict("ignore")}
       />
+      {(fileable || trailing) && (
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          {fileable && (
+            <button
+              type="button"
+              data-component={`actionable-file-bug-${component}`}
+              onClick={onFile}
+              disabled={item.filing || dismissal.pending}
+              title="Verify this problem against the source code, then create a GitHub issue with the technical details — linked here"
+              className={primaryBtn}
+            >
+              {item.filing && <SpinnerIcon size={13} />}
+              {item.filing ? "Verifying…" : "File bug"}
+            </button>
+          )}
+          {trailing}
+        </span>
+      )}
     </div>
   );
 }
@@ -1249,15 +1258,15 @@ function ActionableDrawer({
 
             {/* the verdicts, pinned where the decision gets made */}
             {a.finding && !item.dismissal.ignored && (
-              <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3 sm:px-5">
+              <div className="border-t border-line px-4 py-3 sm:px-5">
                 <VerdictButtons
                   item={item}
                   canFile={canFile}
                   onFile={onFile}
                   onVerdict={onVerdict}
                   component="drawer"
+                  trailing={<VerdictFacts item={item} />}
                 />
-                <VerdictFacts item={item} />
               </div>
             )}
           </>
