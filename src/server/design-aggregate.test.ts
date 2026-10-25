@@ -230,3 +230,24 @@ test("theme tokens plus a few legitimate arbitrary values raise no hand-typed fi
   const bypassed = aggregateDesignScans([scan("/", { text: handTyped(12), tw: [40, 50], rem: 16 })]);
   assert.ok(bypassed.flags.some((f) => /^100% of color declarations \(12 of 12\).*there is no color token layer/.test(f.message)));
 });
+
+test("control backgrounds are tallied apart, as the site's action color", () => {
+  const data = aggregateDesignScans([
+    scan("/", {
+      bg: [["#ffffff", 80], ["#3b5bdb", 12]],
+      ctl: [["#3b5bdb", 9]],
+    } as Partial<PolishdDesignScanPayload>),
+  ]);
+  const controls = Object.fromEntries(data.colors.map((c) => [c.hex, c.controls]));
+  assert.deepEqual(controls, { "#ffffff": 0, "#3b5bdb": 9 });
+  // The kit carries it through, and folds it with near-duplicates.
+  const kit = buildBrandKit(data);
+  assert.equal(kit.colors.find((c) => c.hex === "#3b5bdb")?.controls, 9);
+  // A control color the capped background list dropped doesn't conjure a color.
+  const stray = aggregateDesignScans([
+    scan("/", { bg: [["#ffffff", 1]], ctl: [["#123456", 3]] } as Partial<PolishdDesignScanPayload>),
+  ]);
+  assert.deepEqual(stray.colors.map((c) => c.hex), ["#ffffff"]);
+  // Scans from before it was measured read as zero, not unknown.
+  assert.equal(aggregateDesignScans([scan("/", OLD_SHAPE)]).colors[0].controls, 0);
+});

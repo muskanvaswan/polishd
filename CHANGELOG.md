@@ -13,15 +13,23 @@ renders with, then one column of the story and the numbers.
   strip: the homepage hero largest, the homepage on a phone beside it, and
   the heroes of the two most visited other pages under them — four pictures,
   with no heading over them and no device or theme toggles in front. Pages
-  are ranked by the traffic the analytics saw. A click still opens the
-  full-height shot; the rest of the capture is one link away on the Design
-  tab. In the lightbox, phone shots now open at phone width instead of being
+  are ranked by the traffic the analytics saw, and a site with fewer pages
+  lends their other renderings to the remaining tiles. A click still opens
+  the full-height shot; the rest of the capture is one link away on the
+  Design tab. In the lightbox, phone shots now open at phone width instead of being
   blown up to desktop width, and Escape closes it.
 - **The brand** sits in the same card, beside the snapshots: the system the
   pages actually ship, curated the way the brand kit is (one-offs left out),
-  as two hierarchies and no labels. The palette: Primary largest, Secondary
-  and Accent beside it, the neutrals as one scale from light to dark — not
-  every color the site paints. The type: the words "Title", "Subtitle",
+  as two hierarchies and no labels. The palette: the color the site paints
+  its buttons and calls to action in as Primary — a white site's white, a
+  blue site's blue, never a status red — the page itself as Secondary, the
+  next distinct color as Accent, then the next six most used as one scale
+  from light to dark; not every color the site paints. To know the action
+  color, the design scan now tallies the backgrounds painted on controls
+  (buttons, links styled as them, inputs) on their own, and the kit carries
+  that through; on an existing install the ranking sharpens as visitors
+  browse, and until then the leading brand color stands in. The
+  type: the words "Title", "Subtitle",
   "Body" and "Caption", each set in its own face at the size the site really
   uses that style.
 - **The paragraph**, captioned Overview, is written by the model. The analytics summary
