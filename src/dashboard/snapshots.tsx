@@ -706,20 +706,28 @@ function SnapshotsCard() {
           >
             {live.map((shot) => (
               <figure key={shotKey(shot)} className="min-w-0">
-                <div className="aspect-[4/5] w-full overflow-hidden rounded-lg border border-line bg-canvas">
-                  {shot.src ? (
-                    // eslint-disable-next-line @next/next/no-img-element
+                {shot.src ? (
+                  <button
+                    type="button"
+                    data-component="design-snapshot-live-open"
+                    onClick={() => setZoom({ src: shot.src!, route: shot.route, device: shot.device })}
+                    title={`${shot.route} — click to enlarge`}
+                    className="relative block aspect-[4/5] w-full overflow-hidden rounded-lg border border-line bg-canvas transition-[border-color] hover:border-fg-4"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={shot.src}
                       alt={`${shot.route} — ${shot.device}, ${shot.theme}`}
                       className="h-full w-full object-cover object-top"
                     />
-                  ) : (
+                  </button>
+                ) : (
+                  <div className="aspect-[4/5] w-full overflow-hidden rounded-lg border border-line bg-canvas">
                     <span className="flex h-full items-center justify-center px-1 text-center text-[11px] text-fg-3">
                       {shot.skipped ?? "no image"}
                     </span>
-                  )}
-                </div>
+                  </div>
+                )}
                 <figcaption className="mt-1.5 truncate font-mono text-[11px] text-fg-3">
                   {shot.route} · {shot.device} {shot.theme}
                 </figcaption>
