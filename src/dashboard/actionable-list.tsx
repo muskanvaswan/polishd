@@ -421,12 +421,12 @@ function VerdictFacts({ item }: { item: Item }) {
 type Verdict = "ignore" | "fixed";
 
 /**
- * The verdicts on a finding, as the row and the drawer both offer them: Mark
- * fixed and Ignore on the left as quiet buttons, File bug on the right as the
+ * The verdicts on a finding, as the row and the drawer both offer them, in
+ * one line: Mark fixed and Ignore as quiet buttons, then File bug last as the
  * primary one — it's the verdict that produces something. File bug is offered
  * until an issue exists or filing found the report isn't a bug; the other two
- * each open their confirming dialog. `trailing` sits at the right beside File
- * bug: the drawer puts the issue's link or the not-a-bug verdict there.
+ * each open their confirming dialog. `trailing` follows File bug: the drawer
+ * puts the issue's link or the not-a-bug verdict there.
  */
 function VerdictButtons({
   item,
@@ -452,7 +452,7 @@ function VerdictButtons({
   const fileable = canFile && !link && !rejected;
   return (
     <div
-      className={`flex w-full flex-wrap items-center gap-2 ${className}`}
+      className={`flex flex-wrap items-center gap-2 ${className}`}
       // The row opens the drawer on click; its buttons must not.
       onClick={(e) => e.stopPropagation()}
     >
@@ -473,24 +473,20 @@ function VerdictButtons({
         className={ghostBtn}
         onPress={() => onVerdict("ignore")}
       />
-      {(fileable || trailing) && (
-        <span className="ml-auto flex flex-wrap items-center gap-2">
-          {fileable && (
-            <button
-              type="button"
-              data-component={`actionable-file-bug-${component}`}
-              onClick={onFile}
-              disabled={item.filing || dismissal.pending}
-              title="Verify this problem against the source code, then create a GitHub issue with the technical details — linked here"
-              className={primaryBtn}
-            >
-              {item.filing && <SpinnerIcon size={13} />}
-              {item.filing ? "Verifying…" : "File bug"}
-            </button>
-          )}
-          {trailing}
-        </span>
+      {fileable && (
+        <button
+          type="button"
+          data-component={`actionable-file-bug-${component}`}
+          onClick={onFile}
+          disabled={item.filing || dismissal.pending}
+          title="Verify this problem against the source code, then create a GitHub issue with the technical details — linked here"
+          className={primaryBtn}
+        >
+          {item.filing && <SpinnerIcon size={13} />}
+          {item.filing ? "Verifying…" : "File bug"}
+        </button>
       )}
+      {trailing}
     </div>
   );
 }
