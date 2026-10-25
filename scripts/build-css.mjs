@@ -39,8 +39,16 @@ const SCOPE_CLASS = ".polishd-root";
  * to (0,2,0) or better, so the dashboard wins those ties by construction rather
  * than by load order. Relative precedence inside this file is unchanged, since
  * every selector is bumped equally.
+ *
+ * `:not(#polishd)` goes further. Negating an ID that never exists is always
+ * true and counts as an ID in specificity, which lifts every rule above
+ * anything a host writes with classes, attributes and elements — however long
+ * the chain (`.app .main .card div`) — and above a rule that keys off a single
+ * ID of its own (`#app div`) unless it also adds classes. What remains able to
+ * beat the dashboard is `!important` and inline `style=""`, which no
+ * stylesheet can outrank without shouting back.
  */
-const SCOPE = `${SCOPE_CLASS}${SCOPE_CLASS}`;
+const SCOPE = `${SCOPE_CLASS}${SCOPE_CLASS}:not(#polishd)`;
 
 /**
  * Selectors that hold theme custom properties rather than styling anything.

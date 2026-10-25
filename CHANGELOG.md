@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### The host's layout no longer restyles the dashboard
+
+- **Inherited styles stop at `.polishd-root`.** Scoping kept the dashboard's
+  rules off the host, but the host's *inherited* properties still flowed in:
+  a layout that sets `letter-spacing`, `text-transform`, `word-spacing`,
+  `font-variant`, `text-align` or a base `font-size`/`line-height` on `body`
+  reached every element in the dashboard (the landing site's
+  `letter-spacing: 0.025em` spread out all its text). The root now resets
+  inherited properties with `all: initial` before applying its own.
+- **Host element selectors can't recolour it either.** A host's `a`, `div`,
+  `p` or `*` rule that sets `color`, `text-transform` or `font-style` hit
+  dashboard elements directly, beating inheritance; the dashboard now pins
+  those on every descendant. Icons' SVG `fill`/`stroke` attributes are
+  mirrored in CSS, so a host `svg { fill: currentColor }` can't turn line
+  icons solid. Host Tailwind palettes were already harmless: dashboard
+  utilities resolve to private `--pd-*` tokens, which a host theme can't
+  redefine.
+- **A hard override.** Every dashboard element is rolled back to browser
+  defaults (`all: revert`, skipping SVG content and images) before the
+  dashboard's own utilities apply, so a host rule on a bare element —
+  `div { background }`, `section { max-width }` — has nothing left to win.
+  Every selector also carries the weight of an ID (`:not(#polishd)`), which
+  beats host rules however long their class chain and any single-ID rule
+  like `#app div`. Only `!important` and inline `style=""` can still outrank
+  the dashboard.
+
 ### Every event knows its build, and the Analytics tab has a range
 
 - **Builds on every event.** A new `build` column (migrated automatically on
