@@ -14,25 +14,25 @@ export default function Hero() {
     <section className="relative z-10 flex flex-col pt-16 pb-12 md:min-h-screen md:max-h-none md:pt-20 md:pb-0">
       <Wrap>
         <div className="flex flex-col items-center text-center">
-          <Eyebrow>The taste loop for Next.js</Eyebrow>
+          <Eyebrow atLoad>The taste loop for Next.js</Eyebrow>
 
           {/* The bottle stands in for the h — legs notched into its base. */}
           <h1
-            className="r mt-4 text-[clamp(64px,13vw,160px)] leading-[0.95]"
+            className="r-load mt-4 text-[clamp(64px,13vw,160px)] leading-[0.95]"
             style={{ "--d": "70ms" } as React.CSSProperties}
           >
             <Wordmark />
           </h1>
 
           <p
-            className="r font-heading mt-3 text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[0.015em] text-fg"
+            className="r-load font-heading mt-3 text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[0.015em] text-fg"
             style={{ "--d": "140ms" } as React.CSSProperties}
           >
             Build fast, refine relentlessly.
           </p>
 
           <p
-            className="r mt-6 max-w-[62ch] font-mono text-[12.5px] leading-[1.7] text-fg-3 md:text-[13.5px]"
+            className="r-load mt-6 max-w-[62ch] font-mono text-[12.5px] leading-[1.7] text-fg-3 md:text-[13.5px]"
             style={{ "--d": "200ms" } as React.CSSProperties}
           >
             Vibe coding gets you to a working build in a weekend, and hands the rough edges to your
@@ -42,7 +42,7 @@ export default function Hero() {
           </p>
 
           <div
-            className="r mt-8 flex flex-wrap items-center justify-center gap-2.5"
+            className="r-load mt-8 flex flex-wrap items-center justify-center gap-2.5"
             style={{ "--d": "260ms" } as React.CSSProperties}
           >
             <InstallCommand />
@@ -58,7 +58,7 @@ export default function Hero() {
           fold and a mask dissolves the last stretch, so the page fades out
           into the next section instead of ending on an edge. */}
       <div
-        className="r fade-b relative mx-auto mt-14 max-h-[56vh] w-full overflow-hidden md:mt-12 md:max-h-none md:min-h-[390px] md:flex-1 md:basis-0"
+        className="r-load fade-b relative mx-auto mt-14 max-h-[56vh] w-full overflow-hidden md:mt-12 md:max-h-none md:min-h-[390px] md:flex-1 md:basis-0"
         style={{ "--d": "320ms" } as React.CSSProperties}
       >
         <div className="mx-auto w-[88vw] md:w-[80vw]">

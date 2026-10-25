@@ -7,7 +7,12 @@ import { STAGES } from "@/lib/loop";
 import { Eyebrow, Heading, StatusChip, Sub, Wrap } from "@/components/ui";
 
 export default function Loop() {
-  const [active, setActive] = useState(0);
+  // The stage being read, and which way the reader got there — the ring's
+  // read-out enters from that direction.
+  const [{ active, dir }, setStage] = useState<{ active: number; dir: 1 | -1 }>({
+    active: 0,
+    dir: 1,
+  });
   const cards = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
@@ -18,7 +23,8 @@ export default function Loop() {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           const i = Number((entry.target as HTMLElement).dataset.stage);
-          if (!Number.isNaN(i)) setActive(i);
+          if (Number.isNaN(i)) continue;
+          setStage((s) => (s.active === i ? s : { active: i, dir: i > s.active ? 1 : -1 }));
         }
       },
       { rootMargin: "-50% 0px -50% 0px", threshold: 0 },
@@ -44,7 +50,7 @@ export default function Loop() {
 
         <div className="mt-14 grid grid-cols-1 gap-10 lg:grid-cols-[380px_1fr] lg:gap-16">
           <div className="self-start lg:sticky lg:top-[128px]">
-            <LoopRing stages={STAGES} active={active} />
+            <LoopRing stages={STAGES} active={active} dir={dir} />
           </div>
 
           <div>
@@ -59,7 +65,7 @@ export default function Loop() {
                   className="flex flex-col justify-center border-t border-line py-9 first:border-t-0 lg:min-h-[52vh] lg:border-t-0 lg:py-0"
                 >
                   <div
-                    className={`transition-opacity duration-500 ${
+                    className={`transition-opacity duration-300 ${
                       active === i ? "opacity-100" : "lg:opacity-35"
                     }`}
                   >

@@ -30,14 +30,34 @@ export default function InstallCommand() {
         type="button"
         onClick={copy}
         aria-label={`Copy "${COMMAND}" to clipboard`}
-        className={`cursor-pointer rounded-md px-[9px] py-1.5 font-sans text-[10.5px] font-semibold uppercase tracking-[0.07em] transition-colors duration-200 ${
+        className={`grid cursor-pointer justify-items-center rounded-md px-[9px] py-1.5 font-sans text-[10.5px] font-semibold uppercase tracking-[0.07em] transition-[color,background-color,box-shadow,scale] duration-150 ease-out active:scale-[0.97] ${
           copied
             ? "bg-ok/10 text-ok ring-1 ring-inset ring-ok/20"
             : "bg-raised text-fg-3 hover:bg-overlay hover:text-fg"
         }`}
       >
-        {copied ? "Copied" : "Copy"}
+        {/* Both labels share one grid cell, so the button holds the wider
+            one's width instead of jumping, and they crossfade through a blur
+            that reads as one word changing rather than two swapping. */}
+        <Label shown={!copied}>Copy</Label>
+        <Label shown={copied}>Copied</Label>
       </button>
+      <span role="status" className="sr-only">
+        {copied ? "Copied to clipboard" : ""}
+      </span>
     </div>
+  );
+}
+
+function Label({ shown, children }: { shown: boolean; children: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`[grid-area:1/1] transition-[opacity,filter,scale] duration-200 ease-out ${
+        shown ? "" : "scale-[0.85] opacity-0 blur-[2px]"
+      }`}
+    >
+      {children}
+    </span>
   );
 }

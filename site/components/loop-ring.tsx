@@ -36,9 +36,12 @@ function anchorFor(deg: number): { anchor: "start" | "middle" | "end"; dy: numbe
 export default function LoopRing({
   stages,
   active,
+  dir = 1,
 }: {
   stages: Stage[];
   active: number;
+  /** Which way the reader last moved through the stages: 1 down, -1 back up. */
+  dir?: 1 | -1;
 }) {
   // Evenly round the ring, starting at twelve o'clock.
   const angleOf = (i: number) => -90 + (i * 360) / stages.length;
@@ -119,21 +122,24 @@ export default function LoopRing({
 
           return (
             <g key={stage.id} className="ring-node">
-              {isActive && (
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={13}
-                  fill="none"
-                  stroke={tone}
-                  strokeWidth={1}
-                  opacity={0.28}
-                />
-              )}
+              {/* Every node keeps its halo and its size change mounted, so moving
+                  between stages is a transition rather than a swap (globals.css). */}
               <circle
                 cx={node.x}
                 cy={node.y}
-                r={isActive ? 6.5 : 5}
+                r={13}
+                fill="none"
+                stroke={tone}
+                strokeWidth={1}
+                className="ring-halo"
+                data-active={isActive || undefined}
+              />
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={5}
+                className="ring-dot"
+                data-active={isActive || undefined}
                 fill={isActive ? tone : reached ? "#5e5e5e" : "#121212"}
                 stroke={isActive ? tone : reached ? "#5e5e5e" : "#363636"}
                 strokeWidth={1.5}
@@ -158,14 +164,21 @@ export default function LoopRing({
       <div className="pointer-events-none absolute inset-0 grid place-items-center">
         <div className="text-center">
           <div className="label">Stage</div>
+          {/* Keyed per stage, so each new one plays its entrance. */}
           <div
-            className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.04em] tabular-nums transition-colors duration-300"
-            style={{ color: accent }}
+            key={current.id}
+            className="ring-readout"
+            style={{ "--dir": dir } as React.CSSProperties}
           >
-            {current.id}
+            <div
+              className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.04em] tabular-nums"
+              style={{ color: accent }}
+            >
+              {current.id}
+            </div>
+            <div className="mt-2 text-[15px] font-medium">{current.name}</div>
+            <StatusChip status={current.status} dot className="mt-2.5" />
           </div>
-          <div className="mt-2 text-[15px] font-medium">{current.name}</div>
-          <StatusChip status={current.status} dot className="mt-2.5" />
         </div>
       </div>
     </div>
