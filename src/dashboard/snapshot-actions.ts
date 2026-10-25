@@ -34,6 +34,7 @@ import { isDashboardPath, resolveDashboardRoute } from "../config";
 import { getDesignData } from "../server/design";
 import { getPageTraffic } from "../server/queries";
 import { dashboardTabOf, type ShotSlot } from "../server/snapshot-files";
+import { collapseSlugRoutes } from "../server/snapshot-routes";
 import { resolveSiteOrigin } from "../server/site-origin";
 import {
   MAX_SNAPSHOT_ROUTES,
@@ -68,6 +69,7 @@ function failed(prefix: string, err: unknown): Failure {
  * page, in every rendering. A review capture — what the aesthetic review runs
  * before asking the model — shoots the first screen of the three most-visited
  * pages, desktop, light and dark, and looks for the flagged values on them.
+ * Either way, a dynamic route's many pages count as one.
  */
 export async function beginSnapshotCaptureAction(
   purpose: SnapshotPurpose = "gallery",
@@ -128,9 +130,14 @@ export async function beginSnapshotCaptureAction(
           (!p.startsWith("/~") || (engine.kind === "local" && dashboardTabOf(p) !== null)),
       );
     const candidates = scanned.length > 0 ? scanned : ["/"];
+    // Pages that are instances of one dynamic route — /posts/<slug> — are shot
+    // once, as the most visited of them. The gallery leads with the landing
+    // page, so the route cap never cuts it and its phone view goes first.
+    const traffic = await getPageTraffic(candidates);
+    const distinct = collapseSlugRoutes(candidates, traffic);
     const routes = review
-      ? pickReviewRoutes(candidates, await getPageTraffic(candidates))
-      : candidates.slice(0, MAX_SNAPSHOT_ROUTES);
+      ? pickReviewRoutes(distinct, traffic)
+      : [...distinct.filter((r) => r === "/"), ...distinct.filter((r) => r !== "/")].slice(0, MAX_SNAPSHOT_ROUTES);
 
     // Stamp the snapshot with the design digest's hash — the measurements the
     // AI review is keyed on — so "taken before/after this round of changes" is
