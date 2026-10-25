@@ -4,6 +4,16 @@
 
 ### The host's layout no longer restyles the dashboard
 
+- **The dashboard loads its own stylesheet.** The compiled
+  `dist/dashboard/index.js` now imports `../dashboard.css` itself, and
+  `sideEffects` lists CSS so bundlers keep it. Before, a page without
+  `import "@polishd/next/dashboard.css"` rendered with no Polishd CSS at all.
+  In a host whose Tailwind scanned our dist (the 0.1.x setup), the host then
+  compiled the dashboard's classes against *its* palette, which has no
+  `line`, `surface` or `fg-3`. The result was harsh default borders and no
+  greys. The page-level import is now optional. `doctor` no longer calls the
+  0.1.x scan line fine, and asks for it to be removed.
+
 - **Inherited styles stop at `.polishd-root`.** Scoping kept the dashboard's
   rules off the host, but the host's *inherited* properties still flowed in:
   a layout that sets `letter-spacing`, `text-transform`, `word-spacing`,

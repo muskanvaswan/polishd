@@ -282,27 +282,16 @@ isolates the dashboard completely.
 
 ### Upgrading from 0.1.x
 
-**No change is required.** Your existing `@source
-"…/node_modules/@polishd/next/dist"` (or the `content` glob in
-`tailwind.config.*`) still compiles the dashboard's utilities exactly as it did
-in 0.1.x, so the dashboard stays styled after upgrading. Both paths were
-rendered side by side and compared across 491 elements with no visible
-difference.
+Upgrade, then remove the `@source "…/node_modules/@polishd/next/dist"` line (or
+the `content` glob in `tailwind.config.*`).
 
-Moving to the shipped stylesheet is recommended but optional, and **the order
-matters**:
-
-1. Add `import "@polishd/next/dashboard.css";` to your dashboard page.
-2. Check the dashboard still looks right.
-3. *Then* remove the `@source` line or `content` glob.
-
-Removing the old wiring before adding the import is the one sequence that
-leaves the dashboard unstyled, which is why the steps are in this order.
-
-The payoff is that Tailwind stops being a requirement for your app at all, and
-your build stops compiling utilities that only the dashboard uses.
-`npx @polishd/next doctor` reports which of the two setups it finds and will not
-report a working 0.1.x install as broken.
+From 0.2.3-dev.23 the dashboard imports its own stylesheet, so it renders with
+the Polishd palette whether or not your page imports it. The old scan line was
+never quite right: it compiles the dashboard's class names against *your*
+Tailwind theme, which has no `line`, `surface` or `fg-3`, so borders fall back
+to your default border colour and the greys vanish. The shipped stylesheet now
+outranks that output, so the line is only wasted build work — but remove it.
+`npx @polishd/next doctor` flags it if it's still there.
 
 ## 5. Protecting the dashboard
 
@@ -670,8 +659,10 @@ this should be handled; if it persists, an ancestor with `transform`, `filter`,
 **Every `/api/*` route suddenly 404s**
 Your proxy matcher is matching `/api`. Restore the `(?!api|...)` exclusion.
 
-**The dashboard is unstyled**
-The page is missing `import "@polishd/next/dashboard.css";`. See [Styling](#4-styling).
+**The dashboard has white borders and no greys, or is unstyled**
+The package predates 0.2.3-dev.23, which made the dashboard load its own
+stylesheet, and the page doesn't import `@polishd/next/dashboard.css`. Upgrade.
+See [Styling](#4-styling).
 
 **`ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`**
 Node is older than 22.5. Upgrade, or configure Postgres.

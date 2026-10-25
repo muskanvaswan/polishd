@@ -1332,7 +1332,9 @@ function PolishdShell({ children }: { children: ReactNode }) {
  * The scope root for the shipped stylesheet.
  *
  * `dist/dashboard.css` scopes every rule to `.polishd-root`, so nothing in it
- * can reach the host app's markup. This element deliberately carries no utility
+ * can reach the host app's markup. The compiled entry imports that stylesheet
+ * itself (scripts/build-css.mjs adds the import), so the dashboard never
+ * renders on the host's palette for want of a page-level import. This element deliberately carries no utility
  * classes of its own: keeping it a bare wrapper is what makes plain descendant
  * scoping complete, and halves the size of the generated selectors.
  *
