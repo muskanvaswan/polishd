@@ -155,7 +155,9 @@ must still be written by hand — Next statically parses it (Invariant 1).
 
 ## Phase 4 — Styling
 
-One import in the dashboard page, which the CLI writes for you:
+Nothing to do. The dashboard imports its own stylesheet, so it renders with the
+Polishd palette whatever the host's Tailwind preset says. The CLI still writes
+this line into the page, which is harmless and makes the dependency visible:
 
 ```tsx
 import "@polishd/next/dashboard.css";
@@ -171,12 +173,12 @@ it cannot restyle the host app. It loads the dashboard's brand fonts from
 from the app's own origin, so there is nothing to configure and no CSP
 `font-src` change.
 
-**On an existing 0.1.x install**, a `@source ".../@polishd/next/dist"` line in
-the host's Tailwind config is still doing the styling and the dashboard is not
-broken. Do not remove it as a first step. Add the stylesheet import, verify the
-dashboard still renders correctly, and only then remove the `@source` line —
-removing it first is the one order that leaves the dashboard unstyled. If the
-app has no Tailwind at all, the import is the only thing that styles it.
+**On an existing 0.1.x install**, remove the `@source ".../@polishd/next/dist"`
+line (or the `content` glob in `tailwind.config.*`). It compiles the dashboard's
+class names against the *host's* palette, which has no `line`, `surface` or
+`fg-3`: on packages before 0.2.3-dev.23 that is what turns borders white and
+drops the greys. Upgrading is the fix; removing the line afterwards just stops
+the wasted work.
 
 ## Phase 5 — Invariants
 
@@ -313,7 +315,8 @@ curl -s -X POST http://localhost:3000/api/polishd \
 #    expect: {"ok":true,"stored":1}
 
 # 6. Styling is present — the stylesheet must contain dashboard utilities.
-#    The dashboard page must import "@polishd/next/dashboard.css".
+#    The dashboard imports "@polishd/next/dashboard.css" itself; check that a
+#    card border computes to rgb(38, 38, 38), not the host's border colour.
 ```
 
 In development the store writes `.polishd/analytics.db` (SQLite). Its presence
@@ -333,6 +336,7 @@ survive there.
 | `POLISHD_DASHBOARD_TOKEN` | for production, unless auth is wired | Protects `/polishd`. `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | no | `true` to serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | no | Rename the session cookie; read by both proxy and ingest |
+| `NEXT_PUBLIC_POLISHD_BUILD` | no | Build label stamped on every event (commit sha, version, date), inlined at build time. On Vercel, `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` is read automatically; elsewhere set this in the build command (`NEXT_PUBLIC_POLISHD_BUILD=$COMMIT_REF next build`). Without it the server stamps its own commit variable, or `git rev-parse HEAD` in development. Don't make it a secret or a per-deploy random value |
 | `POLISHD_DB_PATH` | no | Custom SQLite path in dev |
 | `POLISHD_AI_*` | no | Preset AI provider/model/key instead of using the dashboard |
 | `POLISHD_GITHUB_*` | no | Repo + token for filing issues from findings |
@@ -380,7 +384,7 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 |---|---|---|
 | *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline (Phase 3b) |
 | Every `/api/*` route 404s | Proxy matcher matches `/api` | Restore the `api` exclusion in the matcher |
-| Dashboard renders unstyled | `@polishd/next/dashboard.css` not imported in the page | Phase 4 |
+| Dashboard has harsh white borders and no greys | Package older than 0.2.3-dev.23 with no `dashboard.css` import, so the host's Tailwind styles it with the host's palette | Upgrade; remove the `@polishd/next/dist` scan line (Phase 4) |
 | Dashboard is empty, warning about the store | No writable backend | Set `POLISHD_DATABASE_URL`, or check Node ≥ 22.5 in dev |
 | Dashboard shows *"no session cookie — your proxy isn't running"* | Proxy missing, misnamed for the Next major, matcher not covering the path, or a botched merge. Red means *nothing is being stored* — with events landing you get a neutral note instead | Phase 3c and `doctor --url <origin>`; plain `doctor` only reads the source tree, so it can pass while a deployed build still mints no cookie |
 | Beacons return 200 but nothing is stored | Same as above — ingest answers `{ok:true,stored:0,reason:"no_session"}` so the client cannot see a failure | `doctor --url http://localhost:3000` |

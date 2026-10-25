@@ -118,9 +118,15 @@ export default function OverviewTiles({
   metrics,
   gridClassName = "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6",
   dot = true,
+  scope = "all time",
 }: {
   overview: OverviewStats;
   trends: MetricTrends;
+  /**
+   * What the tiles count, in prose: "all time", "the last 7 days", "build
+   * f804613". The chart's footnote names it where its window is narrower.
+   */
+  scope?: string;
   /**
    * The tiles to show, in their usual order — all six when omitted. The
    * chart drawer still switches between every metric, since all are loaded.
@@ -190,7 +196,8 @@ export default function OverviewTiles({
               meta={metric}
               gran={gran}
               points={series}
-              allTime={overview[metric.key]}
+              total={overview[metric.key]}
+              scope={scope}
             />
           </>
         )}
@@ -576,19 +583,23 @@ function MetricChart({
 }
 
 /**
- * What the chart adds up to. The all-time tile and a capped window disagree by
+ * What the chart adds up to. The tile's total and a capped window disagree by
  * design, so the difference is stated rather than left for the reader to spot.
  */
 function ChartMeta({
   meta,
   gran,
   points,
-  allTime,
+  total: tileTotal,
+  scope,
 }: {
   meta: MetricMeta;
   gran: TrendGranularity;
   points: MetricPoint[];
-  allTime: number;
+  /** The tile's figure, over the tab's whole range. */
+  total: number;
+  /** That range in prose — "all time", "the last 7 days". */
+  scope: string;
 }) {
   if (points.length === 0) return null;
 
@@ -614,8 +625,8 @@ function ChartMeta({
       </div>
 
       <p className="mt-3 text-[12px] leading-relaxed text-fg-3">
-        {meta.additive && total < allTime
-          ? `The tile counts all time (${allTime.toLocaleString()}); this chart covers the last ${plural(points.length, GRAN_UNIT[gran])} of activity. `
+        {meta.additive && total < tileTotal
+          ? `The tile counts ${scope} (${tileTotal.toLocaleString()}); this chart covers the last ${plural(points.length, GRAN_UNIT[gran])} of activity. `
           : ""}
         {!meta.additive
           ? "Buckets aren't summed here — a visitor active across several buckets is counted in each, so a total would count them more than once. "

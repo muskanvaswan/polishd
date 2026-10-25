@@ -13,7 +13,7 @@
  * CSS parser and skips exactly the constructs that must stay at the top level.
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,8 +39,16 @@ const SCOPE_CLASS = ".polishd-root";
  * to (0,2,0) or better, so the dashboard wins those ties by construction rather
  * than by load order. Relative precedence inside this file is unchanged, since
  * every selector is bumped equally.
+ *
+ * `:not(#polishd)` goes further. Negating an ID that never exists is always
+ * true and counts as an ID in specificity, which lifts every rule above
+ * anything a host writes with classes, attributes and elements — however long
+ * the chain (`.app .main .card div`) — and above a rule that keys off a single
+ * ID of its own (`#app div`) unless it also adds classes. What remains able to
+ * beat the dashboard is `!important` and inline `style=""`, which no
+ * stylesheet can outrank without shouting back.
  */
-const SCOPE = `${SCOPE_CLASS}${SCOPE_CLASS}`;
+const SCOPE = `${SCOPE_CLASS}${SCOPE_CLASS}:not(#polishd)`;
 
 /**
  * Selectors that hold theme custom properties rather than styling anything.
@@ -193,6 +201,30 @@ writeFileSync(OUT, banner + scoped);
 //    the files up from there.
 cpSync(join(root, "src", "dashboard", "fonts"), join(dirname(OUT), "fonts"), { recursive: true });
 console.log("• copied dashboard fonts to dist/fonts");
+
+// 4. Make the dashboard load its own stylesheet.
+//
+//    The page-level `import "@polishd/next/dashboard.css"` is one line, and
+//    one line is easy to lose — skip it in a manual install, keep a 0.1.x page
+//    that predates it — and the result is the worst kind of failure: the page
+//    renders, the host's own Tailwind (if it scans the package) half-styles it
+//    with the *host's* palette, and nothing errors. Harsh default borders, no
+//    greys, the brand gone. So the compiled entry imports the stylesheet
+//    itself, and the dashboard can't render without its own palette.
+//
+//    Done here rather than in src/dashboard/index.tsx because the relative
+//    path only exists in dist/: the compiled stylesheet sits at
+//    dist/dashboard.css, one level above dist/dashboard/index.js, while src/
+//    holds only the uncompiled Tailwind source. `sideEffects` in package.json
+//    lists CSS so a bundler can't tree-shake the import away. A page that also
+//    imports it explicitly is fine: bundlers include a stylesheet once.
+const ENTRY = join(root, "dist", "dashboard", "index.js");
+const STYLE_IMPORT = `import "../dashboard.css";\n`;
+if (existsSync(ENTRY)) {
+  const entry = readFileSync(ENTRY, "utf8");
+  if (!entry.startsWith(STYLE_IMPORT)) writeFileSync(ENTRY, STYLE_IMPORT + entry);
+  console.log("• dist/dashboard/index.js imports its stylesheet");
+}
 
 const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(1)}KB`;
 console.log(`✔ dist/dashboard.css  ${kb(compiled)} → ${kb(scoped)} scoped`);

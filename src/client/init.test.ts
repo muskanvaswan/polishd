@@ -108,8 +108,10 @@ const click = (target: object) => {
 
 const { initPolishd } = await import("./init.ts");
 
+const BUILD = "f804613c2a9e4b7d1e0f6a2b3c4d5e6f7a8b9c0d";
+
 test("a click still being judged when the page goes away leaves as a click", async () => {
-  initPolishd({ maxBatchSize: 1000, flushIntervalMs: 1e9 });
+  initPolishd({ maxBatchSize: 1000, flushIntervalMs: 1e9, build: BUILD });
 
   const dead = element("div", { class: "hero" }, body);
   const leaving = element("div", { class: "card" }, body);
@@ -120,9 +122,11 @@ test("a click still being judged when the page goes away leaves as a click", asy
   windowTarget.dispatchEvent(new Event("pagehide"));
 
   assert.equal(beacons.length, 1, "the pagehide flush went out as a beacon");
-  const { events } = JSON.parse(await beacons[0].text()) as {
+  const { events, build } = JSON.parse(await beacons[0].text()) as {
     events: Array<{ type: string; selector?: string; ts: number }>;
+    build?: string;
   };
+  assert.equal(build, BUILD, "the batch names the build it was captured on");
   const clicks = events.filter((e) => /click/.test(e.type)).map((e) => `${e.type} ${e.selector}`);
   assert.deepEqual(clicks, ["dead_click div.hero", "click div.card"]);
 

@@ -19,13 +19,24 @@ import { cookies } from "next/headers";
 import { after } from "next/server";
 import { Suspense, type ReactNode } from "react";
 
+import Link from "next/link";
+
 import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
+import {
+  ANALYTICS_WINDOWS,
+  parseAnalyticsRange,
+  rangeBuild,
+  rangeLabel,
+  type AnalyticsRange,
+} from "../shared/analytics-range";
+import { shortBuild } from "../shared/build";
 import { captureStatus, type CaptureHealth } from "../shared/capture-status";
 
 import {
   getTelemetryInstalls,
   getTelemetryTopPaths,
   hasTelemetryInstalls,
+  type BuildStat,
   type PolishdDashboardData,
   type DeviceBucket,
   type ElementStat,
@@ -35,6 +46,8 @@ import {
   type TopInteraction,
 } from "../server/queries";
 import {
+  loadBuilds,
+  loadCurrentBuild,
   loadDashboardData,
   loadDevices,
   loadElements,
@@ -47,6 +60,7 @@ import {
   loadTopUsed,
   loadTrends,
 } from "./data";
+import RangePicker, { type RangeOption } from "./range-picker";
 import {
   polishdAuthContext,
   registerPolishdAuth,
@@ -94,6 +108,7 @@ import ShowMore from "./show-more";
 import SummaryCard from "./summary";
 import OverviewStatTiles from "./metric-trends";
 import {
+  Badge,
   BrandWordmark,
   Callout,
   Code,
@@ -109,6 +124,7 @@ import {
   inputCls,
   labelCls as label,
   primaryBtn,
+  relTime,
 } from "./ui";
 
 export const runtime = "nodejs";
@@ -252,7 +268,7 @@ export interface PolishdAIBundle {
 export type { PolishdDashboardTab } from "./chrome";
 
 // ── Analytics: header + status (shared by batch and streamed renders) ────────
-function AnalyticsHeader({ pill }: { pill: ReactNode }) {
+function AnalyticsHeader({ pill, range }: { pill: ReactNode; range: ReactNode }) {
   return (
     <PageHeader
       title="Analytics"
@@ -265,9 +281,83 @@ function AnalyticsHeader({ pill }: { pill: ReactNode }) {
           for calculation details.
         </>
       }
-      actions={pill}
+      actions={
+        <>
+          {range}
+          {pill}
+        </>
+      }
     />
   );
+}
+
+// ── Analytics: the range ─────────────────────────────────────────────────────
+// Every section of the tab is scoped to one range, carried in the URL. The
+// control is a row of pills (range-picker.tsx); the data behind "this build"
+// — whether there is one, and what it's called — streams in behind it.
+
+/** The pills every store has: the fixed windows and all time. */
+const WINDOW_OPTIONS: RangeOption[] = [
+  ...ANALYTICS_WINDOWS.map((w) => ({
+    id: w.id,
+    label: w.label,
+    title: `Events received in the last ${w.label}`,
+  })),
+  { id: "all", label: "All time" },
+];
+
+/**
+ * The pills for a given store: the windows, plus "This build" once a build is
+ * known, plus the one build a Builds-table row named, so the selected range
+ * is always among the pills. The static set is the picker's fallback while
+ * the build loads.
+ */
+function rangeOptions(active: AnalyticsRange, current: BuildStat | null): RangeOption[] {
+  const options = [...WINDOW_OPTIONS];
+  if (current) {
+    options.push({
+      id: "build",
+      label: "This build",
+      title: `Build ${current.build}, shipping since ${new Date(current.firstSeen).toLocaleString()}`,
+    });
+  }
+  const named = rangeBuild(active);
+  if (named && named !== current?.build) {
+    options.push({ id: active, label: `Build ${shortBuild(named)}`, title: `Build ${named}` });
+  }
+  return options;
+}
+
+async function RangePickerData({ range }: { range: AnalyticsRange }) {
+  const current = await loadCurrentBuild();
+  return <RangePicker active={range} options={rangeOptions(range, current)} />;
+}
+
+function RangeControl({ range }: { range: AnalyticsRange }) {
+  return (
+    <Suspense fallback={<RangePicker active={range} options={rangeOptions(range, null)} />}>
+      <RangePickerData range={range} />
+    </Suspense>
+  );
+}
+
+/**
+ * The range in prose for the tiles' footnote, with "this build" named once
+ * the build is known: "all time", "the last 7 days", "build f804613".
+ */
+async function scopeLabel(range: AnalyticsRange): Promise<string> {
+  const named = rangeBuild(range);
+  if (named) return rangeLabel(range, shortBuild(named));
+  if (range === "build") {
+    const current = await loadCurrentBuild();
+    return rangeLabel(range, current ? shortBuild(current.build) : null);
+  }
+  return rangeLabel(range);
+}
+
+/** "Totals for the last 7 days." — a range label as the start of a sentence. */
+function sentence(text: string): string {
+  return text[0].toUpperCase() + text.slice(1);
 }
 
 function CaptureStatusPill({ ready }: { ready: boolean }) {
@@ -347,11 +437,11 @@ function StatusBanners({
 // The titles render before their data arrives, so each shell takes the card
 // as children — the batch render passes it resolved, the streamed render
 // passes a Suspense boundary.
-function OverviewSection({ children }: { children: ReactNode }) {
+function OverviewSection({ range, children }: { range: AnalyticsRange; children: ReactNode }) {
   return (
     <Section
       title="Overview"
-      tip="All-time totals for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day."
+      tip={`Totals for ${rangeLabel(range)}, for everything captured. Click any tile to open that metric as a chart over time, bucketed by hour or by day.`}
     >
       {children}
     </Section>
@@ -573,6 +663,137 @@ function ErrorRow({ e, first }: { e: RecentError; first: boolean }) {
   );
 }
 
+// ── Builds ───────────────────────────────────────────────────────────────────
+// Every event names the build it was captured on, so the tab can say what
+// each deploy did: how many sessions it served, and how much friction they
+// hit. A row is a link that scopes the whole tab to that build.
+
+function BuildsSection({ children }: { children: ReactNode }) {
+  return (
+    <Section
+      title="Builds"
+      tip="Every build events have been captured on, newest first — a build is new the first time it is seen, so a tab left open across a deploy can't revive the old one. Click a build to scope the tab to it. The build is stamped by the client bundle when it knows its own (NEXT_PUBLIC_POLISHD_BUILD, or Vercel's commit variable), else by the server."
+    >
+      {children}
+    </Section>
+  );
+}
+
+function BuildRow({
+  b,
+  current,
+  active,
+}: {
+  b: BuildStat;
+  /** The build currently shipping. */
+  current: boolean;
+  /** Whether the tab is already scoped to this build. */
+  active: boolean;
+}) {
+  const num = "py-3 px-4 text-right text-[13px] tabular-nums text-fg-2";
+  const none = <span className="text-fg-3">—</span>;
+  return (
+    <tr
+      className={`${divider} transition-colors first:border-t-0 ${
+        active ? "bg-raised/60" : "hover:bg-raised/50"
+      }`}
+    >
+      <td className="min-w-[220px] py-3 pl-5 pr-4">
+        <Link
+          href={`?tab=analytics&range=${encodeURIComponent(`build:${b.build}`)}`}
+          prefetch={false}
+          title={active ? b.build : `Scope the tab to build ${b.build}`}
+          aria-current={active ? "page" : undefined}
+          className="inline-flex flex-wrap items-center gap-2 font-mono text-[12.5px] text-fg hover:text-accent"
+        >
+          {shortBuild(b.build)}
+          {current && <Badge tone="accent">current</Badge>}
+        </Link>
+        <div className="mt-0.5 text-[12px] text-fg-3">
+          first seen {relTime(b.firstSeen)}
+          {b.lastSeen - b.firstSeen > 60_000 && <> · last {relTime(b.lastSeen)}</>}
+        </div>
+      </td>
+      <td className={`${num} font-semibold text-fg`}>{b.sessions.toLocaleString()}</td>
+      <td className={num}>{b.pageViews.toLocaleString()}</td>
+      <td className={num}>
+        {b.rageClicks > 0 ? <span className="text-bad">{b.rageClicks.toLocaleString()}</span> : none}
+      </td>
+      <td className={num}>
+        {b.deadClicks > 0 ? <span className="text-warn">{b.deadClicks.toLocaleString()}</span> : none}
+      </td>
+      <td className="py-3 pl-4 pr-5 text-right text-[13px] tabular-nums text-fg-2">
+        {b.jsErrors > 0 ? <span className="text-bad">{b.jsErrors.toLocaleString()}</span> : none}
+      </td>
+    </tr>
+  );
+}
+
+/** Builds shown before the rest collapse behind "Show more". */
+const BUILDS_VISIBLE = 5;
+
+function BuildsCard({
+  builds,
+  current,
+  range,
+}: {
+  builds: BuildStat[];
+  current: BuildStat | null;
+  range: AnalyticsRange;
+}) {
+  const activeBuild = rangeBuild(range) ?? (range === "build" ? current?.build ?? null : null);
+  const visible = builds.slice(0, BUILDS_VISIBLE);
+  const overflow = builds.slice(BUILDS_VISIBLE);
+  const row = (b: BuildStat) => (
+    <BuildRow
+      key={b.build}
+      b={b}
+      current={b.build === current?.build}
+      active={b.build === activeBuild}
+    />
+  );
+  return (
+    <div className={`${card} overflow-hidden`}>
+      {builds.length === 0 ? (
+        <EmptyState>
+          No build has been recorded yet. Events are stamped with the build they were captured on
+          once the bundle knows its own — set <Code>NEXT_PUBLIC_POLISHD_BUILD</Code> at build time
+          (Vercel&apos;s <Code>NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA</Code> is read too) or pass{" "}
+          <Code>build</Code> to <Code>initPolishd()</Code>; the server stamps its own commit when
+          the bundle has none.
+        </EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
+            <thead>
+              <tr>
+                <Th align="left" tip="The commit sha or deployment label events were stamped with. Click to scope the tab to it.">
+                  Build
+                </Th>
+                <Th tip="Distinct sessions that sent events from this build.">Sessions</Th>
+                <Th tip="page_view events captured on this build.">Views</Th>
+                <Th tip="Rage clicks captured on this build.">Rage</Th>
+                <Th tip="Dead clicks captured on this build.">Dead</Th>
+                <Th tip="JS errors captured on this build.">Errors</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(row)}
+            </tbody>
+          </table>
+          {overflow.length > 0 && (
+            <ShowMore count={overflow.length} label="builds">
+              <table className="w-full min-w-[640px]">
+                <tbody>{overflow.map(row)}</tbody>
+              </table>
+            </ShowMore>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RecentErrors({ errors }: { errors: RecentError[] }) {
   if (errors.length === 0) return null;
   const visible = errors.slice(0, ERRORS_VISIBLE);
@@ -619,7 +840,7 @@ export function PolishdDashboard({
   return (
     <DashboardChrome active="analytics" showInstalls={showInstalls}>
     <main className="text-fg">
-      <AnalyticsHeader pill={<CaptureStatusPill ready={data.overview.ready} />} />
+      <AnalyticsHeader pill={<CaptureStatusPill ready={data.overview.ready} />} range={null} />
       <StatusBanners overview={data.overview} health={data.health} />
 
       {/* AI summary — the model's story of how people use the site */}
@@ -632,7 +853,7 @@ export function PolishdDashboard({
         sourceAvailable={ai.sourceAvailable}
       />
 
-      <OverviewSection>
+      <OverviewSection range="all">
         <OverviewStatTiles overview={data.overview} trends={data.trends} />
       </OverviewSection>
       <DevicesSection>
@@ -727,13 +948,16 @@ function PillSkeleton() {
   );
 }
 
+// The pill and the banners describe capture itself, so they read the whole
+// store whatever range the tab is on: a quiet week must not read as a broken
+// proxy. On the default range this is the same cached query the tiles use.
 async function StatusPillData() {
-  const overview = await loadOverview();
+  const overview = await loadOverview("all");
   return <CaptureStatusPill ready={overview.ready} />;
 }
 
 async function StatusBannersData() {
-  const [overview, health] = await Promise.all([loadOverview(), loadHealth()]);
+  const [overview, health] = await Promise.all([loadOverview("all"), loadHealth()]);
   return <StatusBanners overview={overview} health={health} />;
 }
 
@@ -776,8 +1000,10 @@ function scheduleSummaryRefresh(
 async function SummaryData() {
   // The summary genuinely needs the whole dataset (its staleness fingerprint
   // hashes it), so this is the one section that waits for everything — behind
-  // its own boundary, where it can't hold up the sections around it.
-  const data = await loadDashboardData();
+  // its own boundary, where it can't hold up the sections around it. It is
+  // written from the site's whole history, not the tab's range: a narrower
+  // range would make it read stale every time the range changed.
+  const data = await loadDashboardData("all");
   const [summaryState, settings, profileState] = await Promise.all([
     loadSummaryState(data),
     getAISettingsPublic(),
@@ -797,44 +1023,59 @@ async function SummaryData() {
   );
 }
 
-async function OverviewData() {
-  const [overview, trends] = await Promise.all([loadOverview(), loadTrends()]);
-  return <OverviewStatTiles overview={overview} trends={trends} />;
+/** Each section's data, under the tab's range. */
+interface Ranged {
+  range: AnalyticsRange;
 }
 
-async function DevicesData() {
-  return <DevicesCard devices={await loadDevices()} />;
+async function OverviewData({ range }: Ranged) {
+  const [overview, trends, scope] = await Promise.all([
+    loadOverview(range),
+    loadTrends(range),
+    scopeLabel(range),
+  ]);
+  return <OverviewStatTiles overview={overview} trends={trends} scope={scope} />;
 }
 
-async function PagesData() {
-  return <TopPagesTable pages={await loadPages()} />;
+async function DevicesData({ range }: Ranged) {
+  return <DevicesCard devices={await loadDevices(range)} />;
 }
 
-async function MonitoredData() {
-  return <MonitoredCard monitored={await loadMonitored()} />;
+async function PagesData({ range }: Ranged) {
+  return <TopPagesTable pages={await loadPages(range)} />;
 }
 
-async function JourneysData() {
-  return <JourneyList journeys={await loadJourneys()} />;
+async function MonitoredData({ range }: Ranged) {
+  return <MonitoredCard monitored={await loadMonitored(range)} />;
 }
 
-async function FeaturesData() {
-  return <FeaturesCard topUsed={await loadTopUsed()} />;
+async function JourneysData({ range }: Ranged) {
+  return <JourneyList journeys={await loadJourneys(range)} />;
 }
 
-async function ElementsData() {
-  return <ElementsCard elements={await loadElements()} />;
+async function FeaturesData({ range }: Ranged) {
+  return <FeaturesCard topUsed={await loadTopUsed(range)} />;
 }
 
-async function ErrorsData() {
-  return <RecentErrors errors={await loadErrors()} />;
+async function ElementsData({ range }: Ranged) {
+  return <ElementsCard elements={await loadElements(range)} />;
 }
 
-/** The analytics tab, streamed section by section. */
-function AnalyticsStream() {
+async function BuildsData({ range }: Ranged) {
+  const [builds, current] = await Promise.all([loadBuilds(range), loadCurrentBuild()]);
+  return <BuildsCard builds={builds} current={current} range={range} />;
+}
+
+async function ErrorsData({ range }: Ranged) {
+  return <RecentErrors errors={await loadErrors(range)} />;
+}
+
+/** The analytics tab, streamed section by section, every section on `range`. */
+function AnalyticsStream({ range }: Ranged) {
   return (
     <main className="text-fg">
       <AnalyticsHeader
+        range={<RangeControl range={range} />}
         pill={
           <Suspense fallback={<PillSkeleton />}>
             <StatusPillData />
@@ -851,43 +1092,48 @@ function AnalyticsStream() {
         <SummaryData />
       </Suspense>
 
-      <OverviewSection>
+      <OverviewSection range={range}>
         <Suspense fallback={<TileGridSkeleton />}>
-          <OverviewData />
+          <OverviewData range={range} />
         </Suspense>
       </OverviewSection>
       <DevicesSection>
         <Suspense fallback={<CardSkeleton rows={3} />}>
-          <DevicesData />
+          <DevicesData range={range} />
         </Suspense>
       </DevicesSection>
       <PagesSection>
         <Suspense fallback={<CardSkeleton />}>
-          <PagesData />
+          <PagesData range={range} />
         </Suspense>
       </PagesSection>
       <MonitoredSection>
         <Suspense fallback={<CardSkeleton rows={3} />}>
-          <MonitoredData />
+          <MonitoredData range={range} />
         </Suspense>
       </MonitoredSection>
       <JourneysSection>
         <Suspense fallback={<CardSkeleton />}>
-          <JourneysData />
+          <JourneysData range={range} />
         </Suspense>
       </JourneysSection>
       <FeaturesSection>
         <Suspense fallback={<CardSkeleton />}>
-          <FeaturesData />
+          <FeaturesData range={range} />
         </Suspense>
       </FeaturesSection>
       <ElementsSection>
         <Suspense fallback={<CardSkeleton />}>
-          <ElementsData />
+          <ElementsData range={range} />
         </Suspense>
       </ElementsSection>
+      <BuildsSection>
+        <Suspense fallback={<CardSkeleton rows={2} />}>
+          <BuildsData range={range} />
+        </Suspense>
+      </BuildsSection>
       <Suspense fallback={null}>
-        <ErrorsData />
+        <ErrorsData range={range} />
       </Suspense>
     </main>
   );
@@ -901,7 +1147,7 @@ async function OverviewTabData() {
   // from the same loaders the other tabs use; the brand board is the Design
   // tab's kit, curated from the same scans.
   const [data, settings, design, snapshots] = await Promise.all([
-    loadDashboardData(),
+    loadDashboardData("all"),
     getAISettingsPublic(),
     getDesignData(),
     listSnapshots(),
@@ -1022,8 +1268,8 @@ async function SettingsTabData() {
   // set it would otherwise never look at.
   const [settings, monitored, topUsed, dispatch] = await Promise.all([
     getAISettingsPublic(),
-    loadMonitored(),
-    loadTopUsed(),
+    loadMonitored("all"),
+    loadTopUsed("all"),
     loadDispatchState(),
   ]);
   const profileState = await loadProfileState({ monitored, topUsed });
@@ -1110,7 +1356,9 @@ function PolishdShell({ children }: { children: ReactNode }) {
  * The scope root for the shipped stylesheet.
  *
  * `dist/dashboard.css` scopes every rule to `.polishd-root`, so nothing in it
- * can reach the host app's markup. This element deliberately carries no utility
+ * can reach the host app's markup. The compiled entry imports that stylesheet
+ * itself (scripts/build-css.mjs adds the import), so the dashboard never
+ * renders on the host's palette for want of a page-level import. This element deliberately carries no utility
  * classes of its own: keeping it a bare wrapper is what makes plain descendant
  * scoping complete, and halves the size of the generated selectors.
  *
@@ -1396,6 +1644,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
           ? "actionables"
           : "overview";
 
+    // How far back the Analytics tab reaches, from `?range=`; anything that
+    // isn't a known range is all time. Only that tab reads it.
+    const range = parseAnalyticsRange(Array.isArray(sp.range) ? sp.range[0] : sp.range);
+
     // Every tab streams: the chrome and rail go out immediately, and the
     // tab's data loads behind a Suspense boundary showing the same skeleton
     // the client paints while navigating — so a slow query never blanks the
@@ -1425,7 +1677,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         // Analytics carries per-section boundaries instead of one big one, so
         // its header and section titles paint before any query has finished
         // and each card fills in on its own schedule.
-        <AnalyticsStream />
+        <AnalyticsStream range={range} />
       );
 
     return wrap(

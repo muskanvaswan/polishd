@@ -556,7 +556,7 @@ function VerdictButtons({
   fileMode: FileMode;
   /** File it; `startFix` is File and fix. */
   onFile: (startFix: boolean) => void;
-  /** Opens the confirming dialog for a verdict; the dismissal happens from there. */
+  /** Ignore opens its confirming dialog; Mark fixed applies at once. */
   onVerdict: (kind: Verdict) => void;
   onCreateFix: () => void;
   onCreatePr: () => void;
@@ -668,9 +668,9 @@ function VerdictButtons({
   );
 }
 
-/** What each verdict's dialog says. */
+/** What the dialog says; only Ignore asks, Mark fixed applies at once. */
 const VERDICT_COPY: Record<
-  Verdict,
+  "ignore",
   { title: string; body: string; placeholder: string; confirm: string; busy: string }
 > = {
   ignore: {
@@ -680,14 +680,6 @@ const VERDICT_COPY: Record<
     placeholder: "Why isn't this a problem? (optional)",
     confirm: "Ignore",
     busy: "Ignoring…",
-  },
-  fixed: {
-    title: "Mark this finding fixed?",
-    body:
-      "It leaves this review and every later one, remembered as fixed: the model is told the site changed here, so data from before the fix doesn't bring it back. A note on what changed is optional.",
-    placeholder: "What changed? (optional)",
-    confirm: "Mark fixed",
-    busy: "Marking…",
   },
 };
 
@@ -712,7 +704,7 @@ function VerdictDialog({
 }) {
   const [reason, setReason] = useState("");
   const busy = item.dismissal.pending;
-  const copy = VERDICT_COPY[kind];
+  const copy = VERDICT_COPY.ignore;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2098,6 +2090,13 @@ export default function ActionableList({
     }
   };
 
+  // Ignore asks first, since the reason is replayed to the model; Mark fixed
+  // is plain bookkeeping and happens at once.
+  const verdict = (a: Actionable, kind: Verdict) => {
+    if (kind === "fixed") void ignore(a, undefined, true);
+    else setConfirming({ id: a.id, kind });
+  };
+
   const itemOf = (a: Actionable): Item => {
     const adopted =
       a.finding?.source === "analytics"
@@ -2203,7 +2202,7 @@ export default function ActionableList({
             fileMode={fileMode}
             onOpen={() => setSelectedId(item.a.id)}
             onFile={(startFix) => void file(item.a, startFix)}
-            onVerdict={(kind) => setConfirming({ id: item.a.id, kind })}
+            onVerdict={(kind) => verdict(item.a, kind)}
             onCreateFix={() => item.link && void createFix(item.link.number)}
             onCreatePr={() => item.link && void createPull(item.link.number)}
           />
@@ -2233,7 +2232,7 @@ export default function ActionableList({
         canSuggest={canSuggest}
         onClose={() => setSelectedId(null)}
         onFile={(startFix) => selected && void file(selected.a, startFix)}
-        onVerdict={(kind) => selected && setConfirming({ id: selected.a.id, kind })}
+        onVerdict={(kind) => selected && verdict(selected.a, kind)}
         onCreateFix={() => selected?.link && void createFix(selected.link.number)}
         onCreatePr={() => selected?.link && void createPull(selected.link.number)}
         onRefresh={() => selected?.link && void readOne(selected.link.number)}

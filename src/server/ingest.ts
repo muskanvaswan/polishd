@@ -11,10 +11,12 @@ import {
   resolveDashboardRoute,
   type PolishdConfig,
 } from "../config";
+import { sanitizeBuild } from "../shared/build";
 import { foldNoSessionDrop, parseNoSessionRecord } from "../shared/capture-status";
 import { isIgnorableError } from "../shared/error-noise";
 import { normalizeLabel, reclassifiedClickType } from "../shared/text-signals";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
+import { resolveServerBuild } from "./build";
 import { getMeta, insertEvents, setMeta } from "./store";
 
 const MAX_EVENTS_PER_BATCH = 200;
@@ -189,7 +191,8 @@ export async function ingest(
   }
   if (!cfg.enabled) return { ok: true, stored: 0, reason: "disabled" };
 
-  const rawEvents = (body as { events?: unknown })?.events;
+  const b = body as { events?: unknown; build?: unknown } | null;
+  const rawEvents = b?.events;
   if (!Array.isArray(rawEvents)) return { ok: false, stored: 0, reason: "no_events" };
 
   // The client already drops the dashboard's own traffic; this is the copy of
@@ -203,7 +206,13 @@ export async function ingest(
         e !== null && !isDashboardPath(e.path, dashboardRoute) && !isNoisyError(e, cfg.ignoreErrors),
     );
 
-  const stored = await insertEvents(sessionId, events);
+  // The build the page was served from, as the client reports it — it knows
+  // which bundle it is, where the server can only say which one it deploys.
+  // A batch without one takes the server's build, so events are still placed
+  // in a build on hosts that never set a public variable for the client.
+  const build = sanitizeBuild(b?.build) ?? (await resolveServerBuild());
+
+  const stored = await insertEvents(sessionId, events, { build });
   return { ok: true, stored };
 }
 
@@ -275,7 +284,7 @@ export async function ingestTelemetry(
   if (!cfg.enabled) return { ok: true, stored: 0, reason: "disabled" };
   if (!installId) return { ok: false, stored: 0, reason: "bad_identity" };
 
-  const b = body as Partial<Record<"sessionId" | "events", unknown>> | null;
+  const b = body as Partial<Record<"sessionId" | "events" | "build", unknown>> | null;
   const sessionId =
     typeof b?.sessionId === "string" && TELEMETRY_ID_RE.test(b.sessionId)
       ? b.sessionId
@@ -290,6 +299,11 @@ export async function ingestTelemetry(
     .map(sanitize)
     .filter((e): e is PolishdEvent => e !== null && !isNoisyError(e, cfg.ignoreErrors));
 
-  const stored = await insertEvents(sessionId, events, installId);
+  // A remote dashboard's "build" is the polishd version it runs (the emitter
+  // sends its package version). The collecting server's own build means
+  // nothing for someone else's install, so there is no server fallback here.
+  const build = sanitizeBuild(b?.build);
+
+  const stored = await insertEvents(sessionId, events, { installId, build });
   return { ok: true, stored };
 }

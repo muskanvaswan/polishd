@@ -420,6 +420,17 @@ function loadingVisible(): boolean {
 export interface DesignScanOptions {
   delayMs?: number;
   /**
+   * The build the page was served from. Part of the once-per-session key, so
+   * a page revisited after a deploy is scanned again: its design may have
+   * changed, and the Design tab wants the newest build's picture of it.
+   */
+  build?: string | null;
+  /**
+   * Scan a path once per session (the default). False scans on every call —
+   * development, where the page's design changes between reloads.
+   */
+  once?: boolean;
+  /**
    * Replaces the default `location.pathname === path` staleness check — for
    * callers whose `path` is a namespaced label rather than a URL (the
    * dashboard telemetry emitter labels its scans `/~polishd/<tab>`). Return
@@ -435,12 +446,13 @@ export interface DesignScanOptions {
 }
 
 /**
- * Scan `path` once per session, after the page settles, and hand the payload
- * to `emit`. Skips silently when the tab is hidden at fire time (layout of a
- * backgrounded prerender isn't the design anyone sees) — a later visit to the
- * same path in this session will still be un-scanned and retry. While a
- * Suspense skeleton or busy region is still on screen it waits a few beats
- * for the real content, then scans around whatever is still loading.
+ * Scan `path` once per session (and per build), after the page settles, and
+ * hand the payload to `emit`. Skips silently when the tab is hidden at fire
+ * time (layout of a backgrounded prerender isn't the design anyone sees) — a
+ * later visit to the same path in this session will still be un-scanned and
+ * retry. While a Suspense skeleton or busy region is still on screen it waits
+ * a few beats for the real content, then scans around whatever is still
+ * loading.
  */
 export function scheduleDesignScan(
   path: string,
@@ -450,14 +462,22 @@ export function scheduleDesignScan(
   // The third argument was a bare delayMs before options existed.
   const opts: DesignScanOptions = typeof options === "number" ? { delayMs: options } : options;
   const delayMs = opts.delayMs ?? 1500;
+  const once = opts.once !== false;
+  // Keyed by build as well as path, so a new deploy's pages scan afresh.
+  // Scans from before builds were tracked used the bare path; a key with an
+  // empty build segment is distinct from that, which only costs one extra
+  // scan per path on the first session after upgrading.
+  const scannedKey = `${SCANNED_PREFIX}${opts.build ?? ""}:${path}`;
 
   let done = false;
   let waits = 0;
   let waiting = false;
-  try {
-    if (sessionStorage.getItem(SCANNED_PREFIX + path)) return;
-  } catch {
-    /* storage blocked — scan anyway, worst case is a duplicate tally */
+  if (once) {
+    try {
+      if (sessionStorage.getItem(scannedKey)) return;
+    } catch {
+      /* storage blocked — scan anyway, worst case is a duplicate tally */
+    }
   }
 
   const run = () => {
@@ -489,10 +509,12 @@ export function scheduleDesignScan(
       if (!payload) return;
       const json = serializeDesignScan(payload);
       if (!json) return;
-      try {
-        sessionStorage.setItem(SCANNED_PREFIX + path, "1");
-      } catch {
-        /* fine */
+      if (once) {
+        try {
+          sessionStorage.setItem(scannedKey, "1");
+        } catch {
+          /* fine */
+        }
       }
       emit(json, payload.el);
     } catch {

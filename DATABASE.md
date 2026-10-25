@@ -89,19 +89,25 @@ CREATE TABLE IF NOT EXISTS events (
   value       DOUBLE PRECISION,
   meta        JSONB,
   received_at BIGINT      NOT NULL,
-  install_id  TEXT
+  install_id  TEXT,
+  build       TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_events_path    ON events(path);
-CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
-CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id);
+CREATE INDEX IF NOT EXISTS idx_events_path     ON events(path);
+CREATE INDEX IF NOT EXISTS idx_events_type     ON events(type);
+CREATE INDEX IF NOT EXISTS idx_events_session  ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_install  ON events(install_id);
+CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at);
+CREATE INDEX IF NOT EXISTS idx_events_build    ON events(build);
 ```
 
 (`install_id` is null on every first-party event; it is only set on rows that
 arrived through a `@polishd/next/telemetry` endpoint, which tags each event
 with the hostname of the remote installation that sent it — derived
-server-side from the request's Origin header. Databases created before the
-column existed are migrated automatically at open.)
+server-side from the request's Origin header. `build` is the build of the
+site the event was captured on — a commit sha or deployment label, see the
+README's [Builds](./README.md#builds) — and null on rows stored before builds
+were tracked or where none was known. Databases created before either column
+existed are migrated automatically at open.)
 
 ---
 

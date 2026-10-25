@@ -66,6 +66,80 @@ the trigger phrase, so filing never starts a run, and a fix is asked for after.
 - No new token permissions: Issues and Pull requests (write) already cover the
   label, the comment, the pull request and the edit.
 
+### The host's layout no longer restyles the dashboard
+
+- **The dashboard loads its own stylesheet.** The compiled
+  `dist/dashboard/index.js` now imports `../dashboard.css` itself, and
+  `sideEffects` lists CSS so bundlers keep it. Before, a page without
+  `import "@polishd/next/dashboard.css"` rendered with no Polishd CSS at all.
+  In a host whose Tailwind scanned our dist (the 0.1.x setup), the host then
+  compiled the dashboard's classes against *its* palette, which has no
+  `line`, `surface` or `fg-3`. The result was harsh default borders and no
+  greys. The page-level import is now optional. `doctor` no longer calls the
+  0.1.x scan line fine, and asks for it to be removed.
+
+- **Inherited styles stop at `.polishd-root`.** Scoping kept the dashboard's
+  rules off the host, but the host's *inherited* properties still flowed in:
+  a layout that sets `letter-spacing`, `text-transform`, `word-spacing`,
+  `font-variant`, `text-align` or a base `font-size`/`line-height` on `body`
+  reached every element in the dashboard (the landing site's
+  `letter-spacing: 0.025em` spread out all its text). The root now resets
+  inherited properties with `all: initial` before applying its own.
+- **Host element selectors can't recolour it either.** A host's `a`, `div`,
+  `p` or `*` rule that sets `color`, `text-transform` or `font-style` hit
+  dashboard elements directly, beating inheritance; the dashboard now pins
+  those on every descendant. Icons' SVG `fill`/`stroke` attributes are
+  mirrored in CSS, so a host `svg { fill: currentColor }` can't turn line
+  icons solid. Host Tailwind palettes were already harmless: dashboard
+  utilities resolve to private `--pd-*` tokens, which a host theme can't
+  redefine.
+- **A hard override.** Every dashboard element is rolled back to browser
+  defaults (`all: revert`, skipping SVG content and images) before the
+  dashboard's own utilities apply, so a host rule on a bare element —
+  `div { background }`, `section { max-width }` — has nothing left to win.
+  Every selector also carries the weight of an ID (`:not(#polishd)`), which
+  beats host rules however long their class chain and any single-ID rule
+  like `#app div`. Only `!important` and inline `style=""` can still outrank
+  the dashboard.
+
+### Every event knows its build, and the Analytics tab has a range
+
+- **Builds on every event.** A new `build` column (migrated automatically on
+  both backends, indexed) holds the build each event was captured on. The
+  client bundle sends its own with every batch — `NEXT_PUBLIC_POLISHD_BUILD`
+  or Vercel's `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, inlined at build time, or
+  `build` in the config passed to `initPolishd()` — and a batch that names
+  none is stamped by the server: `POLISHD_BUILD`, the host's commit variable
+  (Vercel, Netlify, Cloudflare, Railway, Render, Heroku), or in development
+  `git rev-parse HEAD`, cached for a few seconds. Labels are sanitized to a
+  safe charset at ingest. Dashboard telemetry reports the polishd version as
+  the build.
+- **A range on the Analytics tab.** Pills in the header — 24h, 7 days, 30
+  days, 90 days, All time (the default), and *This build* once one is known —
+  scope every section at once: tiles and charts, top pages, device sizes,
+  monitored components, journeys, features, elements, errors. Carried in the
+  URL as `?range=`; windows compare the server's receive time. The capture
+  status banners and the AI summary keep reading the whole history, so a
+  quiet week isn't a broken proxy and changing the range never marks the
+  summary stale. Every read-side query takes an optional `EventFilter`
+  (`since`, `build`); `loadPolishdDashboardData(filter)` passes it through.
+- **A Builds table** at the foot of the Analytics tab: every build events
+  have landed on, newest first by first appearance (a tab left open across a
+  deploy can't revive the old build), with sessions, views, rage, dead and
+  errors. A row scopes the tab to that build (`?range=build:<label>`).
+  `getBuilds()` and `getCurrentBuild()` are exported from `@polishd/next/server`.
+- **The Design tab follows the current build.** Once every page the newest
+  build has served has also been scanned on it, only its scans are merged and
+  the previous build's drop out — removed pages with them. Until then each
+  page's newest scan is still used, and a note under the header says how many
+  pages have been re-scanned on the build and names the ones still waiting.
+  The header pill and the Scanned pages list show the build, marking scans
+  carried from the previous one. Pages re-scan once per session *per build*
+  (the once-per-session key now includes it), and on every load in
+  development. The newest scan per page is now picked in SQL rather than from
+  the last 300 scans, so one busy page can no longer push the others out of
+  the tab.
+
 ### The screenshot service recovers from a wedged browser
 
 Production captures failed for an afternoon with every cell skipped as
