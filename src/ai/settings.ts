@@ -45,6 +45,28 @@ function coerceCadence(v: unknown): PolishdRefreshCadence | undefined {
 /** Settings the owner saved via the dashboard (may be partial). */
 type SavedSettings = Partial<PolishdAISettings>;
 
+// ── Fix dispatch defaults ────────────────────────────────────────────────────
+
+/** The label on every issue polishd dispatches to the coding agent. */
+export const DISPATCH_LABEL_DEFAULT = "polishd-fix";
+/** How many dispatches a day before polishd stops, unless the owner says otherwise. */
+export const DISPATCH_DAILY_CAP_DEFAULT = 5;
+export const DISPATCH_DAILY_CAP_MAX = 100;
+
+/** A daily cap as a whole number between 1 and the maximum, or undefined. */
+function coerceCap(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(DISPATCH_DAILY_CAP_MAX, Math.max(1, Math.round(n)));
+}
+
+/** A label as GitHub accepts one: trimmed, no newlines, at most 50 characters. */
+function coerceLabel(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const label = v.replace(/\s+/g, " ").trim().slice(0, 50);
+  return label || undefined;
+}
+
 async function readSaved(): Promise<SavedSettings> {
   const raw = await getMeta(SETTINGS_KEY);
   if (!raw) return {};
@@ -126,6 +148,10 @@ export async function resolveSettings(): Promise<{ settings: PolishdAISettings; 
       githubRepo: merged.githubRepo,
       githubToken: merged.githubToken,
       githubAutoIssues: merged.githubAutoIssues ?? false,
+      dispatchAuto: merged.dispatchAuto === true,
+      dispatchLabel: coerceLabel(merged.dispatchLabel) ?? DISPATCH_LABEL_DEFAULT,
+      dispatchDailyCap: coerceCap(merged.dispatchDailyCap) ?? DISPATCH_DAILY_CAP_DEFAULT,
+      dispatchPaused: merged.dispatchPaused === true,
     },
     fromEnv: Object.keys(saved).length === 0 && Object.keys(env).length > 0,
   };
@@ -148,6 +174,10 @@ export async function getAISettingsPublic(): Promise<PolishdAISettingsPublic> {
     githubRepo: settings.githubRepo,
     hasGithubToken: (settings.githubToken ?? "").length > 0,
     githubAutoIssues: settings.githubAutoIssues,
+    dispatchAuto: settings.dispatchAuto === true,
+    dispatchLabel: settings.dispatchLabel ?? DISPATCH_LABEL_DEFAULT,
+    dispatchDailyCap: settings.dispatchDailyCap ?? DISPATCH_DAILY_CAP_DEFAULT,
+    dispatchPaused: settings.dispatchPaused === true,
     fromEnv,
   };
 }
@@ -167,6 +197,11 @@ export interface SaveAISettingsInput {
   githubRepo?: string;
   githubToken?: string;
   githubAutoIssues?: boolean;
+  /** Fix dispatch choices. A blank label or an unusable cap falls back to the default. */
+  dispatchAuto?: boolean;
+  dispatchLabel?: string;
+  dispatchDailyCap?: number;
+  dispatchPaused?: boolean;
 }
 
 /** Persist owner settings. Returns the refreshed public view. */
@@ -197,6 +232,10 @@ export async function saveAISettings(
   if (input.githubToken) next.githubToken = input.githubToken.trim();
   if (input.githubAutoIssues !== undefined)
     next.githubAutoIssues = input.githubAutoIssues === true;
+  if (input.dispatchAuto !== undefined) next.dispatchAuto = input.dispatchAuto === true;
+  if (input.dispatchLabel !== undefined) next.dispatchLabel = coerceLabel(input.dispatchLabel);
+  if (input.dispatchDailyCap !== undefined) next.dispatchDailyCap = coerceCap(input.dispatchDailyCap);
+  if (input.dispatchPaused !== undefined) next.dispatchPaused = input.dispatchPaused === true;
 
   await setMeta(SETTINGS_KEY, JSON.stringify(next));
   return getAISettingsPublic();

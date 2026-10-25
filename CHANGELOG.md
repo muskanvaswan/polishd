@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+### A Fix dispatch card on the Settings tab
+
+polishd is building toward handing the issues it verifies to a coding agent
+the repo already runs — the Claude Code GitHub Action first, Copilot's coding
+agent second — and reading the verdict back. None of that is wired yet. This
+is the card it will stand on, at the bottom of the Settings tab once a
+repository is connected.
+
+- **What polishd found.** Every workflow under `.github/workflows/` on the
+  default branch is read with the token the owner already gave (no new
+  permissions) through a small line-based reader — the package still has no
+  runtime dependencies, so no YAML library — and judged: the agent (a
+  workflow using `anthropics/claude-code-action`, its pinned version and
+  path; or Copilot's agent, checked through GitHub's `suggestedActors`
+  query, degrading to "couldn't ask" when the token can't run GraphQL; or
+  none), how it fires (new issues → the trigger phrase goes in the issue
+  body; comments only → polishd comments after filing), the trigger phrase
+  (a `trigger_phrase` input, else the job's `if:` condition, else `@claude`),
+  the billing path (which of `claude_code_oauth_token` or
+  `anthropic_api_key` the step names — subscription limits or metered usage —
+  never a value), and the token user's write access, which the Action
+  requires of whoever triggers it. Warnings for automation mode (a `prompt`
+  input: every filed issue would start a run), a workflow sitting in an
+  unmerged pull request, one read off a non-default branch, and a workflow
+  that hears neither issues nor comments. What no token can read — the
+  Claude GitHub App being installed, the secret existing — is shown as
+  verified by the last live test, with its date, or not yet tested.
+- **Live test.** *Send test issue* files "polishd dispatch test" the way a
+  dispatch would (phrase in the body or in a comment after; an assignment
+  through `replaceActorsForAssignable` for Copilot, or a note that
+  Copilot's test is manual when that can't run), watches for a comment from
+  a bot login containing "claude" for up to three minutes in short polls the
+  card repeats, then closes the issue with a comment saying why. The issue
+  number is stored the moment it exists, so *Check again* resumes a poll the
+  page didn't live to see; a test issue is never left open silently. Success
+  shows the reply time; failure lists the likely causes in order.
+- **Setup checklist**, when nothing is found, least effort first: `claude`
+  then `/install-github-app`; otherwise the App install link, the secret
+  with a radio between subscription token (`CLAUDE_CODE_OAUTH_TOKEN`) and
+  API key (`ANTHROPIC_API_KEY`) that switches the name shown and a one-line
+  cost note, and the workflow through GitHub's new-file page prefilled with
+  polishd's recommended `claude.yml` (the stock example with the chosen
+  secret line and a `--max-turns` cap) plus a copy button; then Copilot's
+  repository setting and docs.
+- **Your choices**, the only editable fields, saved with the settings and
+  stored only: send fixes automatically (off), the label on dispatched issues
+  (`polishd-fix`), a daily cap (5), and a pause switch. No key or token for
+  the Action is ever stored.
+- The Actionables tab carries a one-line pointer to the card until it says
+  Ready.
+
 ### Actionables: one list of what to fix, and design issues that show where
 
 The summary's losses, the design review's issues and the GitHub issues filed
@@ -34,6 +85,7 @@ one list now.
   `PolishdDashboardTab` type names the tab `actionables`.
 - `POLISHD_GITHUB_API` points the GitHub client at a GitHub Enterprise
   Server's REST base instead of `api.github.com`.
+
 ### The Overview is a board of the site
 
 The Overview opened on four audience numbers and the two review cards stacked

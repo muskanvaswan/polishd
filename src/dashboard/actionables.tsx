@@ -112,6 +112,7 @@ export default function ActionablesView({
   filed,
   settings,
   suggestions,
+  dispatchReady,
 }: {
   summary: PolishdSummary | null;
   review: PolishdDesignReview | null;
@@ -120,6 +121,11 @@ export default function ActionablesView({
   settings: PolishdAISettingsPublic;
   /** Cached fix suggestions, keyed by issue number. */
   suggestions: Record<number, PolishdFixSuggestion>;
+  /**
+   * True once the Settings tab's Fix dispatch card found a coding agent that
+   * could take these. Until then the tab says where to set one up.
+   */
+  dispatchReady: boolean;
 }) {
   const losses = summary?.losses ?? [];
   const designIssues = review?.issues ?? [];
@@ -165,6 +171,16 @@ export default function ActionablesView({
           </TabLink>{" "}
           and polishd verifies each actionable against your source before filing it as an issue —
           linked on the row from then on.
+        </Callout>
+      )}
+
+      {connected && !dispatchReady && total > 0 && (
+        <Callout tone="neutral" className="mb-8">
+          Filed issues stop here — no coding agent takes them yet. Set one up and test it under{" "}
+          <TabLink tab="settings" className="text-fg underline decoration-fg-4 underline-offset-2">
+            Settings → Fix dispatch
+          </TabLink>
+          .
         </Callout>
       )}
 

@@ -8,7 +8,9 @@
  * tree isn't on disk, e.g. Vercel), create branches,
  * open pull requests, and file issues — then read those issues back, which is
  * what the dashboard's Issues tab lists. The "loss → verified bug"
- * orchestration that uses this client lives in issues.ts.
+ * orchestration that uses this client lives in issues.ts; the Fix dispatch
+ * card's reads (workflow files, assignable actors, an issue's activity) and
+ * writes (comment, assign, close) are at the bottom, used by dispatch.ts.
  *
  * The token lives in the same server-side settings blob as the model API key
  * and never reaches the browser; the client only sees a "connected" flag. A
@@ -23,6 +25,12 @@ import {
 } from "./issue-pages";
 import { Lru } from "./lru";
 import { resolveSettings } from "./settings";
+import {
+  workflowPaths,
+  type DispatchActivity,
+  type DispatchPendingPull,
+  type DispatchWorkflowFile,
+} from "./dispatch-readiness";
 import type {
   PolishdGithubIssue,
   PolishdGithubStatus,
@@ -533,14 +541,258 @@ export async function createGithubIssue(input: {
   title: string;
   body?: string;
   labels?: string[];
-}): Promise<{ url: string; number: number }> {
+}): Promise<{ url: string; number: number; nodeId?: string }> {
   const conn = await connection();
   if (!conn) throw new Error("GitHub is not connected.");
-  const issue = await gh<{ html_url: string; number: number }>(
+  const issue = await gh<{ html_url: string; number: number; node_id?: string }>(
     conn.token,
     "POST",
     `/repos/${conn.repo}/issues`,
     { title: input.title, body: input.body ?? "", labels: input.labels },
   );
-  return { url: issue.html_url, number: issue.number };
+  return { url: issue.html_url, number: issue.number, nodeId: issue.node_id };
+}
+
+/** Comment on an issue. Throws on failure. */
+export async function createGithubIssueComment(number: number, body: string): Promise<void> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  await gh(conn.token, "POST", `/repos/${conn.repo}/issues/${number}/comments`, { body });
+}
+
+/**
+ * Close an issue, with a comment first when one is given. The comment is
+ * best-effort; the close is what matters and is what throws.
+ */
+export async function closeGithubIssue(number: number, comment?: string): Promise<void> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  if (comment) {
+    try {
+      await createGithubIssueComment(number, comment);
+    } catch {
+      /* the close still goes ahead */
+    }
+  }
+  await gh(conn.token, "PATCH", `/repos/${conn.repo}/issues/${number}`, {
+    state: "closed",
+    state_reason: "completed",
+  });
+}
+
+// ── Fix dispatch: what the repo has ─────────────────────────────────────────
+
+/** The repo facts the dispatch readiness check starts from. Throws on failure. */
+export async function readGithubRepoFacts(): Promise<{
+  repo: string;
+  defaultBranch: string;
+  canWrite: boolean | null;
+}> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  const repo = await gh<RepoResponse>(conn.token, "GET", `/repos/${conn.repo}`);
+  return {
+    repo: repo.full_name,
+    defaultBranch: repo.default_branch,
+    canWrite: typeof repo.permissions?.push === "boolean" ? repo.permissions.push : null,
+  };
+}
+
+/**
+ * Every file under `.github/workflows/` on the default branch, with its
+ * text, plus the branch they were read from. Throws when the tree can't be
+ * listed; a workflow whose blob can't be read is left out.
+ */
+export async function readGithubWorkflowFiles(): Promise<{
+  ref: string;
+  workflows: DispatchWorkflowFile[];
+}> {
+  const tree = await readGithubTree();
+  if (!tree) throw new Error("GitHub is not connected.");
+  const wanted = new Set(workflowPaths(tree.files.map((f) => f.path)));
+  const entries = tree.files.filter((f) => wanted.has(f.path));
+  const blobs = await readGithubBlobs(entries.map((f) => f.sha));
+  const workflows: DispatchWorkflowFile[] = [];
+  for (const f of entries) {
+    const text = blobs.get(f.sha);
+    if (text !== undefined) workflows.push({ path: f.path, text });
+  }
+  return { ref: tree.ref, workflows };
+}
+
+/** How many open pull requests are looked at for an unmerged workflow. */
+const WORKFLOW_PULL_CANDIDATES = 3;
+
+/**
+ * Open pull requests that add a Claude workflow — what `/install-github-app`
+ * leaves behind until it's merged. Best-effort: [] when the list can't be
+ * read. Only pull requests whose branch or title mention Claude have their
+ * files read, and at most a few of them.
+ */
+export async function findGithubWorkflowPulls(): Promise<DispatchPendingPull[]> {
+  const conn = await connection();
+  if (!conn) return [];
+  try {
+    const pulls = await gh<
+      { number: number; title: string; html_url: string; head?: { ref?: string } }[]
+    >(conn.token, "GET", `/repos/${conn.repo}/pulls?state=open&per_page=50`);
+    const candidates = pulls
+      .filter((p) => /claude/i.test(p.head?.ref ?? "") || /claude/i.test(p.title))
+      .slice(0, WORKFLOW_PULL_CANDIDATES);
+    const out: DispatchPendingPull[] = [];
+    for (const p of candidates) {
+      const files = await gh<{ filename: string; status?: string }[]>(
+        conn.token,
+        "GET",
+        `/repos/${conn.repo}/pulls/${p.number}/files?per_page=100`,
+      );
+      if (workflowPaths(files.map((f) => f.filename)).length) {
+        out.push({ number: p.number, title: p.title, url: p.html_url });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** The GraphQL endpoint's reply shape. A 200 can still carry errors. */
+interface GraphqlResponse<T> {
+  data?: T;
+  errors?: { message?: string }[];
+}
+
+async function graphql<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
+  const res = await gh<GraphqlResponse<T>>(token, "POST", "/graphql", { query, variables }, {
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
+  if (res.errors?.length || !res.data) {
+    throw new Error(`GitHub GraphQL: ${res.errors?.[0]?.message ?? "no data"}`);
+  }
+  return res.data;
+}
+
+/** The login GitHub lists the Copilot coding agent under. */
+const COPILOT_AGENT_LOGIN = "copilot-swe-agent";
+
+/**
+ * The Copilot coding agent's node id, if it can be assigned issues on the
+ * connected repo — GitHub's documented check, `suggestedActors` with the
+ * CAN_BE_ASSIGNED capability. Null when the token can't run GraphQL (or the
+ * query fails for any reason), which the caller shows as "couldn't ask"
+ * rather than "no".
+ */
+export async function findCopilotAgent(): Promise<{ assignable: boolean; id?: string } | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  const [owner, name] = conn.repo.split("/");
+  try {
+    const data = await graphql<{
+      repository?: {
+        suggestedActors?: { nodes?: ({ login?: string; id?: string } | null)[] };
+      } | null;
+    }>(
+      conn.token,
+      `query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+          suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
+            nodes { login ... on Bot { id } ... on User { id } }
+          }
+        }
+      }`,
+      { owner, name },
+    );
+    const nodes = data.repository?.suggestedActors?.nodes;
+    if (!nodes) return null;
+    const agent = nodes.find((n) => n?.login === COPILOT_AGENT_LOGIN);
+    return agent ? { assignable: true, id: agent.id } : { assignable: false };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Assign an issue to the Copilot coding agent, the way GitHub's docs say to:
+ * `replaceActorsForAssignable` with the agent's id. Returns false when the
+ * mutation can't run — the test then says Copilot's test is manual.
+ */
+export async function assignGithubIssueToCopilot(issueNodeId: string, agentId: string): Promise<boolean> {
+  const conn = await connection();
+  if (!conn) return false;
+  try {
+    const data = await graphql<{
+      replaceActorsForAssignable?: {
+        assignable?: { assignees?: { nodes?: ({ login?: string } | null)[] } } | null;
+      } | null;
+    }>(
+      conn.token,
+      `mutation($issue: ID!, $actors: [ID!]!) {
+        replaceActorsForAssignable(input: { assignableId: $issue, actorIds: $actors }) {
+          assignable { ... on Issue { assignees(first: 10) { nodes { login } } } }
+        }
+      }`,
+      { issue: issueNodeId, actors: [agentId] },
+    );
+    const assignees = data.replaceActorsForAssignable?.assignable?.assignees?.nodes ?? [];
+    return assignees.some((a) => a?.login?.toLowerCase().startsWith("copilot"));
+  } catch {
+    return false;
+  }
+}
+
+/** One comment or timeline entry, as GitHub returns it. */
+interface ActivityResponse {
+  event?: string;
+  created_at?: string;
+  user?: { login?: string; type?: string } | null;
+  actor?: { login?: string; type?: string } | null;
+}
+
+function toActivity(raw: ActivityResponse, kind: string): DispatchActivity | null {
+  const who = raw.user ?? raw.actor;
+  const login = who?.login;
+  if (!login) return null;
+  return {
+    login,
+    isBot: who?.type === "Bot" || login.endsWith("[bot]"),
+    kind,
+    at: raw.created_at ? Date.parse(raw.created_at) : 0,
+  };
+}
+
+/**
+ * What has happened on an issue: its comments, and — when asked — its
+ * timeline too, which is where Copilot's reaction (a linked pull request)
+ * shows up rather than as a comment. Throws when the comments can't be read;
+ * a timeline that can't be read is left out.
+ */
+export async function readGithubIssueActivity(
+  number: number,
+  opts: { timeline?: boolean } = {},
+): Promise<DispatchActivity[]> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  const comments = await gh<ActivityResponse[]>(
+    conn.token,
+    "GET",
+    `/repos/${conn.repo}/issues/${number}/comments?per_page=100`,
+  );
+  const out = comments.map((c) => toActivity(c, "comment")).filter((a): a is DispatchActivity => a !== null);
+  if (opts.timeline) {
+    try {
+      const events = await gh<ActivityResponse[]>(
+        conn.token,
+        "GET",
+        `/repos/${conn.repo}/issues/${number}/timeline?per_page=100`,
+      );
+      for (const e of events) {
+        if (e.event === "commented") continue; // already in the comments
+        const a = toActivity(e, e.event ?? "event");
+        if (a) out.push(a);
+      }
+    } catch {
+      /* the comments alone will do */
+    }
+  }
+  return out;
 }

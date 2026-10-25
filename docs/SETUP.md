@@ -564,6 +564,61 @@ the one channel all three runtimes can read, so it can't go half-applied:
 POLISHD_SESSION_COOKIE=my_session
 ```
 
+## 10. Optional — connect a coding agent
+
+Once a GitHub repository is connected (Settings → GitHub), the Settings tab
+ends with a **Fix dispatch** card. polishd is building toward handing the
+issues it verifies to a coding agent the repo already runs — the Claude Code
+GitHub Action first, Copilot's coding agent second — and reading the result
+back. That isn't wired yet; the card is the prerequisite: it checks what the
+repo has, helps you set an agent up, proves the wiring with a live test, and
+keeps your choices for when dispatch exists.
+
+**Re-check** reads the workflows on the default branch with the token you
+already gave it (no Actions, Secrets or Administration permission is asked
+for) and shows: the agent found, how it fires, the trigger phrase, the billing
+path, your access, and what can't be read. **Send test issue** files an issue
+titled "polishd dispatch test", waits up to three minutes for the agent's
+reply, and closes it either way with a comment.
+
+If nothing is found, the checklist on the card is, least effort first:
+
+1. **With Claude Code:** run `claude` in the repo, then `/install-github-app`.
+   It installs the GitHub App, adds the secret and opens a pull request with
+   the workflow. Merge it — GitHub runs issue-event workflows only from the
+   default branch — then press Re-check.
+2. **Otherwise, three links.**
+   - Install the Claude GitHub App on the repository:
+     <https://github.com/apps/claude/installations/new>.
+   - Add one repository secret. Pick how runs are billed:
+
+     | Choice | Secret name | Made with | Cost |
+     |---|---|---|---|
+     | Subscription token | `CLAUDE_CODE_OAUTH_TOKEN` | `claude setup-token` | draws on your Claude plan's usage limits |
+     | API key | `ANTHROPIC_API_KEY` | the Anthropic Console | metered API usage, covered by a Max or Team plan's monthly credit when your Console organization is linked |
+
+   - Add the workflow. The card's **Create .github/workflows/claude.yml on
+     GitHub** button opens GitHub's new-file editor with polishd's recommended
+     workflow already in it — the stock example from
+     `anthropics/claude-code-action`: issues `opened` and `assigned`,
+     `issue_comment` and `pull_request_review_comment` `created`,
+     `pull_request_review` `submitted`, the `@claude` `if:` condition,
+     `actions/checkout@v6` with `fetch-depth: 1`, `anthropics/claude-code-action@v1`,
+     the secret line matching your radio choice, and `--max-turns` in
+     `claude_args`. Press Commit there. **Copy workflow** gives the same text
+     for any other route.
+3. **Or Copilot:** turn on the Copilot coding agent in the repository's
+   Copilot settings and polishd assigns issues to it instead.
+
+polishd never writes a workflow file itself — that needs a Workflows (write)
+permission its token doesn't have — and the only thing it writes to the
+repository from this card is the test issue.
+
+The card's editable fields — send fixes automatically (off), the label on
+dispatched issues (`polishd-fix`), a daily cap (5) and a pause switch — are
+saved with the rest of the settings and stored for the loop to come. Nothing
+is sent on its own today.
+
 ## Troubleshooting
 
 Try `npx @polishd/next doctor` first — it names most of what follows directly,

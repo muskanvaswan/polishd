@@ -63,6 +63,8 @@ import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReview, loadDesignReviewState } from "../ai/design";
 import { loadOverviewState } from "../ai/overview";
+import { loadDispatchState } from "../ai/dispatch";
+import { isDispatchReady } from "../ai/dispatch-readiness";
 import { listFixSuggestions } from "../ai/fix";
 import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
@@ -959,12 +961,15 @@ async function ActionablesTabData() {
   // Neither review's staleness matters here, so the heavy analytics dataset
   // isn't loaded; the design data is, since the review's dismissal check and
   // its usages read it. `listFiledIssues` is [] without a GitHub connection.
-  const [summary, design, settings, filed, suggestions] = await Promise.all([
+  // The dispatch state only decides whether the tab points at the Fix
+  // dispatch card.
+  const [summary, design, settings, filed, suggestions, dispatch] = await Promise.all([
     loadSummary(),
     getDesignData(),
     getAISettingsPublic(),
     listFiledIssues(),
     listFixSuggestions(),
+    loadDispatchState(),
   ]);
   const review = await loadDesignReview(design);
   return (
@@ -974,6 +979,7 @@ async function ActionablesTabData() {
       filed={filed}
       settings={settings}
       suggestions={suggestions}
+      dispatchReady={isDispatchReady(dispatch.readiness?.status)}
     />
   );
 }
@@ -990,10 +996,11 @@ async function SettingsTabData() {
   // `loadProfileState` only reads component identifiers out of the dashboard
   // data, so this tab loads those two queries rather than the whole analytics
   // set it would otherwise never look at.
-  const [settings, monitored, topUsed] = await Promise.all([
+  const [settings, monitored, topUsed, dispatch] = await Promise.all([
     getAISettingsPublic(),
     loadMonitored(),
     loadTopUsed(),
+    loadDispatchState(),
   ]);
   const profileState = await loadProfileState({ monitored, topUsed });
   return (
@@ -1002,6 +1009,7 @@ async function SettingsTabData() {
       initialProfile={profileState.profile}
       initialGaps={profileState.gaps}
       sourceAvailable={profileState.sourceAvailable}
+      initialDispatch={dispatch}
     />
   );
 }

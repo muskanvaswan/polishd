@@ -16,6 +16,7 @@
 import { requirePolishdAuth } from "./guard";
 import { selectVerdictDismissals } from "../dashboard/verdicts";
 import { generateDesignReview, loadDesignReview } from "./design";
+import { checkDispatchReadiness, pollDispatchTest, startDispatchTest } from "./dispatch";
 import { generateOverview } from "./overview";
 import { suggestIssueFix } from "./fix";
 import { verifyGithubConnection } from "./github";
@@ -36,6 +37,8 @@ import {
 } from "./settings";
 import { generateSummary, loadSummary } from "./summary";
 import type {
+  CheckDispatchResult,
+  DispatchTestResult,
   GenerateOverviewResult,
   PolishdAISettingsPublic,
   PolishdDesignIssue,
@@ -246,4 +249,34 @@ export async function recordVerdictsAction(
     recorded.push({ source: d.source, id: d.id, ignored });
   }
   return { ok: true, recorded, skipped: checked.skipped };
+}
+
+// ── Fix dispatch ─────────────────────────────────────────────────────────────
+
+/**
+ * Read the connected repo and judge whether a fix could be dispatched to a
+ * coding agent there — the Settings tab's Fix dispatch card. Reads only.
+ */
+export async function checkDispatchReadinessAction(): Promise<CheckDispatchResult> {
+  await requirePolishdAuth();
+  return checkDispatchReadiness();
+}
+
+/**
+ * File the dispatch test issue and start watching it. Writes one issue (and
+ * a comment or an assignment, per the plan) to the connected repo.
+ */
+export async function startDispatchTestAction(): Promise<DispatchTestResult> {
+  await requirePolishdAuth();
+  return startDispatchTest();
+}
+
+/**
+ * One look at the running test. The card calls this every few seconds while
+ * the test runs, and "Check again" calls it for a test that outlived the
+ * page; whichever way it ends, the issue is closed with a comment.
+ */
+export async function pollDispatchTestAction(): Promise<DispatchTestResult> {
+  await requirePolishdAuth();
+  return pollDispatchTest();
 }

@@ -48,6 +48,19 @@ export interface PolishdAISettings {
   githubToken?: string;
   /** File an issue automatically for each new problem a summary finds. */
   githubAutoIssues?: boolean;
+  /**
+   * Fix dispatch — the owner's choices for handing verified fixes to the
+   * coding agent connected to the repo. Stored now; the dispatch itself
+   * isn't wired yet, so nothing acts on them today.
+   */
+  /** Send fixes to the agent without asking each time. Off by default. */
+  dispatchAuto?: boolean;
+  /** Label put on every issue polishd dispatches. Default "polishd-fix". */
+  dispatchLabel?: string;
+  /** At most this many dispatches a day. Default 5. */
+  dispatchDailyCap?: number;
+  /** Pause dispatch, keeping the other choices. */
+  dispatchPaused?: boolean;
 }
 
 /** Client-safe view of the settings: same shape, key replaced by a boolean. */
@@ -69,6 +82,11 @@ export interface PolishdAISettingsPublic {
   hasGithubToken: boolean;
   /** File an issue automatically for each new problem a summary finds. */
   githubAutoIssues?: boolean;
+  /** Fix dispatch choices — see `PolishdAISettings`. Always filled in. */
+  dispatchAuto: boolean;
+  dispatchLabel: string;
+  dispatchDailyCap: number;
+  dispatchPaused: boolean;
   /** True when provider settings came from env vars (read-only defaults). */
   fromEnv: boolean;
 }
@@ -555,3 +573,117 @@ export type ListModelsError =
   | "bad-provider" // unrecognized provider value
   | "no-key" // no API key available (neither typed nor stored for this provider)
   | "provider-error"; // the provider's list-models call failed
+
+// ── Fix dispatch ─────────────────────────────────────────────────────────────
+
+/**
+ * Which coding agent polishd found in the connected repo: the Claude Code
+ * GitHub Action (a workflow using `anthropics/claude-code-action`), the
+ * Copilot coding agent (assignable on the repo), or neither.
+ */
+export type PolishdDispatchAgent = "claude-code-action" | "copilot" | "none";
+
+/**
+ * How a filed issue would reach the agent. `body`: the workflow listens for
+ * new issues, so the trigger phrase goes in the issue body. `comment`: it
+ * listens for comments only, so polishd comments after filing. `assign`: the
+ * Copilot agent, which starts when the issue is assigned to it. `none`: the
+ * workflow listens for neither, so nothing polishd files would start it.
+ */
+export type PolishdDispatchMode = "body" | "comment" | "assign" | "none";
+
+/**
+ * How the Action authenticates, read from which input the step passes —
+ * never from a value. A subscription token (`claude_code_oauth_token`) draws
+ * on the plan's usage limits; an API key (`anthropic_api_key`) is metered
+ * usage, covered by a Max or Team plan's monthly credit when linked.
+ */
+export type PolishdDispatchSecret = "oauth-token" | "api-key" | "both" | "unknown";
+
+export type PolishdDispatchStatus =
+  | "not-set-up"
+  | "ready-claude"
+  | "ready-copilot"
+  | "needs-attention";
+
+/** The plan polishd would follow when dispatching — the facts, not the prose. */
+export interface PolishdDispatchPlan {
+  agent: PolishdDispatchAgent;
+  mode: PolishdDispatchMode;
+  /** The phrase the workflow looks for. "@claude" unless the workflow says otherwise. */
+  triggerPhrase: string;
+  /** Repo path of the workflow the plan is built on, when there is one. */
+  workflowPath?: string;
+  /** The `@version` the step pins, e.g. "v1". */
+  actionVersion?: string;
+  secretKind: PolishdDispatchSecret;
+  defaultBranch: string;
+  /** Whether Copilot can be assigned too; null when the token couldn't ask. */
+  copilotAssignable: boolean | null;
+}
+
+/** One read-only row of "What polishd found". */
+export interface PolishdDispatchRow {
+  label: string;
+  value: string;
+  /** The consequence, spelled out in a sentence. */
+  detail?: string;
+  tone: "ok" | "warn" | "bad" | "neutral";
+}
+
+/** Everything the card shows about the repo as it stands. */
+export interface PolishdDispatchReadiness {
+  status: PolishdDispatchStatus;
+  plan: PolishdDispatchPlan;
+  rows: PolishdDispatchRow[];
+  /** Things that would stop a dispatch or make it do more than intended. */
+  warnings: string[];
+  /** Write access of the token's user; null when GitHub didn't say. */
+  canWrite: boolean | null;
+  /** Workflows that use the Action but weren't chosen for the plan. */
+  otherWorkflows: string[];
+}
+
+/** The live test: one issue, filed and watched until the agent replies. */
+export interface PolishdDispatchTest {
+  issueNumber: number;
+  issueUrl: string;
+  startedAt: number;
+  status: "running" | "passed" | "failed";
+  agent: PolishdDispatchAgent;
+  mode: PolishdDispatchMode;
+  /** When the agent's reply was first seen. */
+  repliedAt?: number;
+  /** Login of the bot that replied. */
+  replyFrom?: string;
+  /** Why it failed, when it did. */
+  reason?: "timeout" | "closed-elsewhere" | "unreadable" | "copilot-manual";
+  /** When polishd closed the issue. Absent while running, or when it couldn't. */
+  closedAt?: number;
+  /** True when the issue is still open because polishd failed to close it. */
+  leftOpen?: boolean;
+}
+
+/** What's stored about dispatch: the last check, and the last live test. */
+export interface PolishdDispatchState {
+  readiness: PolishdDispatchReadiness | null;
+  checkedAt?: number;
+  /** Why the last check failed, when it did. `readiness` is then the previous one. */
+  checkError?: string;
+  test?: PolishdDispatchTest;
+}
+
+/** Result of a readiness check. */
+export type CheckDispatchResult =
+  | { ok: true; state: PolishdDispatchState }
+  | { ok: false; error: "not-connected" | "github-error"; message: string; state: PolishdDispatchState };
+
+/** Result of starting or polling the live test. */
+export type DispatchTestResult =
+  | { ok: true; state: PolishdDispatchState }
+  | {
+      ok: false;
+      error: "not-connected" | "not-checked" | "no-agent" | "github-error" | "no-test";
+      message: string;
+      state: PolishdDispatchState;
+    };
