@@ -22,7 +22,7 @@
  * clicked Ignore on each card. Verdict ids are matched against the prompt as
  * it was last copied, since an ignore or a regenerate since then renumbers it.
  */
-import { useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 
 import { recordVerdictsAction } from "../ai/actions";
 import type {
@@ -54,6 +54,7 @@ import {
   ArrowRightIcon,
   Callout,
   CheckIcon,
+  ChevronDownIcon,
   Code,
   CopyIcon,
   InfoTip,
@@ -222,8 +223,11 @@ export default function OverviewPanel({
   };
   const counts = fixableCounts(input);
   const githubConnected = settings.hasGithubToken && !!settings.githubRepo;
+  // The prompt hands over a model's findings and the verdicts answer them, so
+  // the whole loop waits for a connected model.
+  const connected = settings.hasApiKey;
 
-  const copyButton = (scope: FixPromptScope, label: string, primary = false) => {
+  const copyButton = (scope: FixPromptScope, label: string, primary = false, className = "") => {
     const count =
       scope === "all" ? counts.analytics + counts.design : counts[scope];
     return (
@@ -231,8 +235,12 @@ export default function OverviewPanel({
         label={label}
         count={count}
         primary={primary}
+        disabled={!connected}
+        className={className}
         component={scope === "all" ? "overview-copy-prompt" : `overview-copy-prompt-${scope}`}
-        emptyTitle={emptyTitle(scope, summary !== null, review !== null)}
+        emptyTitle={
+          connected ? emptyTitle(scope, summary !== null, review !== null) : NOT_CONNECTED
+        }
         build={() => {
           const built = { ...input, now: Date.now() };
           const text = buildFixPrompt(built, scope);
@@ -263,25 +271,17 @@ export default function OverviewPanel({
           </>
         }
         actions={
-          <>
-            <button
-              type="button"
-              data-component="overview-paste-verdicts"
-              onClick={() => setPasting((v) => !v)}
-              aria-expanded={pasting}
-              title="Paste the verdict block your coding agent ended with — findings it showed aren't real, or are deliberate, stop being reported"
-              className={ghostBtn}
-            >
-              Paste verdicts
-            </button>
-            {copyButton("all", "Copy fix prompt", true)}
-          </>
+          <FixLoopMenu
+            copy={copyButton("all", "Copy fix prompt", true, "rounded-r-none")}
+            connected={connected}
+            onPaste={() => setPasting(true)}
+          />
         }
       />
 
       {manual !== null && <ManualCopy text={manual} onClose={() => setManual(null)} />}
 
-      {pasting && (
+      {pasting && connected && (
         <VerdictImport
           findings={copied.size > 0 ? [...copied.values()] : fixPromptFindings(input, "all")}
           current={fixPromptFindings(input, "all")}
@@ -365,6 +365,10 @@ function withFiled<T extends { issueUrl?: string; issueNumber?: number }>(
   return filed ? { ...item, issueUrl: filed.url, issueNumber: filed.number } : item;
 }
 
+/** Why the fix loop is off altogether. */
+const NOT_CONNECTED =
+  "Connect a model in Settings first — its reviews are what this hands to your coding agent";
+
 /** Why a copy button is off — what's missing before it has anything to copy. */
 function emptyTitle(scope: FixPromptScope, hasSummary: boolean, hasReview: boolean): string {
   if (scope === "analytics") {
@@ -417,6 +421,92 @@ function Section({
 }
 
 /**
+ * The Overview's one action, as a split button: copy the fix prompt, with the
+ * rest of the loop behind the chevron. For now that's reading the agent's
+ * verdicts back; running the fix itself is meant to join it. All of it hands
+ * over a model's findings, so it's off until a model is connected.
+ */
+function FixLoopMenu({
+  copy,
+  connected,
+  onPaste,
+}: {
+  /** The copy button, its right edge squared to meet the chevron. */
+  copy: ReactNode;
+  connected: boolean;
+  onPaste: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstItemRef = useRef<HTMLButtonElement>(null);
+
+  // Focus moves into the menu; Escape or a click outside closes it.
+  useEffect(() => {
+    if (!open) return;
+    firstItemRef.current?.focus();
+    const onPointer = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      {copy}
+      <button
+        ref={triggerRef}
+        type="button"
+        data-component="overview-fix-menu"
+        onClick={() => setOpen((o) => !o)}
+        disabled={!connected}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More of the fix loop"
+        title={connected ? "More of the fix loop" : NOT_CONNECTED}
+        className={`${primaryBtn} rounded-l-none border-l border-accent-fg/15 px-2`}
+      >
+        <ChevronDownIcon size={13} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Fix loop"
+          className="absolute right-0 top-full z-30 mt-1.5 w-64 rounded-lg border border-line-strong bg-overlay p-1 shadow-pop"
+        >
+          <button
+            ref={firstItemRef}
+            type="button"
+            role="menuitem"
+            data-component="overview-paste-verdicts"
+            onClick={() => {
+              setOpen(false);
+              onPaste();
+            }}
+            className="flex w-full flex-col items-start gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-raised focus-visible:bg-raised"
+          >
+            <span className="text-[13px] font-medium text-fg">Paste verdicts</span>
+            <span className="text-[12px] leading-snug text-fg-3">
+              Read back the agent&apos;s verdicts, so findings it ruled out stop being reported.
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Copies one scope's prompt. The label and "Copied" share a grid cell, so
  * the button holds its width when the confirmation swaps in.
  */
@@ -424,6 +514,8 @@ function CopyPromptButton({
   label,
   count,
   primary,
+  disabled = false,
+  className = "",
   component,
   emptyTitle: disabledTitle,
   build,
@@ -434,6 +526,10 @@ function CopyPromptButton({
   /** Problems the prompt carries; 0 disables the button. */
   count: number;
   primary: boolean;
+  /** Off whatever the count — no model connected. `emptyTitle` says why. */
+  disabled?: boolean;
+  /** Extra classes, e.g. the squared edge where a split button meets its menu. */
+  className?: string;
   /** `data-component` name for the dashboard's own telemetry. */
   component: string;
   emptyTitle: string;
@@ -450,6 +546,7 @@ function CopyPromptButton({
   }, [copiedAt]);
 
   const copied = copiedAt > 0;
+  const off = disabled || count === 0;
   const problems = `${count} ${count === 1 ? "problem" : "problems"}`;
   const copy = () => {
     const text = build();
@@ -468,10 +565,10 @@ function CopyPromptButton({
         type="button"
         data-component={component}
         onClick={copy}
-        disabled={count === 0}
-        title={count === 0 ? disabledTitle : `Copy a prompt that hands ${problems} to a coding agent`}
-        aria-label={count === 0 ? label : `${label} (${problems})`}
-        className={primary ? primaryBtn : ghostBtn}
+        disabled={off}
+        title={off ? disabledTitle : `Copy a prompt that hands ${problems} to a coding agent`}
+        aria-label={off ? label : `${label} (${problems})`}
+        className={`${primary ? primaryBtn : ghostBtn} ${className}`}
       >
         <span className={copied ? (primary ? "text-accent-fg" : "text-ok") : ""}>
           {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
@@ -483,7 +580,7 @@ function CopyPromptButton({
             Copied
           </span>
         </span>
-        {count > 0 && (
+        {!off && (
           <span
             aria-hidden
             className={`ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-1 text-[11px] font-semibold tabular-nums ${

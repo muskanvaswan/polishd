@@ -193,14 +193,15 @@ export default function DashboardChrome({
     <TabNavContext.Provider value={navigate}>
       <div
         ref={rootRef}
-        className="mx-auto max-w-[1200px] px-4 pb-16 pt-5 text-fg sm:px-6 lg:px-8 lg:pt-10"
+        className="mx-auto max-w-[1200px] px-4 pb-16 pt-5 text-fg sm:px-6 lg:px-8 lg:pb-10 lg:pt-10"
       >
         <div className="flex flex-col gap-6 lg:flex-row lg:gap-12">
           <aside className="shrink-0 lg:w-48">
             {/* Full height on wide screens, so the theme switch can sit at
-                the foot of the rail; the shell's top and bottom padding
-                (2.5rem + 4rem) is what's left of the viewport. */}
-            <div className="lg:sticky lg:top-10 lg:flex lg:h-[calc(100dvh-6.5rem)] lg:flex-col">
+                the foot of the rail as far from the bottom as the wordmark
+                is from the top: the column is the viewport less 2.5rem each
+                end, matching the page's top and bottom padding. */}
+            <div className="lg:sticky lg:top-10 lg:flex lg:h-[calc(100dvh-5rem)] lg:flex-col">
               <div className="lg:px-2.5">
                 <div className="flex items-start justify-between gap-3">
                   <TabLink
@@ -252,7 +253,9 @@ export default function DashboardChrome({
                   );
                 })}
               </nav>
-              <div className="mt-auto hidden pt-6 lg:block">
+              {/* -mb-2 takes back the button's own padding below the icon, so
+                  the glyph — not its hit area — sits 2.5rem from the bottom. */}
+              <div className="mt-auto hidden pt-6 lg:-mb-2 lg:block">
                 <ThemeToggle theme={currentTheme} onToggle={toggleTheme} />
               </div>
             </div>
