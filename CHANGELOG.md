@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### The Overview is a board of the site
+
+The Overview opened on four audience numbers and the two review cards stacked
+one above the other, with the newest snapshot as a strip at the bottom. It
+now reads as a board: one row of the site as it renders and the system it
+renders with, then one column of the story and the numbers.
+
+- **Site snapshots** are a small bento of the site's top pages rather than a
+  strip: the homepage hero largest, the homepage on a phone beside it, and
+  the heroes of the two most visited other pages under them — four pictures,
+  with no heading over them and no device or theme toggles in front. Pages
+  are ranked by the traffic the analytics saw. A click still opens the
+  full-height shot; the rest of the capture is one link away on the Design
+  tab. In the lightbox, phone shots now open at phone width instead of being
+  blown up to desktop width, and Escape closes it.
+- **The brand** sits in the same card, beside the snapshots: the system the
+  pages actually ship, curated the way the brand kit is (one-offs left out),
+  as two hierarchies and no labels. The palette: Primary largest, Secondary
+  and Accent beside it, the neutrals as one scale from light to dark — not
+  every color the site paints. The type: the words "Title", "Subtitle",
+  "Body" and "Caption", each set in its own face at the size the site really
+  uses that style.
+- **The paragraph**, captioned Overview, is written by the model. The analytics summary
+  and the design review are handed to the same provider, model and key the
+  owner configured, with instructions to fold them into a single story — the
+  overall picture, the one or two things most worth fixing, what to protect —
+  and to say nothing the two reviews don't. It's cached under the reviews'
+  hash, goes stale when either changes, and is rewritten when the Overview
+  opens on a missing or stale paragraph. One refresh regenerates the summary,
+  the review and then the paragraph from them. The losses and the design
+  issues — and the ignore and file-bug controls that act on them — stay on
+  the Analytics and Design tabs.
+- **Visitors** — sessions, page views and the share on mobile — stack in a
+  narrow column beside the paragraph; views per session and the friction
+  counts stay on the Analytics tab. Colors the paragraph cites render as the Design tab's
+  copyable chips.
+
+**Copy fix prompt** and **Paste verdicts** are unchanged: the prompt still
+carries every problem both reviews found, built from the latest summary and
+review the page has, and a pasted verdict drops its finding from the next
+copy.
+
 ### The design review sees the pages
 
 The aesthetic review read the measured tokens and nothing else. It could tell

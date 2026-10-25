@@ -62,6 +62,7 @@ import { unlockPolishdDashboard } from "./unlock";
 import { loadPolishdTelemetryState } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReviewState } from "../ai/design";
+import { loadOverviewState } from "../ai/overview";
 import { listFixSuggestions } from "../ai/fix";
 import { isGithubConnected } from "../ai/github";
 import { listFiledIssues } from "../ai/issues";
@@ -70,6 +71,7 @@ import { generateSummary, getAISettingsPublic, loadSummaryState } from "../ai/su
 import { getDesignData } from "../server/design";
 import { resolveSiteOrigin } from "../server/site-origin";
 import { listSnapshots, snapshotAvailability } from "../server/snapshots";
+import { buildBrandKit } from "../shared/brand-kit";
 import type {
   PolishdAISettingsPublic,
   PolishdProjectProfile,
@@ -892,36 +894,40 @@ function AnalyticsStream() {
 async function OverviewTabData() {
   // Both reviews, so both datasets: the summary's staleness hashes the whole
   // analytics set, the design review's hashes the design metrics. Each comes
-  // from the same loaders the other tabs use.
+  // from the same loaders the other tabs use; the brand board is the Design
+  // tab's kit, curated from the same scans.
   const [data, settings, design, snapshots] = await Promise.all([
     loadDashboardData(),
     getAISettingsPublic(),
     getDesignData(),
     listSnapshots(),
   ]);
-  const [summaryState, profileState, reviewState] = await Promise.all([
+  const [summaryState, reviewState] = await Promise.all([
     loadSummaryState(data),
-    loadProfileState(data),
     loadDesignReviewState(design),
   ]);
+  // The paragraph is written from the two reviews, so its staleness follows theirs.
+  const overviewState = await loadOverviewState(summaryState.summary, reviewState.review);
   scheduleSummaryRefresh(data, settings, summaryState);
   return (
     <OverviewPanel
       overview={data.overview}
+      story={overviewState.overview}
+      storyStale={overviewState.stale}
       trends={data.trends}
       devices={data.devices}
       settings={settings}
       summary={summaryState.summary}
       summaryStale={summaryState.stale}
-      profile={profileState.profile}
-      gaps={profileState.gaps}
-      sourceAvailable={profileState.sourceAvailable}
       review={reviewState.review}
       reviewStale={reviewState.stale}
       reviewMetricsChanged={reviewState.metricsChanged}
       scannedPages={design.pages.length}
-      // Only the newest snapshot that has pictures — the strip shows no history.
+      // Only the newest snapshot that has pictures — the gallery shows no history.
       snapshot={snapshots.find((s) => s.shots.some((shot) => shot.file.length > 0)) ?? null}
+      kit={design.pages.length > 0 ? buildBrandKit(design) : null}
+      // Most visited first, so the gallery leads with the pages people see.
+      topPages={data.pages.map((p) => p.path)}
     />
   );
 }

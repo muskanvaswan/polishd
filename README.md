@@ -293,17 +293,33 @@ in production, because that is the only place it is worth acting on.
 
 ## Overview
 
-The dashboard opens on the **Overview**: the headline audience numbers
-(sessions, page views, views per session, the share on mobile), the
-[AI summary](#ai-summary) and the [design review](#design-review) one above the
-other, and the newest [site snapshot](#site-snapshots) when there is one. Both
-review cards are the full cards from their own tabs, so regenerating, ignoring
-a loss and filing a bug all work from here.
+The dashboard opens on the **Overview**, laid out as a board of the site:
+
+- **The site and its brand**, in one card with no headings. On the left, the
+  newest [snapshot](#site-snapshots) as a small bento of the site's top pages:
+  the homepage hero largest, the homepage on a phone beside it, and the two
+  most visited other pages under them, with no device or theme toggles in
+  front. A click opens the full-height shot, and the rest of the capture is
+  one link away on the Design tab. On the right, the system the pages
+  actually ship, curated the way the brand kit is (one-offs left out), as two
+  hierarchies. The palette: Primary largest, Secondary and Accent beside it,
+  and the neutrals as one scale from light to dark — not every color the site
+  paints. The type: "Title", "Subtitle", "Body" and "Caption", each word set
+  in its own face at the size the site really uses that style.
+- **Overview** — one paragraph, written by the model from the
+  [AI summary](#ai-summary) and the [design review](#design-review): the
+  overall picture, the one or two things most worth fixing, and what to
+  protect, saying nothing the two reviews don't. It's cached, goes stale when
+  either review changes, and is rewritten when the Overview opens on a
+  missing or stale paragraph; one refresh regenerates both reviews and then
+  the paragraph. The problems each review found stay on its own tab, with the
+  ignore and file-bug controls that act on them.
+- **Visitors** — sessions, page views and the share on mobile, stacked in a
+  narrow column beside the paragraph, each tile opening its chart over time.
 
 **Copy fix prompt** turns every problem the two reviews found into one message
 for the coding agent working in your repo — Claude Code, Cursor, or anything
-else that reads a prompt. Each review's own **Copy prompt** button copies just
-its half. A prompt carries:
+else that reads a prompt. A prompt carries:
 
 - the site description and audience from Settings, and the traffic so far;
 - a warning up front when the two reviews are far apart in time (two weeks or
@@ -330,10 +346,9 @@ its half. A prompt carries:
   a JSON verdict block: `fixed`, `not_real` or `deliberate` per problem, with a
   reason and the files involved.
 
-The prompt is built in the browser from what the cards show at the moment you
-click, so a loss you've just ignored is already out of it and a review you've
-just regenerated is already in. It sends nothing anywhere: it's text on your
-clipboard.
+The prompt is built in the browser from the latest summary and review the
+page has, so a review you've just regenerated is already in it. It sends
+nothing anywhere: it's text on your clipboard.
 
 **Paste verdicts** reads the agent's verdict block back. Paste its reply (or
 just the block) and each verdict is shown next to the finding it refers to.
