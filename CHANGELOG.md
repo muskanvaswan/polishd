@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Actionables: one list of what to fix, and design issues that show where
+
+The summary's losses, the design review's issues and the GitHub issues filed
+from them used to be three places: a rail under each review card, and an
+**Issues** tab that only appeared once a repository was connected. They are
+one list now.
+
+- **The Issues tab is the Actionables tab.** It lists every problem both
+  reviews found — what still needs a decision first, then what's already in
+  the tracker, open before closed — with **File bug** and **Ignore** on each
+  row. It's always shown; without GitHub it lists the findings and says that
+  filing needs a repository. `?tab=issues` still lands on it.
+- **The review cards are the story and what's working.** The *Losses* and
+  *Breaking the system* rails are gone from the summary and design review
+  cards; each card ends with how many of its findings are waiting on the
+  Actionables tab. The Overview puts the same list under its two review cards,
+  cut to its first rows.
+- **A filed issue stays linked on its actionable**, from the moment it's filed
+  and with the tracker's live state on the next load. A filed issue whose
+  finding the current reviews no longer hold stays listed on its own, as the
+  Issues tab listed it.
+- **Design issues show where their values render.** Each color, size or
+  padding a design issue cites is looked up in the measurements — how much of
+  the UI it covers, on which pages, how many declarations chose it, whether
+  one hand-typed it — and in the newest site snapshot that pictured it. The
+  picture shows on the actionable's row and in its drawer, goes into the issue
+  body when it's filed (embedded when the image is in a public Vercel Blob
+  store GitHub can fetch, named otherwise), into the verification prompt, and
+  into the fix prompt as a *Where it renders* line.
+- `PolishdDashboard`'s `showIssues` prop is accepted and ignored; the
+  `PolishdDashboardTab` type names the tab `actionables`.
+- `POLISHD_GITHUB_API` points the GitHub client at a GitHub Enterprise
+  Server's REST base instead of `api.github.com`.
+
 ### Dead clicks are judged by what happened, and errors say where they came from
 
 A dead click used to mean "a click on something that isn't a button or a

@@ -29,7 +29,11 @@ import type {
   VerifyGithubResult,
 } from "./types";
 
-const API = "https://api.github.com";
+/**
+ * GitHub's REST base. `POLISHD_GITHUB_API` points it elsewhere — a GitHub
+ * Enterprise Server's `https://ghe.example.com/api/v3`.
+ */
+const API = (process.env.POLISHD_GITHUB_API?.trim() || "https://api.github.com").replace(/\/+$/, "");
 
 /** The connected repo + token, or null when either half is missing. */
 async function connection(): Promise<{ repo: string; token: string } | null> {

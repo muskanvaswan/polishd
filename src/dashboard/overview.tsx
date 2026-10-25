@@ -10,11 +10,13 @@
  * review's own button copies just its half.
  *
  * The review cards are the very components the Analytics and Design tabs
- * render, so everything they do works here too: regenerate, ignore a loss,
- * file a bug. The panel listens to them and mirrors what they show, and the
- * prompt is built from that mirror at the moment of the click — an ignored
- * loss is already gone from it, a regenerated review already in it, a bug
- * filed a second ago already cited.
+ * render, so regenerating works here too, and the problems both found sit
+ * under them as one Actionables list — the same list as the Actionables tab,
+ * cut to its first rows — where a loss or a design issue is filed as a bug or
+ * ignored. The panel listens to all of them and mirrors what they show, and
+ * the prompt is built from that mirror at the moment of the click — an
+ * ignored finding is already gone from it, a regenerated review already in
+ * it, a bug filed a second ago already cited.
  *
  * The prompt asks the agent to end with a verdict block, and "Paste verdicts"
  * reads it back: the findings the agent showed aren't real, or are
@@ -34,6 +36,7 @@ import type {
 } from "../ai/types";
 import type { DeviceBucket, MetricTrends, OverviewStats } from "../server/queries";
 import type { PolishdSnapshot } from "../server/snapshots";
+import ActionableList, { type FindingChange } from "./actionable-list";
 import { TabLink, type PolishdDashboardTab } from "./chrome";
 import { copyText } from "./color-chip";
 import DesignReviewCard from "./design-review-card";
@@ -49,7 +52,7 @@ import {
 } from "./fix-prompt";
 import OverviewTiles from "./metric-trends";
 import { SnapshotStrip } from "./snapshots";
-import SummaryCard, { type LossChange } from "./summary";
+import SummaryCard from "./summary";
 import {
   ArrowRightIcon,
   Callout,
@@ -57,6 +60,7 @@ import {
   ChevronDownIcon,
   Code,
   CopyIcon,
+  EmptyState,
   InfoTip,
   PageHeader,
   SectionHeader,
@@ -156,7 +160,7 @@ export default function OverviewPanel({
     setMetricsChanged(false);
   }, []);
 
-  const onLossChange = useCallback((evidence: string, change: LossChange) => {
+  const onLossChange = useCallback((evidence: string, change: FindingChange) => {
     if ("filed" in change) {
       setFiledLosses((prev) => new Map(prev).set(evidence, change.filed));
       return;
@@ -166,7 +170,7 @@ export default function OverviewPanel({
   }, []);
 
   // Design issues are tracked by findingKey, not evidence: two can cite the same.
-  const onIssueChange = useCallback((key: string, change: LossChange) => {
+  const onIssueChange = useCallback((key: string, change: FindingChange) => {
     if ("filed" in change) {
       setFiledDesign((prev) => new Map(prev).set(key, change.filed));
       return;
@@ -324,8 +328,7 @@ export default function OverviewPanel({
           initialGaps={gaps}
           sourceAvailable={sourceAvailable}
           onSummaryChange={onSummaryChange}
-          onLossChange={onLossChange}
-          dismissed={importedLosses}
+          actionablesLink={false}
         />
       </Section>
 
@@ -341,11 +344,35 @@ export default function OverviewPanel({
           provider={settings.provider}
           model={settings.model}
           scannedPages={scannedPages}
-          githubConnected={githubConnected}
           onReviewChange={onReviewChange}
-          onIssueChange={onIssueChange}
-          dismissed={importedDesign}
+          actionablesLink={false}
         />
+      </Section>
+
+      {/* Both reviews' problems, as one list — the first rows of the Actionables
+          tab, built from what the cards above show right now. The tab adds the
+          issues filed earlier and the tracker's live state. */}
+      <Section title="Actionables" link={{ tab: "actionables", label: "All actionables" }}>
+        <div className={`${card} overflow-hidden`}>
+          <ActionableList
+            losses={summary?.losses ?? []}
+            designIssues={review?.issues ?? []}
+            repo={settings.githubRepo}
+            githubConnected={githubConnected}
+            limit={OVERVIEW_ACTIONABLES}
+            onLossChange={onLossChange}
+            onIssueChange={onIssueChange}
+            dismissedLosses={importedLosses}
+            dismissedDesign={importedDesign}
+            empty={
+              <EmptyState>
+                {summary === null && review === null
+                  ? "Nothing to act on yet — the problems the analytics summary and the design review find land here."
+                  : "Nothing to act on — neither review found a problem worth fixing."}
+              </EmptyState>
+            }
+          />
+        </div>
       </Section>
 
       {snapshot && (
@@ -356,6 +383,9 @@ export default function OverviewPanel({
     </main>
   );
 }
+
+/** Actionables the Overview shows before pointing at the tab for the rest. */
+const OVERVIEW_ACTIONABLES = 6;
 
 /** A finding with the issue filed for it this session, if one was. */
 function withFiled<T extends { issueUrl?: string; issueNumber?: number }>(

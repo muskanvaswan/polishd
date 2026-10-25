@@ -20,7 +20,10 @@
  * re-investigated nor re-filed. That log is also what the dashboard's Issues
  * tab reads: `listFiledIssues` joins it to the live issues on GitHub.
  */
+import { getDesignData } from "../server/design";
+import { listSnapshots } from "../server/snapshots";
 import { getMeta, setMeta } from "../server/store";
+import { designUsagesFor, usageFacts, whereItRendersMarkdown } from "../shared/design-evidence";
 import {
   createGithubIssue,
   findRecentGithubIssue,
@@ -36,6 +39,7 @@ import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
 import type {
   PolishdDesignIssue,
+  PolishdDesignUsage,
   PolishdFiledIssue,
   PolishdLossItem,
   CreateIssueResult,
@@ -60,6 +64,12 @@ type Report = {
   location?: string;
   /** The review's own suggested fix (design issues only). */
   suggestion?: string;
+  /**
+   * Where the cited values render (design issues only): the facts behind each
+   * color, size or padding and its picture, when a snapshot took one. Looked
+   * up here from the current measurements, never taken from the browser.
+   */
+  usages?: PolishdDesignUsage[];
 };
 
 // ── Issue log (dedupe) ───────────────────────────────────────────────────────
@@ -306,6 +316,19 @@ async function investigate(report: Report): Promise<Investigation> {
   if (report.suggestion) {
     sections.push("", `SUGGESTED FIX (from the design review): ${report.suggestion}`);
   }
+  if (report.usages?.length) {
+    // Where the value is set is the question; these say how widely and how.
+    sections.push(
+      "",
+      "WHERE IT RENDERS (measured on the site's pages):",
+      ...report.usages.map((u) => `- ${u.label}: ${usageFacts(u)}`),
+    );
+    if (report.usages.some((u) => u.handTyped)) {
+      sections.push(
+        "(hand-typed: written as a Tailwind arbitrary value such as text-[#555] or p-[13px], not a theme token)",
+      );
+    }
+  }
   if (profile) {
     sections.push("", `PROJECT PROFILE (what this site and its components are):\n${profile.text}`);
   }
@@ -344,6 +367,9 @@ function issueBody(
   if (report.suggestion) {
     lines.push("", `**Suggested fix (from the design review):** ${report.suggestion}`);
   }
+  // A design report shows where its values render — pictures where GitHub
+  // can fetch them, the facts either way (shared/design-evidence.ts).
+  lines.push(...whereItRendersMarkdown(report.usages));
   if (inv.verdict === "confirmed") {
     if (inv.details) lines.push("", "## Technical analysis", inv.details);
     if (inv.files.length) {
@@ -454,15 +480,32 @@ export async function createIssueFromLoss(loss: Loss): Promise<CreateIssueResult
 }
 
 /**
+ * Where a design issue's cited values render, for its body and its
+ * verification: looked up from the current measurements and snapshots, never
+ * taken from the browser. An enrichment — a store that can't answer leaves
+ * the filing to go ahead without it.
+ */
+async function designUsages(issue: DesignIssue): Promise<PolishdDesignUsage[]> {
+  try {
+    const [data, snapshots] = await Promise.all([getDesignData(), listSnapshots()]);
+    return designUsagesFor(issue, data, snapshots);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * File a bug from one design-review issue — the same verify-then-file pipeline
  * with the design framing: the evidence is a measured design token rather than
  * an analytics identifier, so verification searches the source for wherever
- * that value is produced.
+ * that value is produced. The filed issue shows where the value renders — a
+ * picture of the element carrying it when a snapshot took one that GitHub can
+ * fetch, and the facts behind it either way.
  */
 export async function createIssueFromDesignIssue(
   issue: DesignIssue,
 ): Promise<CreateIssueResult> {
-  return fileReport({ ...issue, kind: "design" });
+  return fileReport({ ...issue, kind: "design", usages: await designUsages(issue) });
 }
 
 /**

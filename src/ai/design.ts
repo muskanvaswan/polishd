@@ -22,6 +22,8 @@
  */
 import { getMeta, setMeta } from "../server/store";
 import { getDesignData, type PolishdDesignData } from "../server/design";
+import { listSnapshots, type PolishdSnapshot } from "../server/snapshots";
+import { designUsagesFor } from "../shared/design-evidence";
 import { checkSuggestion, knownDesignValues } from "./design-suggestions";
 import { fingerprintDigest } from "./digest";
 import {
@@ -48,15 +50,41 @@ const DESIGN_REVIEW_KEY = "ai_design_review";
 const MAX_ISSUES = 3;
 
 /**
+ * What a design issue carries beyond what the model wrote, looked up on every
+ * read because both move under a cached review: the GitHub issue filed for it
+ * (from the issue log), and where the values it cites render — the facts from
+ * the current measurements and the picture from the newest snapshot that took
+ * one. Pictures are an enrichment: a store that can't list snapshots leaves
+ * the facts in place.
+ */
+async function decorateDesignIssues(
+  issues: PolishdDesignIssue[],
+  data: PolishdDesignData,
+): Promise<PolishdDesignIssue[]> {
+  const linked = await attachGithubIssuesToDesignIssues(issues);
+  let snapshots: PolishdSnapshot[] = [];
+  try {
+    snapshots = await listSnapshots();
+  } catch {
+    /* no pictures, facts only */
+  }
+  return linked.map((iss) => {
+    const usages = designUsagesFor(iss, data, snapshots);
+    return usages.length ? { ...iss, usages } : iss;
+  });
+}
+
+/**
  * The last generated review, or null. Read-only — never calls a model. Issues
  * whose evidence already has a GitHub issue in the log come back with the link
- * attached, so the tab renders it instead of a "file bug" button.
+ * attached, so the tab renders it instead of a "file bug" button, and every
+ * issue comes back with where its cited values render (`usages`).
  *
  * Issues the owner has dismissed since it was generated are filtered out here,
  * so an ignore takes effect on the cached review immediately. The stored copy
- * keeps them, which is what makes an undo bring the issue back. Recognising a
- * dismissed issue reads the current design data (which section a px value
- * belongs to), so it's loaded here when there's something to filter and the
+ * keeps them, which is what makes an undo bring the issue back. Both the
+ * dismissal check (which section a px value belongs to) and the usages read
+ * the current design data, so it's loaded here when there are issues and the
  * caller didn't pass it.
  */
 export async function loadDesignReview(preloaded?: PolishdDesignData): Promise<PolishdDesignReview | null> {
@@ -68,13 +96,17 @@ export async function loadDesignReview(preloaded?: PolishdDesignData): Promise<P
   } catch {
     return null;
   }
-  const ignored = review.issues?.length ? await loadIgnoredDesignIssues() : [];
+  if (!review.issues?.length) return review;
+  const [ignored, data] = await Promise.all([
+    loadIgnoredDesignIssues(),
+    preloaded ?? getDesignData(),
+  ]);
   if (ignored.length) {
-    const known = knownDesignValues(preloaded ?? (await getDesignData()));
+    const known = knownDesignValues(data);
     review = withoutIgnoredIssues(review, ignoredDesignSignatures(ignored, known), known);
   }
   if (review.issues?.length) {
-    review = { ...review, issues: await attachGithubIssuesToDesignIssues(review.issues) };
+    review = { ...review, issues: await decorateDesignIssues(review.issues, data) };
   }
   return review;
 }
@@ -420,12 +452,12 @@ export async function generateDesignReview(
     metricsFingerprint: metricsFingerprint(data),
     usage: reply.usage,
   };
-  // Persisted without issue links — those live in the issue log and are
-  // attached on every read, so the cached review can't hold a stale link.
+  // Persisted without issue links or usages — those are looked up on every
+  // read, so the cached review can't hold a stale link or a stale picture.
   await setMeta(DESIGN_REVIEW_KEY, JSON.stringify(review));
   return {
     ok: true,
-    review: { ...review, issues: await attachGithubIssuesToDesignIssues(issues) },
+    review: { ...review, issues: await decorateDesignIssues(issues, data) },
     regenerated: true,
   };
 }

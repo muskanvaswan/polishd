@@ -44,16 +44,25 @@ export type ValuePreviewState =
 /** Fetched pictures, shared by every card — a value hovered twice loads once. */
 const imageCache = new Map<string, Promise<string | null>>();
 
-function loadImage(ref: ValuePreviewRef): Promise<string | null> {
-  const key = `${ref.snapshotId}|${ref.file}`;
+/**
+ * One snapshot image as a data URL, or null when it's gone — fetched once
+ * per page and shared, so the same picture on a hover card, an actionable's
+ * row and its drawer costs one round trip.
+ */
+export function loadSnapshotImage(snapshotId: string, file: string): Promise<string | null> {
+  const key = `${snapshotId}|${file}`;
   let pending = imageCache.get(key);
   if (!pending) {
-    pending = getSnapshotImageAction(ref.snapshotId, ref.file)
+    pending = getSnapshotImageAction(snapshotId, file)
       .then((res) => (res.ok ? res.dataUrl : null))
       .catch(() => null);
     imageCache.set(key, pending);
   }
   return pending;
+}
+
+function loadImage(ref: ValuePreviewRef): Promise<string | null> {
+  return loadSnapshotImage(ref.snapshotId, ref.file);
 }
 
 const CARD_WIDTH = 340;
