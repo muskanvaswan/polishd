@@ -22,8 +22,8 @@
  *     ends, polishd closes the issue with a comment saying why; a test issue
  *     is never left open silently.
  *
- * Nothing here dispatches a real fix. That loop is later work; this is the
- * card that says whether it could run.
+ * Nothing here dispatches a real fix: that's fix-dispatch.ts, which asks
+ * this module's stored judgement whether it may, and how.
  */
 import { getMeta, setMeta } from "../server/store";
 import {

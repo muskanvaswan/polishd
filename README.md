@@ -520,8 +520,11 @@ color, size or page the design review cited — the volume behind it, the source
 file it was matched to, the suggested fix, the pictures of where a design value
 renders, and for a filed issue the title, state, labels, assignees and comment
 count read live from GitHub on every render (so a bug someone closed an hour
-ago reads as closed here), the issue body rendered as the markdown it is, and
-**Suggest a fix**. An issue that can no longer be read — deleted, transferred, or
+ago reads as closed here), the issue body rendered as the markdown it is, and —
+where no coding agent can be asked to fix it (none set up, dispatch paused, or a
+workflow that only hears new issues) and no pull request already carries a fix —
+**Suggest a fix**, a plan from polishd's own model; where one can, Create fix
+takes its place. An issue that can no longer be read — deleted, transferred, or
 beyond what the token now covers — keeps its row and says exactly that.
 `?tab=issues`, the tab's old name, still lands here.
 
@@ -531,22 +534,71 @@ which is more than polishd is ever likely to have filed.
 
 ### Connect a coding agent
 
-Filing an issue is where polishd's part ends today, and where a coding agent's
-could begin: the Claude Code GitHub Action answers an issue that mentions it,
-and the Copilot coding agent answers one it's assigned. polishd is building
-toward handing verified fixes to whichever of those the repo already runs, and
-reading the verdict back. That loop isn't wired yet. What ships now is the
-ground it stands on — a **Fix dispatch** card at the bottom of the Settings
-tab, shown once a repository is connected, that says what the repo has and
-proves it works.
+Filing an issue hands the problem to your tracker; a coding agent can take it
+from there. The Claude Code GitHub Action answers an issue that mentions it,
+and the Copilot coding agent answers one it's assigned. polishd hands filed
+issues to whichever of those the repo already runs, follows the work to a pull
+request linked to the issue, and shows what happens on the issue on the
+Actionables tab — whoever does it.
+
+**Filing and fixing are two steps.** Issues polishd files never carry the
+trigger phrase, so filing alone never starts a run. On the Actionables tab a
+filed, open issue offers **Create fix**: polishd labels it (`polishd-fix` by
+default) and posts a comment that opens with the trigger phrase and carries
+the brief — or, for Copilot, posts the brief and assigns the issue. The brief
+asks the agent to work in four steps and stop at the first that fails: **scope
+it** (find the code that renders the evidence), **confirm it's real** (with
+the blind spot of the detector that found it — a dead click can't see React
+`onClick` handlers, say), **check it's feasible** as one focused pull request,
+and only then **fix it**. The pull request's first line is `Fixes #N`, so
+GitHub links it to the issue and closes the issue on merge, and the agent ends
+with a small JSON verdict — `fixed`, `not_real`, `deliberate`, `infeasible` or
+`needs_info`, with a reason — that polishd reads back onto the row.
+
+That takes a workflow that hears comments (`issue_comment`), which the stock
+one does. A workflow that hears new issues only can be reached just once, as
+the issue is filed, so there File bug comes with **File and fix**, which puts
+the brief in the issue body. A workflow in automation mode (a `prompt` input)
+runs on every new issue regardless, so every filing is a fix starting, and the
+tab says so.
+
+**Following it to a pull request.** The agent works on GitHub whether or not
+the dashboard is open; polishd reads where it got to when you open the tab or
+the issue. The Action pushes a branch and leaves a "Create PR" link rather than
+opening a pull request, so once that link is in its comment the actionable
+offers **Create PR** in place of Create fix: it opens the pull request from that
+branch with `Fixes #N` first, so it's linked to the issue. When an agent opened
+its own pull request without the closing keyword, the button reads **Link PR**
+and adds it. polishd writes nothing to a pull request without that click. While
+the agent is still working and the tab is open, it reads again every
+half-minute so the button shows up without a reload.
+
+**What happened on the issue**, whoever did it, comes from one GraphQL query
+per forty filed issues: the pull requests that reference each one — linked or
+merely mentioning it, opened by the agent, a teammate or polishd — with their
+state, and the issue's recent comments, labels, assignments and closes. Rows
+show where a fix stands (*fix requested*, *agent working*, *PR open*, *fix
+merged*, *agent: not real*…) and the drawer shows the pull requests, the
+agent's verdict and the activity.
+
+**Send fixes automatically** (off by default) sends each issue the source
+confirmed as soon as it's filed; unverified filings wait for you. A daily cap
+(5) counts every fix sent, by hand or not, and **Pause dispatch** stops them
+all. No new token permissions are needed: Issues and Pull requests (write)
+already cover the label, the comment, the pull request and the edit.
+
+What follows is the **Fix dispatch** card at the bottom of the Settings tab,
+shown once a repository is connected, that says what the repo has and how a
+fix starts there, and proves it works.
 
 **What polishd found.** The card reads every workflow under
 `.github/workflows/` on the default branch (with the same token, no extra
 permissions) and reports: which agent is there — a workflow using
 `anthropics/claude-code-action`, or Copilot's agent if it's assignable, or
-neither; how it fires — a workflow that listens for new issues lets polishd put
-the trigger phrase in the issue body, one that listens for comments only means
-polishd comments after filing; the trigger phrase (from a `trigger_phrase`
+neither; how it fires — a workflow that listens for comments lets a fix start
+on an issue already filed, with Create fix (the stock workflow listens for both
+comments and new issues, and polishd prefers the comment), one that listens for
+new issues only means the phrase has to go in the body at filing; the trigger phrase (from a `trigger_phrase`
 input or the job's `if:` condition, `@claude` otherwise); the billing path —
 whether the step passes `claude_code_oauth_token` (runs draw on your Claude
 plan's usage limits) or `anthropic_api_key` (metered API usage, covered by a
@@ -585,10 +637,10 @@ setting. polishd could open that workflow pull request itself if its token
 were granted Contents (write) and Workflows (write); it doesn't today.
 
 **Your choices** are the only editable fields, saved with the rest of the
-settings and stored for the loop to come: send fixes automatically (off by
-default), the label put on dispatched issues (`polishd-fix`), a daily cap
-(5), and a pause switch. Nothing acts on them yet. Until the card says Ready,
-the Actionables tab carries a one-line pointer to it.
+settings: send fixes automatically (off by default), the label put on
+dispatched issues (`polishd-fix`), a daily cap (5), and a pause switch. Until
+the card says Ready, the Actionables tab carries a one-line pointer to it
+instead of Create fix.
 
 ## Design review
 

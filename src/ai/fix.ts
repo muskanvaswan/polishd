@@ -28,7 +28,9 @@ import {
   readGithubIssue,
   searchGithubCode,
 } from "./github";
-import { evidenceSearchTerms, findFiledIssue } from "./issues";
+import { findFiledIssue } from "./issue-log";
+import { BUG_CLASSES } from "./fix-practice";
+import { evidenceSearchTerms } from "./issues";
 import { loadProjectProfile } from "./profile";
 import { callModel } from "./providers";
 import { resolveSettings } from "./settings";
@@ -80,17 +82,8 @@ const FIX_PROMPT =
   "evidence, and source files from the site's repository.\n\n" +
   "First classify the bug, then design the fix on the widely adopted practice " +
   "for that class:\n" +
-  "- interaction: something users DO fails or frustrates — rage/dead clicks, " +
-  "broken or missing handlers, unresponsive or inaccessible controls, " +
-  "confusing flows, runtime errors. Ground the fix in Nielsen Norman's " +
-  "usability heuristics (visibility of system status, error prevention and " +
-  "recovery), the WAI-ARIA Authoring Practices for correct interactive " +
-  "semantics and keyboard support, and touch-target guidance (WCAG 2.5.8 / " +
-  "the 44px platform minimums).\n" +
-  "- design: something users SEE is wrong — contrast, visual hierarchy, " +
-  "spacing, typography, layout shift. Ground the fix in WCAG 2.2 (1.4.3 text " +
-  "contrast, 1.4.11 non-text contrast), a consistent spacing rhythm and type " +
-  "scale, and the web-vitals guidance on layout stability (CLS).\n\n" +
+  `- interaction: ${BUG_CLASSES.interaction.what}. Ground the fix in ${BUG_CLASSES.interaction.practice}.\n` +
+  `- design: ${BUG_CLASSES.design.what}. Ground the fix in ${BUG_CLASSES.design.practice}.\n\n` +
   "Respond with ONLY a JSON object (no markdown fences, no preamble):\n" +
   '{ "bugType": "interaction" | "design", "classification": string, ' +
   '"approach": string, "steps": [{ "path": string, "change": string }], ' +

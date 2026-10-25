@@ -10,7 +10,11 @@
  * what the dashboard's Issues tab lists. The "loss → verified bug"
  * orchestration that uses this client lives in issues.ts; the Fix dispatch
  * card's reads (workflow files, assignable actors, an issue's activity) and
- * writes (comment, assign, close) are at the bottom, used by dispatch.ts.
+ * writes (comment, assign, close) come next, used by dispatch.ts; and at the
+ * bottom, what the fix loop (fix-dispatch.ts) reads — every filed issue's
+ * pull requests and timeline, in one GraphQL query per batch — and writes:
+ * a label, a pull request opened from the agent's branch, or `Fixes #N`
+ * added to one.
  *
  * The token lives in the same server-side settings blob as the model API key
  * and never reaches the browser; the client only sees a "connected" flag. A
@@ -23,6 +27,7 @@ import {
   keepPaging,
   worthListing,
 } from "./issue-pages";
+import { issueThreadsQuery, normalizeIssueThread, THREAD_BATCH, type RawIssueThread } from "./issue-thread";
 import { Lru } from "./lru";
 import { resolveSettings } from "./settings";
 import {
@@ -34,6 +39,7 @@ import {
 import type {
   PolishdGithubIssue,
   PolishdGithubStatus,
+  PolishdIssueThread,
   VerifyGithubResult,
 } from "./types";
 
@@ -553,11 +559,34 @@ export async function createGithubIssue(input: {
   return { url: issue.html_url, number: issue.number, nodeId: issue.node_id };
 }
 
-/** Comment on an issue. Throws on failure. */
-export async function createGithubIssueComment(number: number, body: string): Promise<void> {
+/** Comment on an issue; returns the comment's URL. Throws on failure. */
+export async function createGithubIssueComment(number: number, body: string): Promise<{ url: string }> {
   const conn = await connection();
   if (!conn) throw new Error("GitHub is not connected.");
-  await gh(conn.token, "POST", `/repos/${conn.repo}/issues/${number}/comments`, { body });
+  const comment = await gh<{ html_url?: string }>(conn.token, "POST", `/repos/${conn.repo}/issues/${number}/comments`, {
+    body,
+  });
+  return { url: comment.html_url ?? "" };
+}
+
+/** Add labels to an issue, keeping the ones it has. Throws on failure. */
+export async function addGithubIssueLabels(number: number, labels: string[]): Promise<void> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  if (!labels.length) return;
+  await gh(conn.token, "POST", `/repos/${conn.repo}/issues/${number}/labels`, { labels });
+}
+
+/** An issue's GraphQL node id — what an assignment to Copilot needs. Null when unreadable. */
+export async function readGithubIssueNodeId(number: number): Promise<string | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  try {
+    const raw = await gh<{ node_id?: string }>(conn.token, "GET", `/repos/${conn.repo}/issues/${number}`);
+    return raw.node_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -668,6 +697,27 @@ async function graphql<T>(token: string, query: string, variables: Record<string
   });
   if (res.errors?.length || !res.data) {
     throw new Error(`GitHub GraphQL: ${res.errors?.[0]?.message ?? "no data"}`);
+  }
+  return res.data;
+}
+
+/**
+ * A query whose answer may be partial: a batch of aliased lookups where one
+ * missing node (a deleted issue) comes back null with a NOT_FOUND error and
+ * the rest still answer. Only an answer with no data at all, or an error
+ * that isn't NOT_FOUND, fails it.
+ */
+async function graphqlPartial<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
+  const res = await gh<GraphqlResponse<T> & { errors?: { message?: string; type?: string }[] }>(
+    token,
+    "POST",
+    "/graphql",
+    { query, variables },
+    { timeoutMs: REQUEST_TIMEOUT_MS },
+  );
+  const fatal = (res.errors ?? []).find((e) => (e as { type?: string }).type !== "NOT_FOUND");
+  if (fatal || !res.data) {
+    throw new Error(`GitHub GraphQL: ${fatal?.message ?? res.errors?.[0]?.message ?? "no data"}`);
   }
   return res.data;
 }
@@ -795,4 +845,106 @@ export async function readGithubIssueActivity(
     }
   }
   return out;
+}
+
+// ── Issue threads and fix pull requests ─────────────────────────────────────
+
+/**
+ * What GitHub says has happened on each of these issues since it was filed —
+ * the pull requests that reference it and its recent timeline — in one
+ * GraphQL query per forty issues (issue-thread.ts). An issue that can't be
+ * read is absent from the map; `error` is set when none could be, which is
+ * what a token that can't run GraphQL gets.
+ */
+export async function readGithubIssueThreads(
+  numbers: number[],
+): Promise<{ threads: Map<number, PolishdIssueThread>; error?: string }> {
+  const threads = new Map<number, PolishdIssueThread>();
+  const conn = await connection();
+  const wanted = [...new Set(numbers.filter((n) => Number.isInteger(n) && n > 0))];
+  if (!conn || !wanted.length) return { threads };
+  const [owner, name] = conn.repo.split("/");
+  const branch = branchCache.get(conn.repo)?.ref;
+  let error: string | undefined;
+  const batches: number[][] = [];
+  for (let i = 0; i < wanted.length; i += THREAD_BATCH) batches.push(wanted.slice(i, i + THREAD_BATCH));
+  // The Actionables tab waits on these, and the listing it joins to holds at
+  // most a hundred issues: three queries at most, sent together.
+  await Promise.all(
+    batches.map(async (batch) => {
+      try {
+        const data = await graphqlPartial<{ repository?: Record<string, RawIssueThread | null> | null }>(
+          conn.token,
+          issueThreadsQuery(batch),
+          { owner, name },
+        );
+        for (const raw of Object.values(data.repository ?? {})) {
+          const thread = normalizeIssueThread(raw, { defaultBranch: branch });
+          if (thread) threads.set(thread.number, thread);
+        }
+      } catch (err) {
+        error = err instanceof Error ? err.message : "Could not read the issues' activity.";
+      }
+    }),
+  );
+  return threads.size === 0 && error ? { threads, error } : { threads };
+}
+
+/** Pull requests (any state) whose head is this branch of the connected repo. */
+export async function findGithubPullsForBranch(
+  branch: string,
+): Promise<{ number: number; url: string; state: string }[]> {
+  const conn = await connection();
+  if (!conn) return [];
+  const owner = conn.repo.split("/")[0];
+  const pulls = await gh<{ number: number; html_url: string; state: string }[]>(
+    conn.token,
+    "GET",
+    `/repos/${conn.repo}/pulls?state=all&per_page=10&head=${encodeURIComponent(`${owner}:${branch}`)}`,
+  );
+  return pulls.map((p) => ({ number: p.number, url: p.html_url, state: p.state }));
+}
+
+/**
+ * How far `head` is ahead of `base`, in commits — null when either branch
+ * doesn't exist. A branch the agent made but never committed to is 0 ahead,
+ * and nothing should be opened from it.
+ */
+export async function compareGithubBranches(base: string, head: string): Promise<number | null> {
+  const conn = await connection();
+  if (!conn) return null;
+  try {
+    const res = await gh<{ ahead_by?: number }>(
+      conn.token,
+      "GET",
+      `/repos/${conn.repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+    );
+    return typeof res.ahead_by === "number" ? res.ahead_by : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A pull request's body and state. Throws on failure. */
+export async function readGithubPull(number: number): Promise<{ body: string; state: string; merged: boolean }> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  const pr = await gh<{ body: string | null; state: string; merged?: boolean }>(
+    conn.token,
+    "GET",
+    `/repos/${conn.repo}/pulls/${number}`,
+  );
+  return { body: pr.body ?? "", state: pr.state, merged: pr.merged === true };
+}
+
+/** Replace a pull request's body. Throws on failure. */
+export async function updateGithubPullBody(number: number, body: string): Promise<void> {
+  const conn = await connection();
+  if (!conn) throw new Error("GitHub is not connected.");
+  await gh(conn.token, "PATCH", `/repos/${conn.repo}/pulls/${number}`, { body });
+}
+
+/** The connected repo as "owner/repo", or null. */
+export async function githubRepoName(): Promise<string | null> {
+  return (await connection())?.repo ?? null;
 }

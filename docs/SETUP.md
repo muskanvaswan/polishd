@@ -572,12 +572,32 @@ POLISHD_SESSION_COOKIE=my_session
 ## 10. Optional — connect a coding agent
 
 Once a GitHub repository is connected (Settings → GitHub), the Settings tab
-ends with a **Fix dispatch** card. polishd is building toward handing the
-issues it verifies to a coding agent the repo already runs — the Claude Code
-GitHub Action first, Copilot's coding agent second — and reading the result
-back. That isn't wired yet; the card is the prerequisite: it checks what the
-repo has, helps you set an agent up, proves the wiring with a live test, and
-keeps your choices for when dispatch exists.
+ends with a **Fix dispatch** card, and once it says Ready, each filed issue on
+the Actionables tab offers **Create fix**: polishd asks the coding agent the
+repo already runs — the Claude Code GitHub Action first, Copilot's coding
+agent second — to scope the issue, confirm it's real and fixable, and open a
+pull request linked to it, then follows it there. The card checks what the
+repo has and how a fix starts there, helps you set an agent up, proves the
+wiring with a live test, and keeps your choices about what may be sent
+without asking.
+
+How a fix starts depends on the workflow's `on:` block:
+
+| The workflow hears | A fix starts | On the Actionables tab |
+|---|---|---|
+| `issue_comment` (the stock workflow) | after filing, with a comment | **Create fix** on any filed, open issue |
+| `issues: opened` only | as the issue is filed — the brief goes in its body | **File and fix** beside File bug |
+| new issues, with a `prompt` input (automation mode) | on every filing, whatever polishd does | File bug says it starts the agent |
+| — (Copilot's coding agent) | after filing, with a comment and an assignment | **Create fix** |
+
+The agent works on GitHub whether or not the dashboard is open, and the tab
+reads where it got to whenever you open it or an issue. The Action pushes a
+branch and leaves a "Create PR" link rather than opening a pull request, so
+once that link appears the actionable offers **Create PR**, which opens the
+pull request from the branch with `Fixes #N` so it's linked to the issue; an
+agent's own pull request missing the closing keyword gets **Link PR** instead.
+Nothing is written to a pull request without that click. Pull requests and
+activity on every filed issue show on the tab whoever opened them.
 
 **Re-check** reads the workflows on the default branch with the token you
 already gave it (no Actions, Secrets or Administration permission is asked
@@ -619,10 +639,12 @@ polishd never writes a workflow file itself — that needs a Workflows (write)
 permission its token doesn't have — and the only thing it writes to the
 repository from this card is the test issue.
 
-The card's editable fields — send fixes automatically (off), the label on
-dispatched issues (`polishd-fix`), a daily cap (5) and a pause switch — are
-saved with the rest of the settings and stored for the loop to come. Nothing
-is sent on its own today.
+The card's editable fields are saved with the rest of the settings: send
+fixes automatically (off — when on, an issue the source confirmed is sent as
+soon as it's filed), the label on dispatched issues (`polishd-fix`), a daily
+cap (5, counting every fix sent) and a pause switch that stops Create fix too.
+Fixes need no token permissions beyond the Issues and Pull requests (write)
+the connection already has.
 
 ## Troubleshooting
 

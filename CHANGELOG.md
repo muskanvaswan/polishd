@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+### Create fix: filed issues go to the coding agent, and come back as pull requests
+
+The Fix dispatch card said what the repo's coding agent could do; now polishd
+asks it. Filing and fixing are separate decisions: issues are filed without
+the trigger phrase, so filing never starts a run, and a fix is asked for after.
+
+- **Create fix** on a filed, open actionable labels the issue (`polishd-fix`)
+  and posts the brief as a comment opening with the trigger phrase — or, for
+  Copilot, posts it and assigns the issue. **Ask again** comes back once the
+  agent declined, went quiet for 45 minutes, or its pull request was closed.
+- **The brief** (`ai/fix-brief.ts`) has the agent scope the issue, confirm
+  it's real — with the blind spot of the detector that found it — and check a
+  single focused pull request can fix it, stopping at the first that fails and
+  changing nothing. The pull request opens with `Fixes #N`. The agent ends with
+  a JSON verdict (`fixed`, `not_real`, `deliberate`, `infeasible`,
+  `needs_info`) that polishd reads back onto the row.
+- **Filed issues read better for whoever picks them up**: a *Before fixing*
+  section (find the code, rule out the blind spot, keep it scoped, link with
+  `Fixes`), and the citation as written stored beside the log's lower-cased key.
+- **The readiness check prefers a comment trigger.** A workflow that hears
+  `issue_comment` — the stock one hears that and new issues — now plans
+  `comment`, and the live test follows it. One that hears new issues only
+  plans `body` and gets **File and fix** beside File bug, which puts the brief
+  in the issue body; automation mode is reported as starting a fix on every
+  filing. Plans store this as `fixTrigger`; older plans are re-checked once.
+  Between two Claude workflows, the one hearing comments now wins.
+- **Create PR finishes what the agent leaves undone.** The Action pushes a
+  branch and leaves a "Create PR" link rather than opening a pull request. Once
+  that link is in its comment (or its verdict says `fixed` and names a
+  branch), the actionable reads *fix ready* and offers **Create PR** in place
+  of Create fix: it opens the pull request from that branch with `Fixes #N`
+  first, only when the branch is ahead of the default branch, and links one
+  opened by hand meanwhile instead of opening a second. An agent's own pull
+  request without a closing keyword gets **Link PR**, which adds it. The
+  branch link the Action shows while it's still working doesn't count. Nothing
+  is written to a pull request without the click.
+- **What happened on the issue, whoever did it.** One GraphQL query per forty
+  filed issues reads the pull requests that reference each (closing or merely
+  mentioning, from the agent, a teammate or polishd) and the last 25 timeline
+  entries; a deleted issue's NOT_FOUND no longer sinks the batch. Rows show
+  *fix requested*, *agent working*, *branch pushed*, *PR open*, *fix merged*,
+  *agent: not real* and the like, with the pull request beside the issue link;
+  the drawer gains **Fix and pull requests** (status, the agent's verdict,
+  every pull request) and **Activity on GitHub**. The agent works on GitHub
+  with the tab open or not: the tab reads every filed issue when it loads, and
+  an issue again when it's opened; while an agent is still working, it reads
+  again every 30 seconds. All reads.
+- **Suggest a fix steps aside for the agent.** The drawer's model-written fix
+  plan now shows only where no coding agent can be asked — none set up,
+  dispatch paused, or a new-issues-only workflow and an issue filed without a
+  fix — and no pull request carrying a fix is open or merged, whoever opened
+  it. Elsewhere Create fix does its job with the whole repository in hand.
+  Its practice guidance — interaction bugs on the WAI-ARIA Authoring
+  Practices, NN/g heuristics and target size; design bugs on WCAG 2.2 contrast,
+  the spacing and type scale and layout stability — moved to
+  `ai/fix-practice.ts` and now also goes in the brief's *Fix it* step, the
+  finding's own kind first, and the agent is asked to name the guideline in
+  its pull request.
+- **Your choices now act.** *Send fixes automatically* sends each issue the
+  source confirmed as soon as it's filed; the daily cap counts every fix sent,
+  by hand or not, over 24 hours; *Pause dispatch* stops Create fix too.
+- No new token permissions: Issues and Pull requests (write) already cover the
+  label, the comment, the pull request and the edit.
+
 ### The host's layout no longer restyles the dashboard
 
 - **The dashboard loads its own stylesheet.** The compiled

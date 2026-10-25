@@ -28,29 +28,58 @@
  * drawer. The same pictures go into the issue when it's filed.
  *
  * A filed actionable's drawer also carries the issue as GitHub has it (the
- * body rendered as the markdown it is) and the **Suggest a fix** panel: one
- * click asks the configured model to classify the bug and propose a fix
- * grounded in the repository's source, with the file-by-file path.
+ * body rendered as the markdown it is), and — where no coding agent can be
+ * asked to fix it and no pull request already carries a fix — the **Suggest
+ * a fix** panel (`offersSuggestFix`): one click asks the
+ * configured model to classify the bug and propose a fix grounded in the
+ * repository's source, with the file-by-file path. Where an agent can be
+ * asked, Create fix does that job with the whole repository in hand, and its
+ * brief carries the same practice guidance (ai/fix-practice.ts).
+ *
+ * And the fix itself. Where the repo's coding agent can be reached on an
+ * issue already filed, a filed actionable offers **Create fix**: the agent
+ * is asked to scope the issue, prove it real and feasible, and open a pull
+ * request linked to it (ai/fix-dispatch.ts). Where the workflow only hears
+ * new issues, filing is the one moment a fix can start, so File bug comes
+ * with **File and fix** beside it. Either way the row says where the fix
+ * stands, and the drawer shows what GitHub says has happened on the issue —
+ * pull requests and activity, whoever they're from, read again whenever the
+ * issue is opened. The agent works on GitHub with or without this tab; when
+ * it has left a fix on a branch with no pull request (the Action's default),
+ * Create fix gives way to **Create PR**, which opens the pull request linked
+ * to the issue — or **Link PR**, for an agent's pull request missing its
+ * `Fixes #N`. polishd writes nothing to a pull request without that click.
  */
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 
 import {
   createIssueFromDesignIssueAction,
   createIssueFromLossAction,
+  dispatchFixAction,
   ignoreDesignIssueAction,
   ignoreLossAction,
+  createFixPullAction,
+  readFixesAction,
   suggestIssueFixAction,
   unignoreDesignIssueAction,
   unignoreLossAction,
 } from "../ai/actions";
+import { createPrAction, fixStatus, isFixActive, offersSuggestFix } from "../ai/fix-status";
 import type {
+  PolishdAgentVerdictKind,
   PolishdDesignIssue,
   PolishdDesignUsage,
   PolishdDesignUsagePreview,
   PolishdFiledIssue,
+  PolishdFixRun,
+  PolishdFixStatus,
   PolishdFixSuggestion,
+  PolishdFixTrigger,
   PolishdGithubIssue,
   PolishdIgnoredLoss,
+  PolishdIssueEvent,
+  PolishdIssueThread,
+  PolishdLinkedPull,
   PolishdLossItem,
 } from "../ai/types";
 import { previewCaption, usageFacts } from "../shared/design-evidence";
@@ -170,11 +199,55 @@ interface Status {
   title?: string;
 }
 
+/** An agent's verdict, in the words a tag has room for. */
+const VERDICT_WORDS: Record<PolishdAgentVerdictKind, string> = {
+  fixed: "fixed",
+  not_real: "not real",
+  deliberate: "deliberate",
+  infeasible: "too big for one PR",
+  needs_info: "needs info",
+};
+
+/** Where a fix stands, as the tag on its row says it. */
+function fixTag(fix: PolishdFixStatus, agent: string): Status {
+  const pr = fix.pull ? `#${fix.pull.number}` : "";
+  switch (fix.stage) {
+    case "requested":
+      return { text: "fix requested", tone: "info", title: `Asked ${agent} for a fix — waiting for it to answer` };
+    case "working":
+      return { text: "agent working", tone: "info", title: `${agent} is working on a fix` };
+    case "branch":
+      return {
+        text: "fix ready",
+        tone: "ok",
+        title: `${agent} left a fix on ${fix.branch ?? "a branch"} — Create PR opens the pull request, linked to the issue`,
+      };
+    case "pr-open":
+      return { text: fix.pull?.draft ? "draft PR" : "PR open", tone: "ok", title: `Pull request ${pr} is open` };
+    case "merged":
+      return { text: "fix merged", tone: "violet", title: `Pull request ${pr} was merged` };
+    case "pr-closed":
+      return { text: "PR closed", tone: "neutral", title: `Pull request ${pr} was closed without merging` };
+    case "declined":
+      return {
+        text: `agent: ${fix.verdict ? VERDICT_WORDS[fix.verdict.verdict] : "declined"}`,
+        tone: "warn",
+        title: fix.verdict?.reason || `${agent} looked and didn't change anything`,
+      };
+    case "stalled":
+      return { text: "no answer", tone: "warn", title: `${agent} hasn't answered the fix request` };
+    case "failed":
+      return { text: "fix not sent", tone: "bad", title: fix.run?.error ?? "The fix request didn't go through" };
+  }
+}
+
 /**
- * The status, in order of what matters most: a filing under way; the
- * tracker's state once an issue exists; a verdict that it isn't a bug; and
- * for a design finding, whether the review offered a fix. A plain finding
- * with none of those has no tag — the group it sits in says it's to act on.
+ * The status, in order of what matters most: a filing under way; once an
+ * issue exists, a merged fix, then the tracker's closed state, then where
+ * the fix stands, then the tracker's open state; a verdict that it isn't a
+ * bug; and for a design finding, whether the review offered a fix. A plain
+ * finding with none of those has no tag — the group it sits in says it's to
+ * act on.
  */
 function statusOf(item: Item): Status | null {
   const { a, link, rejected } = item;
@@ -182,17 +255,19 @@ function statusOf(item: Item): Status | null {
     return { text: "verifying…", tone: "neutral", title: "Checking the report against the source before filing" };
   }
   if (link) {
-    if (!a.filed) return { text: "filed", tone: "ok", title: "Filed on GitHub — its state shows here on the next load" };
+    const fixed = item.fix ? fixTag(item.fix, item.agent) : null;
+    if (item.fix?.stage === "merged") return fixed;
+    if (!a.filed) return fixed ?? { text: "filed", tone: "ok", title: "Filed on GitHub — its state shows here on the next load" };
     const detail = a.filed.detail;
     if (!detail) {
-      return {
+      return fixed ?? {
         text: "unreadable",
         tone: "neutral",
         title:
           "GitHub won't return this issue now — it was deleted or transferred, or the access token no longer covers the repository",
       };
     }
-    if (detail.state === "open") return { text: "in progress", tone: "ok", title: "Open on GitHub" };
+    if (detail.state === "open") return fixed ?? { text: "in progress", tone: "ok", title: "Open on GitHub" };
     return detail.stateReason === "not_planned"
       ? { text: "not planned", tone: "neutral", title: "Closed on GitHub as not planned" }
       : { text: "closed", tone: "violet", title: "Closed on GitHub" };
@@ -376,7 +451,43 @@ interface Item {
   filing: boolean;
   /** An error from the last file attempt, if it didn't come back as not-a-bug. */
   fileError: string | null;
+  /** What GitHub says about the filed issue now, when it was read. */
+  thread: PolishdIssueThread | null;
+  /** Where the fix stands, when there's anything to say. */
+  fix: PolishdFixStatus | null;
+  /** The agent's name, for the words around a fix: "Claude", "Copilot". */
+  agent: string;
+  /** Create fix (or Ask again) can be pressed now. */
+  fixable: boolean;
+  /**
+   * What Create PR would do now — open the pull request from the fix's
+   * branch, or link the agent's pull request — or null when there's nothing.
+   */
+  prAction: "create" | "link" | null;
+  /** A fix request, or Create PR, in flight. */
+  fixPending: boolean;
+  /** GitHub being read again for this issue. */
+  fixReading: boolean;
+  /** What went wrong with the last of those. */
+  fixError: string | null;
 }
+
+/** How File bug is offered, as the plan allows a fix to start. */
+type FileMode =
+  /** File only; Create fix comes after (or no agent is set up). */
+  | "plain"
+  /** File bug, or File and fix — the workflow only hears new issues. */
+  | "choose"
+  /** Filing starts the agent regardless — automation mode. */
+  | "with-fix";
+
+function fileModeOf(trigger: PolishdFixTrigger, paused: boolean): FileMode {
+  if (trigger === "every-filing") return "with-fix";
+  return trigger === "on-filing" && !paused ? "choose" : "plain";
+}
+
+/** Stages after which the agent can be asked again. */
+const ASK_AGAIN = new Set<PolishdFixStatus["stage"]>(["declined", "stalled", "pr-closed", "failed"]);
 
 /**
  * On a row, the buttons sit on a line of their own under the chips, in line
@@ -431,59 +542,125 @@ type Verdict = "ignore" | "fixed";
 function VerdictButtons({
   item,
   canFile,
+  fileMode,
   onFile,
   onVerdict,
+  onCreateFix,
+  onCreatePr,
   component,
   className = "",
   trailing,
 }: {
   item: Item;
   canFile: boolean;
-  onFile: () => void;
+  fileMode: FileMode;
+  /** File it; `startFix` is File and fix. */
+  onFile: (startFix: boolean) => void;
   /** Ignore opens its confirming dialog; Mark fixed applies at once. */
   onVerdict: (kind: Verdict) => void;
+  onCreateFix: () => void;
+  onCreatePr: () => void;
   /** Where the buttons sit, for the dashboard's own telemetry: "row" or "drawer". */
   component: string;
   className?: string;
   trailing?: ReactNode;
 }) {
   const { a, link, dismissal, rejected } = item;
-  if (!a.finding) return null;
-  const fileable = canFile && !link && !rejected;
+  if (!a.finding && !item.fixable && !item.prAction) return null;
+  const fileable = !!a.finding && canFile && !link && !rejected;
+  const busy = item.filing || dismissal.pending;
   return (
     <div
       className={`flex flex-wrap items-center gap-2 ${className}`}
       // The row opens the drawer on click; its buttons must not.
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
-        data-component={`actionable-fixed-${component}`}
-        onClick={() => onVerdict("fixed")}
-        disabled={item.filing || dismissal.pending}
-        title="Done — drop it from the reviews and tell the model the site changed here"
-        className={ghostBtn}
-      >
-        Mark fixed
-      </button>
-      <IgnoreButton
-        state={dismissal}
-        dataComponent={`actionable-ignore-${component}`}
-        title="Not a problem — drop it from the reviews and stop the model reporting it again"
-        className={ghostBtn}
-        onPress={() => onVerdict("ignore")}
-      />
-      {fileable && (
+      {a.finding && (
+        <>
+          <button
+            type="button"
+            data-component={`actionable-fixed-${component}`}
+            onClick={() => onVerdict("fixed")}
+            disabled={busy}
+            title="Done — drop it from the reviews and tell the model the site changed here"
+            className={ghostBtn}
+          >
+            Mark fixed
+          </button>
+          <IgnoreButton
+            state={dismissal}
+            dataComponent={`actionable-ignore-${component}`}
+            title="Not a problem — drop it from the reviews and stop the model reporting it again"
+            className={ghostBtn}
+            onPress={() => onVerdict("ignore")}
+          />
+        </>
+      )}
+      {fileable && fileMode === "choose" && !item.filing && (
         <button
           type="button"
           data-component={`actionable-file-bug-${component}`}
-          onClick={onFile}
-          disabled={item.filing || dismissal.pending}
-          title="Verify this problem against the source code, then create a GitHub issue with the technical details — linked here"
+          onClick={() => onFile(false)}
+          disabled={busy}
+          title={`Verify it against the source and file the issue, without starting ${item.agent} — your workflow only hears new issues, so a fix can't be started on it later`}
+          className={ghostBtn}
+        >
+          File bug
+        </button>
+      )}
+      {fileable && (
+        <button
+          type="button"
+          data-component={`actionable-${fileMode === "plain" ? "file-bug" : "file-and-fix"}-${component}`}
+          onClick={() => onFile(fileMode === "choose")}
+          disabled={busy}
+          title={
+            fileMode === "choose"
+              ? `Verify it against the source, then file it with the brief in its body, so ${item.agent} scopes it, checks it's real and opens a pull request as it's filed`
+              : fileMode === "with-fix"
+                ? `Verify it against the source, then file it — your workflow runs on every new issue, so ${item.agent} starts on it as it's filed`
+                : "Verify this problem against the source code, then create a GitHub issue with the technical details — linked here"
+          }
           className={primaryBtn}
         >
           {item.filing && <SpinnerIcon size={13} />}
-          {item.filing ? "Verifying…" : "File bug"}
+          {item.filing ? "Verifying…" : fileMode === "plain" ? "File bug" : "File and fix"}
+        </button>
+      )}
+      {item.fixable && (
+        <button
+          type="button"
+          data-component={`actionable-create-fix-${component}`}
+          onClick={onCreateFix}
+          disabled={item.fixPending || busy}
+          title={`Ask ${item.agent} to scope this issue, confirm it's real and fixable, then open a pull request linked to it`}
+          className={primaryBtn}
+        >
+          {item.fixPending && <SpinnerIcon size={13} />}
+          {item.fixPending ? "Asking…" : item.fix && ASK_AGAIN.has(item.fix.stage) ? "Ask again" : "Create fix"}
+        </button>
+      )}
+      {item.prAction && (
+        <button
+          type="button"
+          data-component={`actionable-${item.prAction === "create" ? "create-pr" : "link-pr"}-${component}`}
+          onClick={onCreatePr}
+          disabled={item.fixPending || busy}
+          title={
+            item.prAction === "create"
+              ? `Open the pull request from ${item.fix?.branch ?? "the branch"} ${item.agent} left its fix on, with Fixes and this issue's number so it's linked`
+              : `Add Fixes and this issue's number to ${item.agent}'s pull request, so merging it closes the issue`
+          }
+          className={primaryBtn}
+        >
+          {item.fixPending && <SpinnerIcon size={13} />}
+          {item.fixPending
+            ? item.prAction === "create"
+              ? "Opening…"
+              : "Linking…"
+            : item.prAction === "create"
+              ? "Create PR"
+              : "Link PR"}
         </button>
       )}
       {trailing}
@@ -610,18 +787,41 @@ function VerdictDialog({
   );
 }
 
+/** A pull request as the row's meta line names it: "PR #41 open". */
+function PullLink({ pull }: { pull: PolishdLinkedPull }) {
+  return (
+    <a
+      href={pull.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      onClick={(e) => e.stopPropagation()}
+      title={pull.title}
+      className="inline-flex items-center gap-0.5 font-medium text-fg-2 transition-colors hover:text-fg"
+    >
+      PR #{pull.number} {pull.state === "open" && pull.draft ? "draft" : pull.state}
+      <ArrowUpRightIcon size={11} />
+    </a>
+  );
+}
+
 function Row({
   item,
   canFile,
+  fileMode,
   onOpen,
   onFile,
   onVerdict,
+  onCreateFix,
+  onCreatePr,
 }: {
   item: Item;
   canFile: boolean;
+  fileMode: FileMode;
   onOpen: () => void;
-  onFile: () => void;
+  onFile: (startFix: boolean) => void;
   onVerdict: (kind: Verdict) => void;
+  onCreateFix: () => void;
+  onCreatePr: () => void;
 }) {
   const { a, link, dismissal } = item;
   const rowCls = `${divider} first:border-t-0`;
@@ -642,7 +842,8 @@ function Row({
 
   const pictured = usagesOf(a).find((u) => u.preview);
   const status = statusOf(item);
-  const errorText = item.fileError ?? dismissal.error;
+  const errorText = item.fileError ?? item.fixError ?? dismissal.error;
+  const pull = item.fix?.pull;
 
   return (
     <li
@@ -675,7 +876,7 @@ function Row({
 
           {/* The issue it's tracked in, and anything that went wrong — the
               evidence, volumes and pictures wait in the drawer. */}
-          {(link || errorText) && (
+          {(link || pull || errorText) && (
             <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] leading-snug text-fg-3">
               {link && (
                 // The dot travels with the link, so a wrap never starts a line with it.
@@ -690,6 +891,12 @@ function Row({
                     {link.number > 0 ? `#${link.number}` : "Issue"} on GitHub
                     <ArrowUpRightIcon size={11} />
                   </a>
+                  {(pull || (a.filed && metaLine(a.filed))) && <span aria-hidden>·</span>}
+                </span>
+              )}
+              {pull && (
+                <span className="inline-flex items-center gap-1.5">
+                  <PullLink pull={pull} />
                   {a.filed && metaLine(a.filed) && <span aria-hidden>·</span>}
                 </span>
               )}
@@ -719,18 +926,21 @@ function Row({
       {/* The buttons' line spans the row and starts where the text does (past
           the dot and its gap), so it sits the same on every row, picture or
           no picture. Something in flight keeps it open when the pointer leaves. */}
-      {a.finding && (
+      {(a.finding || item.fixable || item.prAction) && (
         <div
-          className={`${BUTTON_ROW} ${item.filing || dismissal.pending ? BUTTON_ROW_OPEN : BUTTON_ROW_CLOSED}`}
+          className={`${BUTTON_ROW} ${item.filing || dismissal.pending || item.fixPending ? BUTTON_ROW_OPEN : BUTTON_ROW_CLOSED}`}
         >
           <div className="min-h-0 overflow-hidden">
             <VerdictButtons
               item={item}
               canFile={canFile}
+              fileMode={fileMode}
               onFile={onFile}
               onVerdict={onVerdict}
+              onCreateFix={onCreateFix}
+              onCreatePr={onCreatePr}
               component="row"
-              className={`pl-[1.125rem] pt-3 ${item.filing || dismissal.pending ? "" : BUTTONS_FADE}`}
+              className={`pl-[1.125rem] pt-3 ${item.filing || dismissal.pending || item.fixPending ? "" : BUTTONS_FADE}`}
             />
           </div>
         </div>
@@ -1013,25 +1223,379 @@ function WhereItRenders({ a }: { a: Actionable }) {
   );
 }
 
+// ── The fix, and what GitHub says (inside the drawer) ─────────────────────────
+
+/** What the list knows about how fixes reach the repo's coding agent. */
+export interface FixContext {
+  trigger: PolishdFixTrigger;
+  /** "Claude" or "Copilot"; absent when no agent is ready. */
+  agentName?: string;
+  /** Dispatch paused in Settings. */
+  paused: boolean;
+}
+
+const NO_FIXES: FixContext = { trigger: "none", paused: false };
+
+function InlineCode({ children }: { children: ReactNode }) {
+  return <span className="break-all font-mono text-[12px] text-fg">{children}</span>;
+}
+
+function ExtLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer noopener" className="font-medium text-accent hover:underline">
+      {children}
+    </a>
+  );
+}
+
+/** One sentence on where the fix stands — or, with none, how one would start. */
+function fixSentence(item: Item, ctx: FixContext): ReactNode {
+  const { fix, agent } = item;
+  const run = fix?.run;
+  const pull = fix?.pull;
+  if (fix) {
+    switch (fix.stage) {
+      case "requested":
+        return (
+          <>
+            Asked {agent} {run ? timeAgo(run.requestedAt) : ""}
+            {run?.auto ? ", automatically," : ""} to scope this, confirm it&apos;s real and open a pull request
+            — waiting for it to answer.{" "}
+            {run?.commentUrl && <ExtLink href={run.commentUrl}>The request</ExtLink>}
+          </>
+        );
+      case "working":
+        return (
+          <>
+            {agent} is working on it
+            {fix.branch ? (
+              <>
+                {" "}
+                on <InlineCode>{fix.branch}</InlineCode>
+              </>
+            ) : null}
+            . This looks again every half-minute while the page is open.
+          </>
+        );
+      case "branch":
+        return (
+          <>
+            {agent} left a fix on <InlineCode>{fix.branch}</InlineCode>, with no pull request on it yet. Create PR
+            opens one from it, with <InlineCode>Fixes #{item.link?.number}</InlineCode> so it&apos;s linked to this
+            issue.
+          </>
+        );
+      case "pr-open":
+        return (
+          <>
+            Pull request {pull && <ExtLink href={pull.url}>#{pull.number}</ExtLink>} is open
+            {pull?.draft ? " as a draft" : ""}
+            {pull?.author ? `, opened by ${pull.author}` : ""}.{" "}
+            {pull?.closes
+              ? "It's linked: merging it closes this issue."
+              : item.prAction === "link"
+                ? "It isn't linked with a closing keyword yet — Link PR adds one, so merging it closes this issue."
+                : "It isn't linked with a closing keyword, so merging it won't close this issue."}
+          </>
+        );
+      case "merged":
+        return (
+          <>
+            Fixed by pull request {pull && <ExtLink href={pull.url}>#{pull.number}</ExtLink>}
+            {pull?.mergedAt ? `, merged ${timeAgo(pull.mergedAt)}` : ", merged"}.
+          </>
+        );
+      case "pr-closed":
+        return (
+          <>
+            Pull request {pull && <ExtLink href={pull.url}>#{pull.number}</ExtLink>} was closed without merging.
+          </>
+        );
+      case "declined":
+        return <>{agent} looked into it and changed nothing.</>;
+      case "stalled":
+        return (
+          <>
+            No answer from {agent} since the request{run ? `, ${timeAgo(run.requestedAt)}` : ""}. If it keeps
+            happening, the live test under{" "}
+            <TabLink tab="settings" className="text-fg underline decoration-fg-4 underline-offset-2">
+              Settings → Fix dispatch
+            </TabLink>{" "}
+            names the likely causes.
+          </>
+        );
+      case "failed":
+        return <>{run?.error ?? "The fix request didn't go through."}</>;
+    }
+  }
+  if (item.a.filed?.detail?.state === "closed") return <>Closed on GitHub, with no pull request carrying a fix.</>;
+  switch (ctx.trigger) {
+    case "separate":
+      return ctx.paused ? (
+        <>
+          No fix yet, and fix dispatch is paused under{" "}
+          <TabLink tab="settings" className="text-fg underline decoration-fg-4 underline-offset-2">
+            Settings → Fix dispatch
+          </TabLink>
+          .
+        </>
+      ) : (
+        <>
+          No fix yet. Create fix asks {agent} to scope this issue, confirm it&apos;s real and can be fixed in one
+          focused pull request, then open one linked to it — or say why not.
+        </>
+      );
+    case "on-filing":
+      return (
+        <>
+          Your workflow only hears new issues, so a fix can&apos;t be started on one already filed. Add{" "}
+          <InlineCode>issue_comment</InlineCode> to its <InlineCode>on:</InlineCode> block to start fixes from here.
+        </>
+      );
+    case "every-filing":
+      return <>Your workflow runs on every new issue, so {agent} started when this was filed. Nothing it did is linked here yet.</>;
+    case "none":
+      return (
+        <>
+          No pull request carries a fix yet. Set up a coding agent under{" "}
+          <TabLink tab="settings" className="text-fg underline decoration-fg-4 underline-offset-2">
+            Settings → Fix dispatch
+          </TabLink>{" "}
+          and polishd can ask it for one.
+        </>
+      );
+  }
+}
+
+const PULL_TONE: Record<PolishdLinkedPull["state"], Tone> = { open: "ok", merged: "violet", closed: "neutral" };
+
+/** One pull request that references the issue, whoever opened it. */
+function PullRow({ pull, carriesFix }: { pull: PolishdLinkedPull; carriesFix: boolean }) {
+  const bits = [
+    pull.author ? `${pull.author}${pull.authorIsBot ? " (bot)" : ""}` : null,
+    pull.closes ? "closes this issue" : carriesFix ? "the fix, not linked" : "mentions this issue",
+    pull.state === "merged" && pull.mergedAt ? `merged ${timeAgo(pull.mergedAt)}` : `updated ${timeAgo(pull.updatedAt)}`,
+  ].filter(Boolean);
+  return (
+    <li className="flex items-start gap-2.5 rounded-lg border border-line bg-canvas px-3 py-2">
+      <Badge tone={PULL_TONE[pull.state]} className="mt-px shrink-0">
+        {pull.state === "open" && pull.draft ? "draft" : pull.state}
+      </Badge>
+      <div className="min-w-0 flex-1">
+        <a
+          href={pull.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-[13px] font-medium leading-snug text-fg hover:underline"
+        >
+          #{pull.number} {pull.title}
+        </a>
+        <p className="mt-0.5 text-[12px] leading-snug text-fg-3">
+          {bits.join(" · ")}
+          {pull.branch && (
+            <>
+              {" · "}
+              <span className="break-all font-mono text-[11.5px]">{pull.branch}</span>
+            </>
+          )}
+        </p>
+      </div>
+    </li>
+  );
+}
+
+function FixSection({
+  item,
+  ctx,
+  threadError,
+  onRefresh,
+}: {
+  item: Item;
+  ctx: FixContext;
+  threadError: string | null;
+  onRefresh: () => void;
+}) {
+  const { fix, thread } = item;
+  const verdict = fix?.verdict;
+  const pulls = thread?.pulls ?? [];
+  const carrying = new Set(fix?.pull ? [fix.pull.number] : []);
+  return (
+    <DrawerSection title="Fix and pull requests">
+      <div className="flex flex-col gap-3">
+        <p className="text-[12.5px] leading-relaxed text-fg-2">{fixSentence(item, ctx)}</p>
+
+        {verdict && (
+          <div className="rounded-lg border border-line bg-raised px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
+            <span className={label}>{item.agent}&apos;s verdict</span>{" "}
+            <span className="font-medium text-fg">{VERDICT_WORDS[verdict.verdict]}</span>
+            {verdict.reason && <span> — {verdict.reason}</span>}
+            {verdict.files.length > 0 && (
+              <span className="mt-1.5 flex flex-wrap gap-1.5">
+                {verdict.files.map((f) => (
+                  <Chip key={f}>
+                    <span className="font-mono">{f}</span>
+                  </Chip>
+                ))}
+              </span>
+            )}
+          </div>
+        )}
+
+        {pulls.length > 0 && (
+          <ul className="flex flex-col gap-2">
+            {pulls.map((p) => (
+              <PullRow key={p.number} pull={p} carriesFix={carrying.has(p.number)} />
+            ))}
+          </ul>
+        )}
+
+        {!thread && threadError && (
+          <p className="text-[12px] leading-relaxed text-fg-3">
+            Couldn&apos;t read this issue&apos;s pull requests and activity from GitHub — {threadError}
+          </p>
+        )}
+        {item.fixError && <p className="text-[12px] leading-relaxed text-bad">{item.fixError}</p>}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-component="actionable-refresh-fix"
+            onClick={onRefresh}
+            disabled={item.fixReading}
+            className={microBtn}
+          >
+            {item.fixReading ? "Checking…" : "Check GitHub"}
+          </button>
+        </div>
+      </div>
+    </DrawerSection>
+  );
+}
+
+/** One timeline entry, in a line. */
+function eventHeadline(e: PolishdIssueEvent): ReactNode {
+  const who = (login?: string) => <span className="font-medium text-fg">{login ?? "someone"}</span>;
+  switch (e.kind) {
+    case "comment":
+      return (
+        <>
+          {who(e.author)}{" "}
+          {e.fromPolishd ? "asked for a fix" : "commented"}
+          {e.isAgent && (
+            <Badge tone="info" className="ml-1.5 align-middle">
+              agent
+            </Badge>
+          )}
+          {e.fromPolishd && (
+            <Badge className="ml-1.5 align-middle">polishd</Badge>
+          )}
+        </>
+      );
+    case "referenced":
+      return (
+        <>
+          {who(e.actor)} {e.closes ? "linked" : "mentioned this in"} pull request #{e.pull}
+        </>
+      );
+    case "closed":
+      return (
+        <>
+          {who(e.actor)} closed this{e.reason === "not_planned" ? " as not planned" : ""}
+          {e.byPull ? ` with pull request #${e.byPull}` : ""}
+        </>
+      );
+    case "reopened":
+      return <>{who(e.actor)} reopened this</>;
+    case "assigned":
+      return (
+        <>
+          {who(e.actor)} assigned {e.assignee ?? "someone"}
+        </>
+      );
+    case "labeled":
+      return (
+        <>
+          {who(e.actor)} added <Chip>{e.label}</Chip>
+        </>
+      );
+  }
+}
+
+const ACTIVITY_SHOWN = 6;
+
+/** What happened on the issue on GitHub, newest first — whoever did it. */
+function ActivitySection({ thread }: { thread: PolishdIssueThread | null }) {
+  const [all, setAll] = useState(false);
+  if (!thread || thread.events.length === 0) return null;
+  const events = [...thread.events].reverse();
+  const shown = all ? events : events.slice(0, ACTIVITY_SHOWN);
+  return (
+    <DrawerSection title="Activity on GitHub">
+      <ol className="flex flex-col gap-3">
+        {shown.map((e, i) => (
+          <li key={`${e.kind}-${e.at}-${i}`} className="flex gap-2.5">
+            <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-fg-4" />
+            <div className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-fg-2">
+              {eventHeadline(e)} <span className="text-fg-3">· {timeAgo(e.at)}</span>
+              {e.kind === "comment" && e.text && (
+                <p className="mt-0.5 line-clamp-3 break-words text-fg-3">
+                  {e.text}{" "}
+                  {e.url && (
+                    <a
+                      href={e.url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="whitespace-nowrap text-fg-2 underline decoration-fg-4 underline-offset-2 hover:text-fg"
+                    >
+                      on GitHub
+                    </a>
+                  )}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+      {events.length > ACTIVITY_SHOWN && (
+        <button type="button" onClick={() => setAll((v) => !v)} className={`${microBtn} mt-3`}>
+          {all ? "Show fewer" : `Show all ${events.length}`}
+        </button>
+      )}
+    </DrawerSection>
+  );
+}
+
 function ActionableDrawer({
   item,
   repo,
   canFile,
+  fileMode,
+  fixCtx,
+  threadError,
   suggestion,
   canSuggest,
   onClose,
   onFile,
   onVerdict,
+  onCreateFix,
+  onCreatePr,
+  onRefresh,
   onSuggested,
 }: {
   item: Item | null;
   repo?: string;
   canFile: boolean;
+  fileMode: FileMode;
+  fixCtx: FixContext;
+  threadError: string | null;
   suggestion?: PolishdFixSuggestion;
   canSuggest: boolean;
   onClose: () => void;
-  onFile: () => void;
+  onFile: (startFix: boolean) => void;
   onVerdict: (kind: Verdict) => void;
+  onCreateFix: () => void;
+  onCreatePr: () => void;
+  onRefresh: () => void;
   onSuggested: (s: PolishdFixSuggestion) => void;
 }) {
   // Esc to close + lock background scroll while the drawer is open.
@@ -1173,6 +1737,19 @@ function ActionableDrawer({
               <FindingDetail a={a} />
               <WhereItRenders a={a} />
 
+              {/* where the fix stands, and what GitHub says — once there's an issue */}
+              {link && link.number > 0 && (
+                <>
+                  <FixSection
+                    item={item}
+                    ctx={fixCtx}
+                    threadError={threadError}
+                    onRefresh={onRefresh}
+                  />
+                  <ActivitySection thread={item.thread} />
+                </>
+              )}
+
               {/* the tracker's half, when the issue was read */}
               {filed && (
                 <>
@@ -1215,13 +1792,15 @@ function ActionableDrawer({
                       </p>
                     )}
                   </div>
-                  <FixPanel
-                    issueNumber={filed.number}
-                    repo={repo}
-                    suggestion={suggestion}
-                    canSuggest={canSuggest}
-                    onSuggested={onSuggested}
-                  />
+                  {offersSuggestFix(item.fix, fixCtx) && (
+                    <FixPanel
+                      issueNumber={filed.number}
+                      repo={repo}
+                      suggestion={suggestion}
+                      canSuggest={canSuggest}
+                      onSuggested={onSuggested}
+                    />
+                  )}
                 </>
               )}
 
@@ -1245,13 +1824,16 @@ function ActionableDrawer({
             </div>
 
             {/* the verdicts, pinned where the decision gets made */}
-            {a.finding && !item.dismissal.ignored && (
+            {((a.finding && !item.dismissal.ignored) || item.fixable || item.prAction) && (
               <div className="border-t border-line px-4 py-3 sm:px-5">
                 <VerdictButtons
                   item={item}
                   canFile={canFile}
+                  fileMode={fileMode}
                   onFile={onFile}
                   onVerdict={onVerdict}
+                  onCreateFix={onCreateFix}
+                  onCreatePr={onCreatePr}
                   component="drawer"
                   trailing={<VerdictFacts item={item} />}
                 />
@@ -1293,7 +1875,18 @@ export interface ActionableListProps {
   dismissedLosses?: ReadonlyMap<string, PolishdIgnoredLoss>;
   /** The same for design issues, keyed by `findingKey`. */
   dismissedDesign?: ReadonlyMap<string, PolishdIgnoredLoss>;
+  /** Fixes polishd asked an agent for, keyed by issue number. */
+  runs?: Record<number, PolishdFixRun>;
+  /** What GitHub says about each filed issue now, keyed by issue number. */
+  threads?: Record<number, PolishdIssueThread>;
+  /** Why the threads couldn't be read, when none could. */
+  threadError?: string;
+  /** How fixes reach the repo's coding agent. No agent, no Create fix. */
+  fix?: FixContext;
 }
+
+/** How often a fix under way is looked at again. */
+const FIX_POLL_MS = 30_000;
 
 export default function ActionableList({
   losses,
@@ -1309,6 +1902,10 @@ export default function ActionableList({
   onIssueChange,
   dismissedLosses,
   dismissedDesign,
+  runs: initialRuns = {},
+  threads: initialThreads = {},
+  threadError: initialThreadError,
+  fix: fixCtx = NO_FIXES,
 }: ActionableListProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** The actionable whose verdict dialog is open, and which verdict. */
@@ -1323,6 +1920,15 @@ export default function ActionableList({
   const [errors, setErrors] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [fileErrors, setFileErrors] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [suggestions, setSuggestions] = useState(initialSuggestions);
+  // Fixes, by issue number: polishd's runs, GitHub's threads, and what's in
+  // flight or went wrong for each.
+  const [runs, setRuns] = useState<Record<number, PolishdFixRun>>(initialRuns);
+  const [threads, setThreads] = useState<Record<number, PolishdIssueThread>>(initialThreads);
+  const [threadError, setThreadError] = useState<string | null>(initialThreadError ?? null);
+  const [fixBusy, setFixBusy] = useState<ReadonlySet<number>>(() => new Set());
+  const [fixReading, setFixReading] = useState<ReadonlySet<number>>(() => new Set());
+  const [fixErrors, setFixErrors] = useState<ReadonlyMap<number, string>>(() => new Map());
+  const fileMode = fileModeOf(fixCtx.trigger, fixCtx.paused);
 
   const actionables = buildActionables(losses, designIssues, filed);
 
@@ -1391,27 +1997,37 @@ export default function ActionableList({
     }
   };
 
-  const file = async (a: Actionable) => {
+  const file = async (a: Actionable, startFix = false) => {
     if (!a.finding) return;
     setFiling((prev) => toggled(prev, a.id, true));
     setFileErrors((prev) => without(prev, a.id));
+    const opts = startFix ? { startFix: true } : undefined;
     try {
       const res =
         a.finding.source === "analytics"
-          ? await createIssueFromLossAction({
-              issue: a.finding.loss.issue,
-              evidence: a.finding.loss.evidence,
-              location: a.finding.loss.location,
-            })
-          : await createIssueFromDesignIssueAction({
-              issue: a.finding.issue.issue,
-              evidence: a.finding.issue.evidence,
-              suggestion: a.finding.issue.suggestion,
-            });
+          ? await createIssueFromLossAction(
+              {
+                issue: a.finding.loss.issue,
+                evidence: a.finding.loss.evidence,
+                location: a.finding.loss.location,
+              },
+              opts,
+            )
+          : await createIssueFromDesignIssueAction(
+              {
+                issue: a.finding.issue.issue,
+                evidence: a.finding.issue.evidence,
+                suggestion: a.finding.issue.suggestion,
+              },
+              opts,
+            );
       if (res.ok) {
         const link = { url: res.url, number: res.number };
         setLinks((prev) => new Map(prev).set(a.id, link));
         notify(a, { filed: link });
+        const fix = res.fix;
+        if (fix) setRuns((prev) => ({ ...prev, [res.number]: fix }));
+        if (res.fixError) setFixErrors((prev) => new Map(prev).set(res.number, res.fixError!));
       } else if (res.error === "not-a-bug") {
         setRejected((prev) => new Map(prev).set(a.id, res.message));
       } else setFileErrors((prev) => new Map(prev).set(a.id, res.message));
@@ -1419,6 +2035,58 @@ export default function ActionableList({
       setFileErrors((prev) => new Map(prev).set(a.id, "Couldn't reach the server — reload and try again."));
     } finally {
       setFiling((prev) => toggled(prev, a.id, false));
+    }
+  };
+
+  /** Run one fix action for an issue, with its busy flag and its error. */
+  const withFixBusy = async (n: number, work: () => Promise<string | null>) => {
+    setFixBusy((prev) => toggled(prev, n, true));
+    setFixErrors((prev) => without(prev, n));
+    try {
+      const error = await work();
+      if (error) setFixErrors((prev) => new Map(prev).set(n, error));
+    } catch {
+      setFixErrors((prev) => new Map(prev).set(n, UNREACHABLE));
+    } finally {
+      setFixBusy((prev) => toggled(prev, n, false));
+    }
+  };
+
+  const mergeFixes = (res: { runs: Record<number, PolishdFixRun>; threads: Record<number, PolishdIssueThread>; threadError?: string }) => {
+    setRuns((prev) => ({ ...prev, ...res.runs }));
+    setThreads((prev) => ({ ...prev, ...res.threads }));
+    setThreadError(res.threadError ?? null);
+  };
+
+  const createFix = (n: number) =>
+    withFixBusy(n, async () => {
+      const res = await dispatchFixAction(n);
+      if (!res.ok) return res.message;
+      setRuns((prev) => ({ ...prev, [n]: res.run }));
+      return null;
+    });
+
+  const createPull = (n: number) =>
+    withFixBusy(n, async () => {
+      const res = await createFixPullAction(n);
+      if (!res.ok) return res.message;
+      mergeFixes(res);
+      return null;
+    });
+
+  /** Read the issue again from GitHub. A read: it never blocks the buttons. */
+  const readOne = async (n: number) => {
+    setFixReading((prev) => toggled(prev, n, true));
+    try {
+      const res = await readFixesAction([n]);
+      if (res.ok) {
+        mergeFixes(res);
+        if (res.threadError && !res.threads[n]) setFixErrors((prev) => new Map(prev).set(n, res.threadError!));
+      } else setFixErrors((prev) => new Map(prev).set(n, res.message));
+    } catch {
+      setFixErrors((prev) => new Map(prev).set(n, UNREACHABLE));
+    } finally {
+      setFixReading((prev) => toggled(prev, n, false));
     }
   };
 
@@ -1437,9 +2105,35 @@ export default function ActionableList({
           ? dismissedDesign?.get(findingKey(a.finding.issue))
           : undefined;
     const entry = ignored.has(a.id) ? ignored.get(a.id)! : adopted ?? null;
+    const link = links.get(a.id) ?? a.link;
+    const n = link && link.number > 0 ? link.number : 0;
+    const run = n ? runs[n] : undefined;
+    const thread = n ? (threads[n] ?? null) : null;
+    const fix = run || thread ? fixStatus({ run, thread: thread ?? undefined }) : null;
+    const agent = run ? (run.agent === "copilot" ? "Copilot" : "Claude") : (fixCtx.agentName ?? "the agent");
+    const fixable =
+      githubConnected &&
+      fixCtx.trigger === "separate" &&
+      !fixCtx.paused &&
+      n > 0 &&
+      a.filed?.detail?.state !== "closed" &&
+      !entry &&
+      (!fix || ASK_AGAIN.has(fix.stage));
+    const prAction =
+      githubConnected && n > 0 && a.filed?.detail?.state !== "closed" && !entry
+        ? createPrAction(run, thread ?? undefined)
+        : null;
     return {
       a,
-      link: links.get(a.id) ?? a.link,
+      link,
+      thread,
+      fix,
+      agent,
+      fixable,
+      prAction,
+      fixPending: n > 0 && fixBusy.has(n),
+      fixReading: n > 0 && fixReading.has(n),
+      fixError: n > 0 ? (fixErrors.get(n) ?? null) : null,
       dismissal: {
         ignored: entry,
         pending: busy.has(a.id),
@@ -1454,9 +2148,45 @@ export default function ActionableList({
   };
 
   const items = actionables.map(itemOf);
+
+  // The page arrives with every filed issue read from GitHub. While an agent
+  // is still expected to answer, read again now and then, so a fix that lands
+  // while the page is open shows (and offers Create PR) without a reload.
+  // Reads only, and only while the page is visible.
+  const activeKey = [
+    ...new Set(items.filter((it) => it.link && isFixActive(it.fix)).map((it) => it.link!.number)),
+  ]
+    .sort((x, y) => x - y)
+    .join(",");
+  useEffect(() => {
+    if (!activeKey) return;
+    const numbers = activeKey.split(",").map(Number);
+    const look = () => {
+      if (document.visibilityState !== "visible") return;
+      readFixesAction(numbers)
+        .then((res) => {
+          if (res.ok) mergeFixes(res);
+        })
+        .catch(() => {
+          /* the next look tries again */
+        });
+    };
+    const timer = setInterval(look, FIX_POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
+
   const shown = limit !== undefined ? items.slice(0, limit) : items;
   const hidden = items.length - shown.length;
   const selected = items.find((it) => it.a.id === selectedId) ?? null;
+
+  // Opening an issue reads it again: the agent may have answered since the
+  // page loaded — or since it was last open.
+  const selectedNumber = selected?.link && selected.link.number > 0 ? selected.link.number : 0;
+  useEffect(() => {
+    if (selectedNumber) void readOne(selectedNumber);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNumber]);
   const confirmingItem = confirming ? (items.find((it) => it.a.id === confirming.id) ?? null) : null;
 
   if (items.length === 0) return <>{empty}</>;
@@ -1469,9 +2199,12 @@ export default function ActionableList({
             key={item.a.id}
             item={item}
             canFile={githubConnected}
+            fileMode={fileMode}
             onOpen={() => setSelectedId(item.a.id)}
-            onFile={() => void file(item.a)}
+            onFile={(startFix) => void file(item.a, startFix)}
             onVerdict={(kind) => verdict(item.a, kind)}
+            onCreateFix={() => item.link && void createFix(item.link.number)}
+            onCreatePr={() => item.link && void createPull(item.link.number)}
           />
         ))}
       </ul>
@@ -1492,11 +2225,17 @@ export default function ActionableList({
         item={selected}
         repo={repo}
         canFile={githubConnected}
+        fileMode={fileMode}
+        fixCtx={fixCtx}
+        threadError={threadError}
         suggestion={selected?.link ? suggestions[selected.link.number] : undefined}
         canSuggest={canSuggest}
         onClose={() => setSelectedId(null)}
-        onFile={() => selected && void file(selected.a)}
+        onFile={(startFix) => selected && void file(selected.a, startFix)}
         onVerdict={(kind) => selected && verdict(selected.a, kind)}
+        onCreateFix={() => selected?.link && void createFix(selected.link.number)}
+        onCreatePr={() => selected?.link && void createPull(selected.link.number)}
+        onRefresh={() => selected?.link && void readOne(selected.link.number)}
         onSuggested={(s) => setSuggestions((prev) => ({ ...prev, [s.issueNumber]: s }))}
       />
       {confirming && confirmingItem && (

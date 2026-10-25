@@ -1224,7 +1224,7 @@ function SettingsForm({
       {dispatchRepo && (
         <Group
           title="Fix dispatch"
-          hint="The coding agent that will take verified fixes off your hands — what the repo has, a live test of the wiring, and how much polishd may send. Nothing is dispatched yet; this is the ground it will stand on."
+          hint="The coding agent that takes filed issues off your hands — what the repo has and how a fix starts there, a live test of the wiring, and how much polishd may send. Create fix on the Actionables tab is where fixes are asked for."
         >
           <DispatchCard
             repo={dispatchRepo}

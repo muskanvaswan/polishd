@@ -338,6 +338,27 @@ function lossKinds(loss: PolishdLossItem): FindingKind[] {
   return said;
 }
 
+/**
+ * The detection lines for one finding, as the agent brief on a filed issue
+ * carries them (ai/fix-brief.ts): what found it, and the blind spot to rule
+ * out first. A design finding is a design measurement; an analytics one is
+ * whatever its signal or its wording says, and nothing when neither does.
+ */
+export function detectionFor(finding: {
+  source: "analytics" | "design";
+  issue: string;
+  signalKind?: string;
+}): string[] {
+  if (finding.source === "design") return [DETECTION.design.line];
+  const kinds = lossKinds({
+    issue: finding.issue,
+    evidence: "",
+    verified: false,
+    ...(finding.signalKind ? { signal: { kind: finding.signalKind, count: 0, sessions: 0, pages: [] } } : {}),
+  });
+  return KIND_ORDER.filter((k) => kinds.includes(k)).map((k) => DETECTION[k].line);
+}
+
 function detectionSection(kinds: Set<FindingKind>): string[] {
   if (kinds.size === 0) return [];
   return [

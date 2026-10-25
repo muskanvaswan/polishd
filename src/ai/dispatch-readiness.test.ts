@@ -21,6 +21,7 @@ import {
   dispatchTestCloseComment,
   dispatchTestIssue,
   findAgentReply,
+  fixTriggerOf,
   isDispatchReady,
   newWorkflowFileUrl,
   readWorkflow,
@@ -278,11 +279,14 @@ test("workflowPaths keeps only yaml files directly under .github/workflows", () 
 
 // ── The plan ─────────────────────────────────────────────────────────────────
 
-test("the stock workflow is ready: body mode, @claude, api key", () => {
+test("the stock workflow is ready: comment mode, so fixes are a separate step", () => {
   const r = analyzeDispatchReadiness(facts({ workflows: [wf(".github/workflows/claude.yml", STOCK)] }));
   assert.equal(r.status, "ready-claude");
   assert.equal(r.plan.agent, "claude-code-action");
-  assert.equal(r.plan.mode, "body");
+  // It hears new issues too, but a comment is what lets filing and fixing be
+  // two decisions.
+  assert.equal(r.plan.mode, "comment");
+  assert.equal(r.plan.fixTrigger, "separate");
   assert.equal(r.plan.triggerPhrase, "@claude");
   assert.equal(r.plan.secretKind, "api-key");
   assert.equal(r.plan.workflowPath, ".github/workflows/claude.yml");
@@ -297,17 +301,32 @@ test("the stock workflow is ready: body mode, @claude, api key", () => {
     "Your access",
     "Not checkable here",
   ]);
-  assert.match(r.rows[1].detail ?? "", /put @claude in the issue body/);
+  assert.equal(r.rows[1].value, "Comments — fixes are a separate step");
+  assert.match(r.rows[1].detail ?? "", /without @claude, so filing never starts a run/);
   assert.match(r.rows[3].detail ?? "", /metered/);
   assert.match(r.rows[5].value, /not yet tested/);
   assert.equal(isDispatchReady(r.status), true);
 });
 
-test("comments only means polishd comments after filing", () => {
+test("comments only: a fix is a comment, a separate step", () => {
   const r = analyzeDispatchReadiness(facts({ workflows: [wf(".github/workflows/claude.yml", COMMENTS_ONLY)] }));
   assert.equal(r.status, "ready-claude");
   assert.equal(r.plan.mode, "comment");
-  assert.match(r.rows[1].detail ?? "", /add a comment with @claude/);
+  assert.equal(r.plan.fixTrigger, "separate");
+  assert.equal(r.rows[1].value, "Comments");
+  assert.match(r.rows[1].detail ?? "", /Create fix on a filed actionable posts a comment with @claude/);
+});
+
+test("new issues only: a fix can only ride on the filing", () => {
+  const text = STOCK.replace("  issue_comment:\n    types: [created]\n", "");
+  const r = analyzeDispatchReadiness(facts({ workflows: [wf(".github/workflows/claude.yml", text)] }));
+  assert.equal(r.status, "ready-claude");
+  assert.equal(r.plan.mode, "body");
+  assert.equal(r.plan.fixTrigger, "on-filing");
+  assert.equal(r.rows[1].value, "New issues only");
+  assert.equal(r.rows[1].tone, "warn");
+  assert.match(r.rows[1].detail ?? "", /File and fix puts @claude and the brief in its body/);
+  assert.match(r.rows[1].detail ?? "", /Add issue_comment \(created\)/);
 });
 
 test("automation mode is a warning, not a block", () => {
@@ -316,6 +335,9 @@ test("automation mode is a warning, not a block", () => {
   assert.equal(r.warnings.length, 1);
   assert.match(r.warnings[0], /automation mode/);
   assert.match(r.warnings[0], /every issue polishd files/);
+  // It hears new issues, so every filing is a fix starting.
+  assert.equal(r.plan.fixTrigger, "every-filing");
+  assert.equal(r.rows[1].value, "Every new issue");
 });
 
 test("a custom phrase is followed, and the subscription path is named", () => {
@@ -340,6 +362,7 @@ test("no workflows and no Copilot is not set up", () => {
   assert.equal(r.status, "not-set-up");
   assert.equal(r.plan.agent, "none");
   assert.equal(r.plan.mode, "none");
+  assert.equal(r.plan.fixTrigger, "none");
   assert.equal(r.rows[0].value, "None found");
   assert.equal(isDispatchReady(r.status), false);
 });
@@ -349,6 +372,7 @@ test("Copilot assignable with no Claude workflow is ready via Copilot", () => {
   assert.equal(r.status, "ready-copilot");
   assert.equal(r.plan.agent, "copilot");
   assert.equal(r.plan.mode, "assign");
+  assert.equal(r.plan.fixTrigger, "separate");
 });
 
 test("a Claude workflow wins over Copilot, and says Copilot is there too", () => {
@@ -397,6 +421,26 @@ test("a workflow that hears neither issues nor comments can't be started", () =>
   assert.equal(r.rows[1].tone, "bad");
 });
 
+test("a comments-only workflow beats one that hears new issues only", () => {
+  const openedOnly = STOCK.replace("  issue_comment:\n    types: [created]\n", "");
+  const r = analyzeDispatchReadiness(
+    facts({
+      workflows: [wf(".github/workflows/opened.yml", openedOnly), wf(".github/workflows/comments.yml", COMMENTS_ONLY)],
+    }),
+  );
+  assert.equal(r.plan.workflowPath, ".github/workflows/comments.yml");
+  assert.equal(r.plan.fixTrigger, "separate");
+});
+
+test("a plan stored before fix triggers is read as its mode implies", () => {
+  assert.equal(fixTriggerOf({ mode: "body" }), "on-filing");
+  assert.equal(fixTriggerOf({ mode: "comment" }), "separate");
+  assert.equal(fixTriggerOf({ mode: "assign" }), "separate");
+  assert.equal(fixTriggerOf({ mode: "none" }), "none");
+  assert.equal(fixTriggerOf(undefined), "none");
+  assert.equal(fixTriggerOf({ mode: "body", fixTrigger: "every-filing" }), "every-filing");
+});
+
 test("two Claude workflows: the one hearing issues is followed, the other named", () => {
   const r = analyzeDispatchReadiness(
     facts({
@@ -440,7 +484,8 @@ test("the recommended workflow reads back as ready, for either secret", () => {
     assert.match(yaml, /--max-turns/);
     const r = analyzeDispatchReadiness(facts({ workflows: [wf(".github/workflows/claude.yml", yaml)] }));
     assert.equal(r.status, "ready-claude");
-    assert.equal(r.plan.mode, "body");
+    assert.equal(r.plan.mode, "comment");
+    assert.equal(r.plan.fixTrigger, "separate");
     assert.equal(r.plan.triggerPhrase, "@claude");
     assert.equal(r.plan.secretKind, secret);
     assert.deepEqual(r.warnings, []);

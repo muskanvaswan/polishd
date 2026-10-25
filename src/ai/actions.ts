@@ -19,6 +19,7 @@ import { generateDesignReview, loadDesignReview } from "./design";
 import { checkDispatchReadiness, pollDispatchTest, startDispatchTest } from "./dispatch";
 import { generateOverview } from "./overview";
 import { suggestIssueFix } from "./fix";
+import { createFixPull, dispatchFix, readFixes } from "./fix-dispatch";
 import { verifyGithubConnection } from "./github";
 import {
   ignoreDesignIssue,
@@ -26,7 +27,7 @@ import {
   unignoreDesignIssue,
   unignoreLoss,
 } from "./ignored";
-import { createIssueFromDesignIssue, createIssueFromLoss } from "./issues";
+import { createIssueFromDesignIssue, createIssueFromLoss, type FileOptions } from "./issues";
 import { generateProjectProfile } from "./profile";
 import { loadPolishdDashboardData } from "../server/queries";
 import {
@@ -38,6 +39,7 @@ import {
 import { generateSummary, loadSummary } from "./summary";
 import type {
   CheckDispatchResult,
+  DispatchFixResult,
   DispatchTestResult,
   GenerateOverviewResult,
   PolishdAISettingsPublic,
@@ -51,6 +53,7 @@ import type {
   ListModelsResult,
   PolishdVerdictDismissal,
   RecordVerdictsResult,
+  RefreshFixesResult,
   SuggestFixResult,
   UnignoreLossResult,
   VerifyGithubResult,
@@ -127,16 +130,32 @@ export async function verifyGithubAction(): Promise<VerifyGithubResult> {
   return verifyGithubConnection();
 }
 
+/** Only the one switch a filing takes from the browser. */
+function fileOptions(opts: FileOptions | undefined): FileOptions {
+  return opts?.startFix === true ? { startFix: true } : {};
+}
+
 /**
  * Verify one loss against the repository's source and — when it holds up —
  * file a GitHub issue with the technical analysis and fix suggestions. A
  * disproved report returns `not-a-bug` with the reasoning instead of filing.
+ * `startFix` is File and fix, for a workflow that only hears new issues.
+ *
+ * The analytics signal behind the loss (which says how it was detected) is
+ * looked up in the current summary here, never taken from the browser.
  */
 export async function createIssueFromLossAction(
   loss: Pick<PolishdLossItem, "issue" | "evidence" | "location">,
+  opts?: FileOptions,
 ): Promise<CreateIssueResult> {
   await requirePolishdAuth();
-  return createIssueFromLoss(loss);
+  const summary = await loadSummary();
+  const key = loss.evidence.trim().toLowerCase();
+  const signalKind = summary?.losses?.find((l) => l.evidence.trim().toLowerCase() === key)?.signal?.kind;
+  return createIssueFromLoss(
+    { issue: loss.issue, evidence: loss.evidence, location: loss.location, ...(signalKind ? { signalKind } : {}) },
+    fileOptions(opts),
+  );
 }
 
 /**
@@ -146,9 +165,13 @@ export async function createIssueFromLossAction(
  */
 export async function createIssueFromDesignIssueAction(
   issue: Pick<PolishdDesignIssue, "issue" | "evidence" | "suggestion">,
+  opts?: FileOptions,
 ): Promise<CreateIssueResult> {
   await requirePolishdAuth();
-  return createIssueFromDesignIssue(issue);
+  return createIssueFromDesignIssue(
+    { issue: issue.issue, evidence: issue.evidence, suggestion: issue.suggestion },
+    fileOptions(opts),
+  );
 }
 
 /**
@@ -283,4 +306,50 @@ export async function startDispatchTestAction(): Promise<DispatchTestResult> {
 export async function pollDispatchTestAction(): Promise<DispatchTestResult> {
   await requirePolishdAuth();
   return pollDispatchTest();
+}
+
+// ── Fixes ────────────────────────────────────────────────────────────────────
+
+/** A whole, positive issue number, or null — these arrive from the browser. */
+function issueNumberOf(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
+}
+
+/**
+ * Create fix: ask the connected coding agent to fix one filed issue — a
+ * comment with the trigger phrase and the brief, or the brief and an
+ * assignment for Copilot. Writes a label, a comment (and maybe an
+ * assignment) to the issue; refuses unless dispatch is ready, unpaused and
+ * under its daily cap, and no fix is already under way.
+ */
+export async function dispatchFixAction(issueNumber: number): Promise<DispatchFixResult> {
+  await requirePolishdAuth();
+  const n = issueNumberOf(issueNumber);
+  if (n === null) return { ok: false, error: "not-found", message: "That isn't an issue number." };
+  return dispatchFix(n);
+}
+
+/**
+ * Read where filed issues' fixes stand — their pull requests and recent
+ * activity on GitHub, and polishd's runs. Reads only; the Actionables tab
+ * asks when an issue is opened, and now and then while an agent is working.
+ */
+export async function readFixesAction(issueNumbers: number[]): Promise<RefreshFixesResult> {
+  await requirePolishdAuth();
+  const numbers = Array.isArray(issueNumbers)
+    ? issueNumbers.map(issueNumberOf).filter((n): n is number => n !== null)
+    : [];
+  return readFixes(numbers);
+}
+
+/**
+ * Create PR: open the pull request from the branch the agent left its fix on,
+ * with `Fixes #N` so it's linked to the issue, and add that line to an agent's
+ * pull request that left it out. Writes a pull request, or edits one.
+ */
+export async function createFixPullAction(issueNumber: number): Promise<RefreshFixesResult> {
+  await requirePolishdAuth();
+  const n = issueNumberOf(issueNumber);
+  if (n === null) return { ok: false, message: "That isn't an issue number." };
+  return createFixPull(n);
 }
