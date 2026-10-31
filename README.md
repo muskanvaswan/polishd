@@ -418,7 +418,7 @@ settings take precedence.
 | Anthropic (Claude) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | default model `claude-opus-4-8` |
 | OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | default model `gpt-4o-mini` |
 | OpenAI-compatible | e.g. [openrouter.ai/keys](https://openrouter.ai/keys), [console.groq.com/keys](https://console.groq.com/keys) | also set **Base URL** |
-| Google (Gemini) | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | default model `gemini-1.5-flash` |
+| Google (Gemini) | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | default model `gemini-2.5-flash` |
 
 ### Project profile — the one-time setup scan
 

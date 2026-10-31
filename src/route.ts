@@ -1,16 +1,19 @@
 /**
  * @polishd/next/route — the ingest endpoint.
  *
- * Consumers wire this up with a one-line re-export:
+ * Consumers wire this up in their own route module, declaring the segment
+ * config inline — Next rejects a re-exported `runtime` or `dynamic`:
  *
  *   // src/app/api/polishd/route.ts
- *   export { POST, runtime, dynamic } from "@polishd/next/route";
- *
- * Or build a configured handler with `createPolishdRoute({ sessionCookie })`.
+ *   import { createPolishdRoute } from "@polishd/next/route";
+ *   export const runtime = "nodejs";
+ *   export const dynamic = "force-dynamic";
+ *   export const POST = createPolishdRoute();
  */
 import { NextResponse, type NextRequest } from "next/server";
 
 import { defaultPolishdConfig, resolveSessionCookie, type PolishdConfig } from "./config";
+import { readJsonBody } from "./server/body";
 import { ingest } from "./server/ingest";
 
 // node:sqlite / pg need the Node runtime — never the Edge runtime.
@@ -30,15 +33,16 @@ export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
   };
 
   return async function POST(req: NextRequest) {
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ ok: false, reason: "bad_json" }, { status: 400 });
+    const read = await readJsonBody(req);
+    if (!read.ok) {
+      return NextResponse.json(
+        { ok: false, reason: read.reason },
+        { status: read.reason === "too_large" ? 413 : 400 },
+      );
     }
 
     const cookieValue = req.cookies.get(cfg.sessionCookie)?.value;
-    const result = await ingest(body, cookieValue, cfg);
+    const result = await ingest(read.body, cookieValue, cfg);
 
     // Always succeed for valid requests so the beacon never retries on the
     // client; real failures (bad payloads) return 4xx above.

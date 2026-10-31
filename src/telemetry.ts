@@ -22,6 +22,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { defaultPolishdConfig, type PolishdConfig } from "./config";
+import { readJsonBody } from "./server/body";
 import { ingestTelemetry, telemetryInstallId } from "./server/ingest";
 
 // node:sqlite / pg need the Node runtime — never the Edge runtime.
@@ -86,15 +87,14 @@ export function createPolishdTelemetryRoute(options: PolishdTelemetryRouteOption
       );
     }
 
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
+    const read = await readJsonBody(req);
+    if (!read.ok) {
       return NextResponse.json(
-        { ok: false, stored: 0, reason: "bad_json" },
-        { status: 400, headers: cors },
+        { ok: false, stored: 0, reason: read.reason },
+        { status: read.reason === "too_large" ? 413 : 400, headers: cors },
       );
     }
+    const body = read.body;
 
     // The reporting installation is named by where the request came from —
     // the browser-set Origin header — not by anything the payload claims.

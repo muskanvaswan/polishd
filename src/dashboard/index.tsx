@@ -1447,9 +1447,10 @@ function announcePolicy(policy: PolishdAuthPolicy): void {
   const production = process.env.NODE_ENV === "production";
   if (policy.mode === "setup-required") {
     console.warn(
-      "[polishd] dashboard is locked: running in production with no `authenticate` " +
-        "callback. Pass one to createPolishdPage(), or set POLISHD_DASHBOARD_PUBLIC=true " +
-        "to serve it publicly on purpose.",
+      "[polishd] dashboard is locked: running in production with no access decided. " +
+        "Set POLISHD_DASHBOARD_TOKEN (e.g. `openssl rand -hex 32`) for a built-in password " +
+        "gate, pass `authenticate` to createPolishdPage() to use your app's own auth, or set " +
+        "POLISHD_DASHBOARD_PUBLIC=true to serve it publicly on purpose.",
     );
   } else if (policy.mode === "open") {
     // Deliberately not suppressed in production. Production is the *only*
@@ -1458,7 +1459,8 @@ function announcePolicy(policy: PolishdAuthPolicy): void {
     console.warn(
       `[polishd] dashboard is unguarded${production ? " IN PRODUCTION" : ""} — anyone who ` +
         "finds the URL can read your analytics, change the configured model and API base " +
-        "URL, and spend your model tokens. Pass `authenticate` to createPolishdPage().",
+        "URL, and spend your model tokens. Set POLISHD_DASHBOARD_TOKEN, or pass " +
+        "`authenticate` to createPolishdPage().",
     );
   }
 }

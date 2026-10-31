@@ -32,6 +32,7 @@
   },
   "files": [
     "bin",
+    "!bin/**/*.test.mjs",
     "dist",
     "docs",
     "AGENTS.md",
@@ -42,6 +43,18 @@
   ],
   "bin": {
     "polishd": "bin/polishd.mjs"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "client": ["./dist/client.d.ts"],
+      "server": ["./dist/server.d.ts"],
+      "route": ["./dist/route.d.ts"],
+      "telemetry": ["./dist/telemetry.d.ts"],
+      "proxy": ["./dist/proxy.d.ts"],
+      "dashboard": ["./dist/dashboard/index.d.ts"]
+    }
   },
   "exports": {
     ".": {
@@ -78,7 +91,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && npm run build:css",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --experimental-strip-types --import ./scripts/test-resolve.mjs --test \"src/**/*.test.ts\" \"service/lib/**/*.test.ts\"",
+    "test": "node --experimental-strip-types --import ./scripts/test-resolve.mjs --test \"src/**/*.test.ts\" \"service/lib/**/*.test.ts\" \"bin/**/*.test.mjs\"",
     "clean": "rm -rf dist",
     "version": "node scripts/sync-version.mjs && git add src/version.ts",
     "prepublishOnly": "npm run clean && npm run build",

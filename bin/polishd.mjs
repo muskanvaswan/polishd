@@ -32,7 +32,7 @@ ${c.bold("init options")}
 
 ${c.bold("doctor options")}
   --url <origin> also run live checks against a running server
-  --js           inspect .js/.jsx files instead of TypeScript
+  --js           inspect .js/.jsx files (detected automatically)
 
 ${c.bold("Installing with a coding agent")}
   Polishd ships a machine-readable install procedure. Paste this to Claude Code,

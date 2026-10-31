@@ -87,6 +87,64 @@ export function detectNextMajor(cwd) {
 }
 
 /**
+ * Whether an existing install is JavaScript: none of the files init writes
+ * exist as TypeScript, but at least one exists as JavaScript. A TS project, a
+ * fresh one, or a mixed one stays TypeScript, which is also init's default.
+ */
+export function detectJsInstall(cwd, base, appDir) {
+  const stems = [
+    join(base, "proxy"),
+    join(base, "middleware"),
+    join(base, "instrumentation-client"),
+    join(appDir, "api", "polishd", "route"),
+  ];
+  const has = (exts) =>
+    stems.some((stem) => exts.some((ext) => existsSync(join(cwd, `${stem}.${ext}`)))) ||
+    exts.some((ext) => existsSync(join(cwd, appDir, "polishd", `page.${ext}x`)));
+  return !has(["ts"]) && has(["js"]);
+}
+
+/**
+ * The proxy's `config.matcher`, as written.
+ *
+ * Read from the `config` declaration, not the first `matcher:` in the file:
+ * a proxy merged with `composePolishd(handler, { matcher: "/admin/:path*" })`
+ * has a second one, and that one is the handler's scope, not what Next reads.
+ *
+ * Returns null when there is no matcher, `{ literal: false }` for a reference
+ * (an identifier Next cannot statically read), else the literal's source.
+ */
+export function findConfigMatcher(src) {
+  const at = src.search(/\bconst\s+config\b/);
+  if (at === -1) return null;
+  const m = src
+    .slice(at)
+    .match(/\bmatcher\s*:\s*(\[[^\]]*\]|["'`][^"'`]*["'`]|[A-Za-z_$][\w$.]*)/);
+  if (!m) return null;
+  return { literal: !/^[A-Za-z_$]/.test(m[1]), text: m[1] };
+}
+
+/**
+ * Could this matcher literal run the proxy on an /api path?
+ *
+ * An entry is safe when a negative lookahead excludes `api`, when it is just
+ * `/`, or when its literal prefix — everything before the first parameter or
+ * group — already rules /api out (`/admin/:path*`, `/admin(.*)`). Anything
+ * else — `/:path*`, `/(.*)`, `/a(.*)` — can reach /api. Strings that aren't
+ * paths (`has` conditions) are ignored.
+ */
+export function matcherTouchesApi(literal) {
+  const entries = [...literal.matchAll(/(["'`])((?:(?!\1).)*)\1/g)]
+    .map((m) => m[2])
+    .filter((s) => s.startsWith("/"));
+  return entries.some((s) => {
+    if (/\(\?!.*\bapi\b/.test(s) || s === "/") return false;
+    const prefix = s.match(/^[^:(*?[{+\\]*/)[0];
+    return "/api/".startsWith(prefix) || prefix === "/api" || prefix.startsWith("/api/");
+  });
+}
+
+/**
  * The proxy file this app should have, given its Next major.
  * An undetermined version is treated as modern, which is also what init writes.
  */

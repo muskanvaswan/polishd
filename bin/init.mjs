@@ -206,6 +206,11 @@ export function runInit(argv, cwd) {
         );
         return;
       }
+      // Regenerating an untouched file would only leave a .bak identical to it.
+      if (readText(abs) === body) {
+        console.log(c.dim(`• ${file.path} already matches the current template — skipped`));
+        return;
+      }
       if (DRY) {
         console.log(c.dim(`• would back up ${file.path} → ${file.path}.bak and regenerate`));
         return;

@@ -85,7 +85,7 @@ export const PROVIDERS: {
   {
     value: "google",
     label: "Google (Gemini)",
-    modelHint: "gemini-1.5-flash",
+    modelHint: "gemini-2.5-flash",
     keyUrl: "https://aistudio.google.com/app/apikey",
     keyHost: "aistudio.google.com",
   },

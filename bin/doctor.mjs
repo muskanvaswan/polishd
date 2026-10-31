@@ -18,8 +18,11 @@ import { join } from "node:path";
 import {
   DIST_GLOB,
   c,
+  detectJsInstall,
   detectLayout,
   detectNextMajor,
+  findConfigMatcher,
+  matcherTouchesApi,
   nodeVersionOk,
   proxyShape,
   readJSON,
@@ -36,9 +39,6 @@ export async function runDoctor(argv, cwd) {
 
   const urlIdx = argv.indexOf("--url");
   const origin = urlIdx !== -1 ? argv[urlIdx + 1] : null;
-  const js = argv.includes("--js");
-  const codeExt = js ? "js" : "ts";
-  const pageExt = js ? "jsx" : "tsx";
 
   // ── Environment ────────────────────────────────────────────────────────────
   if (nodeVersionOk()) {
@@ -57,6 +57,12 @@ export async function runDoctor(argv, cwd) {
     return report(results, origin);
   }
   const { base, appDir } = layout;
+
+  // `init --js` writes .js files, and its closing advice is a bare `doctor`;
+  // inspecting .ts paths there reports every file missing.
+  const js = argv.includes("--js") || detectJsInstall(cwd, base, appDir);
+  const codeExt = js ? "js" : "ts";
+  const pageExt = js ? "jsx" : "tsx";
 
   const next = detectNextMajor(cwd);
   if (next.major === null) {
@@ -115,11 +121,8 @@ export async function runDoctor(argv, cwd) {
       );
     }
 
-    const matcher = proxySrc.match(/matcher\s*:\s*(\[[^\]]*\]|["'`][^"'`]*["'`])/);
-    // Order matters: a referenced matcher never matches the literal pattern, so
-    // checking "missing" first would report the vaguer of the two diagnoses for
-    // the more specific and more common mistake.
-    if (/\bmatcher\s*:\s*[A-Za-z_$]/.test(proxySrc)) {
+    const matcher = findConfigMatcher(proxySrc);
+    if (matcher && !matcher.literal) {
       add(
         FAIL,
         "config.matcher is not an inline literal",
@@ -136,8 +139,8 @@ export async function runDoctor(argv, cwd) {
           "breaks route resolution for the entire /api segment.",
       );
     } else {
-      add(PASS, "config.matcher is an inline literal", matcher[1].replace(/\s+/g, " ").slice(0, 60));
-      if (!/\(\?!.*\bapi\b/.test(matcher[1])) {
+      add(PASS, "config.matcher is an inline literal", matcher.text.replace(/\s+/g, " ").slice(0, 60));
+      if (matcherTouchesApi(matcher.text)) {
         add(
           WARN,
           "config.matcher does not exclude /api",
@@ -295,9 +298,10 @@ async function liveChecks(origin, add, cwd) {
   }
 
   const route = `${base}/api/polishd`;
-  const body = JSON.stringify({
-    events: [{ type: "page_view", ts: Date.now(), path: "/__polishd_doctor" }],
-  });
+  // `probe` asks ingest to prove the store is writable without recording an
+  // event: this is routinely run against production, and a stored test page
+  // view would show up in the owner's real numbers.
+  const body = JSON.stringify({ probe: true, events: [] });
   try {
     const res = await fetch(route, {
       method: "POST",
@@ -315,8 +319,22 @@ async function liveChecks(origin, add, cwd) {
           "isn't running, or the proxy and the route disagree about the cookie name — set " +
           "POLISHD_SESSION_COOKIE so both read the same value.",
       );
-    } else if (json?.stored > 0) {
-      add(PASS, "Ingest stored a test event", `${route} → ${JSON.stringify(json)}`);
+    } else if (json?.reason === "probe") {
+      add(PASS, "Ingest reached the store", `${route} wrote a probe (no event recorded)`);
+    } else if (json?.reason === "probe_unwritable") {
+      add(
+        FAIL,
+        "Ingest has no writable store",
+        "The route and cookie work, but nothing can be saved. In production set " +
+          "POLISHD_DATABASE_URL; locally check Node >= 22.5 and that .polishd/ is writable.",
+      );
+    } else if (json?.ok && !json.reason) {
+      add(
+        WARN,
+        "Could not verify the write path",
+        "The site's @polishd/next predates the doctor's write probe. The cookie check above " +
+          "still holds; upgrade the package on the site to check storage too.",
+      );
     } else {
       add(WARN, "Ingest accepted but stored nothing", JSON.stringify(json));
     }

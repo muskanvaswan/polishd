@@ -286,7 +286,7 @@ function FontRow({
         <span className="rounded-md bg-raised px-1.5 py-0.5 font-mono text-[11.5px] text-fg-2 ring-1 ring-inset ring-line-strong">
           {f.sizePx}px / {f.weight}
         </span>
-        {f.count.toLocaleString()} uses
+        {f.count.toLocaleString()} {f.count === 1 ? "use" : "uses"}
         {declLabel(f) && <> · {declLabel(f)}</>} · {f.pages.length}{" "}
         {f.pages.length === 1 ? "page" : "pages"}
         {f.tags.length > 0 && <span className="font-mono text-[11.5px]">· {f.tags.join(", ")}</span>}
@@ -321,7 +321,9 @@ function TypographySection({ data, previews }: { data: PolishdDesignData; previe
                 <span style={{ fontFamily: `"${f.family}", ui-sans-serif, system-ui, sans-serif` }}>
                   {f.family}
                 </span>
-                <span className="font-normal text-fg-3">· {f.count.toLocaleString()} uses</span>
+                <span className="font-normal text-fg-3">
+                  · {f.count.toLocaleString()} {f.count === 1 ? "use" : "uses"}
+                </span>
               </span>
             ))}
           </div>
@@ -657,7 +659,11 @@ function SpacingRow({
       </div>
       <span
         className="w-16 shrink-0 text-right text-[12px] tabular-nums text-fg-3"
-        title={declLabel(s) ? `${s.count.toLocaleString()} uses · ${declLabel(s)}` : undefined}
+        title={
+          declLabel(s)
+            ? `${s.count.toLocaleString()} ${s.count === 1 ? "use" : "uses"} · ${declLabel(s)}`
+            : undefined
+        }
       >
         ×{s.count.toLocaleString()}
       </span>
@@ -810,7 +816,7 @@ function PageRow({
             {shortBuild(p.build)} ·
           </span>
         )}
-        {p.elements.toLocaleString()} elements ·{" "}
+        {p.elements.toLocaleString()} {p.elements === 1 ? "element" : "elements"} ·{" "}
         {new Date(p.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
       </span>
     </div>
