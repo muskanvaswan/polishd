@@ -25,9 +25,9 @@ for (const key of [
 }
 process.env.POLISHD_DB_PATH = join(mkdtempSync(join(tmpdir(), "polishd-queries-")), "test.db");
 
-const { insertEvents } = await import("./store.ts");
+const { getMeta, insertEvents, query } = await import("./store.ts");
 const { getBuilds, getCurrentBuild, getElementStats, getOverview, getSessionJourneys } = await import("./queries.ts");
-const { ingest } = await import("./ingest.ts");
+const { DOCTOR_PROBE_META_KEY, DOCTOR_PROBE_PATH, ingest, plausibleTs } = await import("./ingest.ts");
 const { getDesignData } = await import("./design.ts");
 
 const event = (e: Partial<PolishdEvent> & Pick<PolishdEvent, "type">): PolishdEvent => ({
@@ -167,6 +167,39 @@ test("ingest takes the client's build when it's clean, and the server's otherwis
   const builds = new Map((await getBuilds()).map((b) => [b.build, b]));
   assert.equal(builds.get("client-build")?.events, 1);
   assert.equal(builds.get("server-build")?.events, 1);
+});
+
+test("a doctor probe proves the store is writable without recording an event", async () => {
+  const before = (await getOverview({ since: 0 })).totalEvents;
+  const probe = await ingest({ probe: true, events: [] }, "session-doctor");
+  assert.deepEqual(probe, { ok: true, stored: 0, reason: "probe" });
+  assert.ok(Number(await getMeta(DOCTOR_PROBE_META_KEY)) > 0);
+
+  // An older doctor sends a lone page view instead; it's a probe too.
+  const legacy = await ingest(
+    { events: [{ type: "page_view", ts: Date.now(), path: DOCTOR_PROBE_PATH }] },
+    "session-doctor-legacy",
+  );
+  assert.equal(legacy.reason, "probe");
+
+  assert.equal((await getOverview({ since: 0 })).totalEvents, before);
+  const rows = await query(`SELECT COUNT(*) AS n FROM events WHERE path = ?`, [DOCTOR_PROBE_PATH]);
+  assert.equal(Number(rows[0]?.n), 0);
+
+  // A probe still needs the cookie: that's half of what it checks.
+  assert.equal((await ingest({ probe: true, events: [] }, undefined)).reason, "no_session");
+});
+
+test("implausible client timestamps take the server's time", () => {
+  const now = Date.UTC(2026, 9, 31);
+  const recent = now - 90 * 24 * 60 * 60 * 1000;
+  assert.equal(plausibleTs(recent, now), recent, "backdated history is kept");
+  assert.equal(plausibleTs(now + 60_000, now), now + 60_000, "a slightly fast clock is kept");
+  assert.equal(plausibleTs(99_999_999_999_999, now), now);
+  assert.equal(plausibleTs(-5, now), now);
+  assert.equal(plausibleTs(1, now), now);
+  assert.equal(plausibleTs("1700000000000", now), now);
+  assert.equal(plausibleTs(Number.NaN, now), now);
 });
 
 test("the Design tab merges the newest build's scans once they cover every page it serves", async () => {

@@ -24,7 +24,7 @@ export type PolishdRefreshCadence = "manual" | "daily" | "weekly";
 /** The full, server-side settings — includes the secret API key. */
 export interface PolishdAISettings {
   provider: PolishdAIProvider;
-  /** Model id, e.g. "claude-opus-4-8", "gpt-4o-mini", "gemini-1.5-flash". */
+  /** Model id, e.g. "claude-opus-4-8", "gpt-4o-mini", "gemini-2.5-flash". */
   model: string;
   /** Secret. Server-only — never serialized to the client. */
   apiKey: string;

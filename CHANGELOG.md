@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Install and doctor fixes from an end-to-end pass
+
+- **Types resolve under `moduleResolution: "node"`.** The package declared its
+  subpaths only in `exports`, which that setting ignores, so `next build`
+  failed with "Cannot find module '@polishd/next/route'" in apps whose
+  tsconfig still uses it (Next 15 writes it into a tsconfig it generates). A
+  `typesVersions` map and top-level `main`/`types` now cover it.
+- **`doctor --url` no longer adds a visit to your analytics.** It used to store
+  a page view for `/__polishd_doctor`, which then showed up in Top pages and
+  the session count of whatever site it was pointed at, production included.
+  It now sends a probe that ingest answers with a write to `polishd_meta`, so
+  the write path is still proven and nothing lands in `events`. A probe from
+  an older doctor is recognised and kept out too. A store that can't be
+  written is now reported as a problem rather than a warning.
+- **`doctor` reads `config.matcher`, not the first `matcher:` in the file.** A
+  proxy merged with `composePolishd(handler, { matcher })`, the pattern the
+  docs recommend, was always warned that its matcher "does not exclude /api".
+  The /api check also no longer flags a matcher scoped elsewhere, such as
+  `/admin/:path*`.
+- **`doctor` detects a JavaScript install.** After `init --js` the advised bare
+  `doctor` reported every file missing; `--js` is now inferred.
+- **`init --force` skips files that already match the template**, rather than
+  regenerating them and leaving an identical `.bak`.
+- **The production lock warning names `POLISHD_DASHBOARD_TOKEN`**, the default
+  way to unlock the dashboard; it previously suggested only `authenticate` or
+  going public. The "unguarded" warning names it too.
+- **Ingest caps request bodies at 1MB** (413 `too_large`), checked against
+  `Content-Length` and while streaming. A real batch is well under 64KB, and
+  route handlers otherwise buffer whatever arrives.
+- **Implausible event timestamps take the server's time.** One event stamped
+  before 2020 or more than a day ahead stretched every "All time" chart to
+  reach it. Backdated history after 2020 is still kept as sent.
+- **The Google default model is `gemini-2.5-flash`.** `gemini-1.5-flash` has
+  been shut down. Settings saved with it need the model changed in Settings.
+- The Design tab says "1 use" and "1 element".
+
 ## 0.3.0
 
 ### Design tab: quieter notes, a 2px scale for hand-typed values, and ignored issues leave the checks

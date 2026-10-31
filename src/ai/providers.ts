@@ -27,7 +27,7 @@ export const DEFAULT_MODEL: Record<PolishdAIProvider, string> = {
   anthropic: "claude-opus-4-8",
   openai: "gpt-4o-mini",
   "openai-compatible": "gpt-4o-mini",
-  google: "gemini-1.5-flash",
+  google: "gemini-2.5-flash",
 };
 
 /**

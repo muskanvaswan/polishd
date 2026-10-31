@@ -30,6 +30,23 @@ const MAX_SELECTOR_LEN = 300;
 const MAX_DESIGN_PAYLOAD_LEN = 32_000;
 
 /**
+ * The window a client timestamp must fall in to be believed. Trends bucket on
+ * the client's `ts`, so one event stamped in the year 5000 (or 1970) stretches
+ * every "All time" axis to cover it. Backdated events are legitimate — seed
+ * scripts and replays post history — so the floor is a fixed date, not "now";
+ * the ceiling allows for a fast device clock. Anything outside takes the
+ * server's receive time instead of being dropped.
+ */
+const MIN_EVENT_TS = Date.UTC(2020, 0, 1);
+const MAX_EVENT_TS_AHEAD_MS = 24 * 60 * 60 * 1000;
+
+/** The client's timestamp when it is plausible, the server's otherwise. */
+export function plausibleTs(raw: unknown, now: number = Date.now()): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return now;
+  return raw >= MIN_EVENT_TS && raw <= now + MAX_EVENT_TS_AHEAD_MS ? raw : now;
+}
+
+/**
  * Beacons dropped for want of a session cookie, recorded in `polishd_meta`.
  *
  * A missing cookie means the proxy isn't running — a misnamed proxy file, a
@@ -41,6 +58,29 @@ const MAX_DESIGN_PAYLOAD_LEN = 32_000;
  * so out loud.
  */
 export const NO_SESSION_META_KEY = "no_session_rejects";
+
+/**
+ * `doctor --url` proves the write path end to end, and it is routinely pointed
+ * at a production origin. Storing its test event there put a fake page and a
+ * fake session into the owner's real numbers, so a probe is answered with a
+ * write to `polishd_meta` instead: the same backend, nothing in `events`.
+ *
+ * Doctors before this sent a lone page view to {@link DOCTOR_PROBE_PATH}
+ * rather than `probe: true`; that batch is recognised as a probe too, so an
+ * older CLI pointed at a newer site no longer pollutes it either.
+ */
+export const DOCTOR_PROBE_META_KEY = "doctor_probe";
+export const DOCTOR_PROBE_PATH = "/__polishd_doctor";
+
+function isDoctorProbe(b: { events?: unknown; probe?: unknown } | null): boolean {
+  if (b?.probe === true) return true;
+  const events = b?.events;
+  return (
+    Array.isArray(events) &&
+    events.length > 0 &&
+    events.every((e) => (e as { path?: unknown } | null)?.path === DOCTOR_PROBE_PATH)
+  );
+}
 
 /** Re-exported so callers keep importing the record shape from ingest. */
 export type { NoSessionRecord } from "../shared/capture-status";
@@ -109,7 +149,7 @@ function sanitize(raw: unknown): PolishdEvent | null {
   if (typeof type !== "string" || !CLIENT_EVENT_TYPES.has(type as PolishdEvent["type"])) {
     return null;
   }
-  const ts = typeof e.ts === "number" && Number.isFinite(e.ts) ? e.ts : Date.now();
+  const ts = plausibleTs(e.ts);
   const path = typeof e.path === "string" ? e.path.slice(0, 512) : "/";
 
   const out: PolishdEvent = { type: type as PolishdEvent["type"], ts, path };
@@ -172,7 +212,11 @@ export async function ingest(
   }
   if (!cfg.enabled) return { ok: true, stored: 0, reason: "disabled" };
 
-  const b = body as { events?: unknown; build?: unknown } | null;
+  const b = body as { events?: unknown; build?: unknown; probe?: unknown } | null;
+  if (isDoctorProbe(b)) {
+    const written = await setMeta(DOCTOR_PROBE_META_KEY, String(Date.now()));
+    return { ok: true, stored: 0, reason: written ? "probe" : "probe_unwritable" };
+  }
   const rawEvents = b?.events;
   if (!Array.isArray(rawEvents)) return { ok: false, stored: 0, reason: "no_events" };
 
