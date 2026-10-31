@@ -51,8 +51,9 @@ npx @polishd/next init
 ```
 
 Flags: `--dry-run` (preview), `--force` (regenerate files the CLI itself wrote,
-backing each up to `.bak` first), `--js` (JavaScript output), `--config` (also
-emit `polishd.config.ts`).
+backing each up to `.bak` first; files that already match the template are
+skipped), `--js` (JavaScript output), `--config` (also emit
+`polishd.config.ts`).
 
 It writes four files and appends `.polishd/` to `.gitignore`.
 It names the proxy file for the detected Next major and reports which it chose;
@@ -280,11 +281,13 @@ npx @polishd/next doctor
 It verifies the proxy is named and exported for the detected Next major, that
 `config.matcher` is an inline literal excluding `/api`, that `runtime` and
 `dynamic` are declared rather than re-exported, that capture and ingest exist,
-that the dashboard stylesheet is imported, and the access posture. Fix everything it
+that the dashboard stylesheet is imported, and the access posture. It inspects
+`.js`/`.jsx` files on its own when the install is JavaScript. Fix everything it
 reports before continuing.
 
 With the app running, add live checks — this is the only way to confirm the
-cookie is really minted and events really store:
+cookie is really minted and the store is really writable. The write check is a
+probe that records no event, so it is safe to point at production:
 
 ```bash
 npx @polishd/next doctor --url http://localhost:3000
@@ -301,22 +304,27 @@ npm start &
 
 # 3. The proxy mints a session cookie on a page request.
 curl -sI http://localhost:3000/ | grep -i set-cookie
-#    expect: polishd_session=<uuid>; Path=/; HttpOnly; SameSite=lax
+#    expect: polishd_session=<uuid>; Path=/; Expires=…; Max-Age=31536000; Secure; HttpOnly; SameSite=lax
+#    (`Secure` only under `npm start`; `next dev` omits it)
 
 # 4. The dashboard responds.
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/polishd
-#    expect: 200
+#    expect: 200 — under `npm start` that is the locked screen until access is
+#    decided (Phase 6); the server log says "[polishd] dashboard is locked"
 
-# 5. Ingest accepts a batch (reuse the cookie from step 3).
+# 5. Ingest reaches the store (reuse the cookie from step 3). A probe proves
+#    the write path without adding a fake visit to the owner's analytics.
 curl -s -X POST http://localhost:3000/api/polishd \
   -H 'content-type: application/json' \
   -H 'cookie: polishd_session=<uuid>' \
-  -d '{"events":[{"type":"page_view","ts":1,"path":"/"}]}'
-#    expect: {"ok":true,"stored":1}
+  -d '{"probe":true,"events":[]}'
+#    expect: {"ok":true,"stored":0,"reason":"probe"}
+#    "probe_unwritable" means no store could be opened (Phase 8, Node ≥ 22.5)
 
 # 6. Styling is present — the stylesheet must contain dashboard utilities.
 #    The dashboard imports "@polishd/next/dashboard.css" itself; check that a
-#    card border computes to rgb(38, 38, 38), not the host's border colour.
+#    card border computes to rgb(38, 38, 38), not the host's border colour
+#    (dark theme, the default; the light theme's is rgb(231, 231, 231)).
 ```
 
 In development the store writes `.polishd/analytics.db` (SQLite). Its presence
@@ -324,9 +332,10 @@ after step 5 confirms the write path end to end.
 
 ## Phase 8 — Production
 
-Capture only persists in production once a Postgres URL is set — serverless
-hosts have read-only, ephemeral filesystems, so the dev SQLite file cannot
-survive there.
+Without a Postgres URL the store is the SQLite file, in production too. That
+works on a long-running server with a writable, persistent disk (and under
+`npm start` locally), but serverless hosts have read-only, ephemeral
+filesystems, so there capture only persists once a Postgres URL is set.
 
 | Variable | Required | Purpose |
 |---|---|---|
@@ -373,8 +382,9 @@ need a change:
 owners who don't want URLs leaving their server. Snapshots then work only in
 local development.
 
-Without a database URL the package degrades to a safe no-op: a console warning,
-a notice on the dashboard, and no impact on the host app.
+When no store can be opened — no database URL on a read-only filesystem, an
+unreachable database, or Node < 22.5 — the package degrades to a safe no-op: a
+console warning, a notice on the dashboard, and no impact on the host app.
 
 ## Troubleshooting
 
@@ -383,6 +393,8 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Symptom | Cause | Fix |
 |---|---|---|
 | *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline (Phase 3b) |
+| *"Cannot find module '@polishd/next/route' or its corresponding type declarations"* at build | tsconfig has `"moduleResolution": "node"` and the package predates its `typesVersions` fallback | Upgrade the package. Don't change the host's tsconfig to work around it |
+| Ingest answers 413 `too_large` | Request body over 1MB. A real batch is well under 64KB | Nothing to fix for real traffic; a client sending that much isn't the capture script |
 | Every `/api/*` route 404s | Proxy matcher matches `/api` | Restore the `api` exclusion in the matcher |
 | Dashboard has harsh white borders and no greys | Package older than 0.2.3-dev.23 with no `dashboard.css` import, so the host's Tailwind styles it with the host's palette | Upgrade; remove the `@polishd/next/dist` scan line (Phase 4) |
 | Dashboard is empty, warning about the store | No writable backend | Set `POLISHD_DATABASE_URL`, or check Node ≥ 22.5 in dev |
