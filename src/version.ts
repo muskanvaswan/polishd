@@ -7,4 +7,4 @@
  * runs (the `version` lifecycle script) and stages into the release commit.
  * `version.test.ts` fails if the two ever disagree.
  */
-export const POLISHD_VERSION = "0.3.0";
+export const POLISHD_VERSION = "0.3.1";

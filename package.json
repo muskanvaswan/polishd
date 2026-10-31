@@ -1,6 +1,6 @@
 {
   "name": "@polishd/next",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Drop-in product analytics for Next.js — capture real user behavioral signals (rage/dead clicks, scroll depth, web vitals) and explore them on a built-in dashboard. What gets measured gets improved.",
   "type": "module",
   "license": "MIT",
@@ -48,12 +48,24 @@
   "types": "./dist/index.d.ts",
   "typesVersions": {
     "*": {
-      "client": ["./dist/client.d.ts"],
-      "server": ["./dist/server.d.ts"],
-      "route": ["./dist/route.d.ts"],
-      "telemetry": ["./dist/telemetry.d.ts"],
-      "proxy": ["./dist/proxy.d.ts"],
-      "dashboard": ["./dist/dashboard/index.d.ts"]
+      "client": [
+        "./dist/client.d.ts"
+      ],
+      "server": [
+        "./dist/server.d.ts"
+      ],
+      "route": [
+        "./dist/route.d.ts"
+      ],
+      "telemetry": [
+        "./dist/telemetry.d.ts"
+      ],
+      "proxy": [
+        "./dist/proxy.d.ts"
+      ],
+      "dashboard": [
+        "./dist/dashboard/index.d.ts"
+      ]
     }
   },
   "exports": {
