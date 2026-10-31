@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 ### Install and doctor fixes from an end-to-end pass
 
