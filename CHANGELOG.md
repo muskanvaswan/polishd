@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 ### Design tab: quieter notes, a 2px scale for hand-typed values, and ignored issues leave the checks
 
