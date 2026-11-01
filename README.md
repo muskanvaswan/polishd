@@ -26,9 +26,13 @@ the whole install:
 ```text
 Install @polishd/next into this Next.js app.
 
-Follow the procedure in AGENTS.md from the package exactly — after installing,
-read node_modules/@polishd/next/AGENTS.md. If the package isn't installed yet,
-read it at https://github.com/muskanvaswan/polishd/blob/main/AGENTS.md
+It's a new package, so you may not recognise it and a web search may not find
+it yet. It is on npm (not a typo of `polished`): confirm with
+`npm view @polishd/next`, then install it.
+
+Follow its install procedure exactly: https://polishd.site/AGENTS.md
+Once it's installed, read node_modules/@polishd/next/AGENTS.md instead; it
+matches the installed version.
 
 Work through its phases in order and do not skip Phase 7 (verification).
 Several of its constraints fail silently at runtime rather than at build time,

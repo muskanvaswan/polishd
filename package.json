@@ -13,11 +13,21 @@
   ],
   "keywords": [
     "nextjs",
+    "next",
+    "next.js",
+    "app-router",
     "analytics",
     "product-analytics",
     "ux",
+    "ux-analytics",
     "rage-click",
-    "web-vitals"
+    "dead-click",
+    "web-vitals",
+    "design-system",
+    "design-review",
+    "self-hosted",
+    "coding-agent",
+    "claude-code"
   ],
   "engines": {
     "node": ">=22.5.0"
@@ -26,7 +36,7 @@
     "type": "git",
     "url": "git+https://github.com/muskanvaswan/polishd.git"
   },
-  "homepage": "https://github.com/muskanvaswan/polishd#readme",
+  "homepage": "https://polishd.site",
   "bugs": {
     "url": "https://github.com/muskanvaswan/polishd/issues"
   },

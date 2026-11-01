@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import AgentPrompt from "@/components/agent-prompt";
 import { Eyebrow, Heading, Sub, Wrap } from "@/components/ui";
 
 export default function Install() {
@@ -27,7 +28,7 @@ export default function Install() {
             body="Wires the proxy, client, route and dashboard for you."
             delay={90}
           >
-            <Prompt /> npx polishd init
+            <Prompt /> npx @polishd/next init
           </Step>
           <Step n="03" title="Look" body="Run the app and open the dashboard." delay={180}>
             <Prompt /> npm run dev
@@ -36,6 +37,8 @@ export default function Install() {
             <span className="text-ok">/polishd</span>
           </Step>
         </div>
+
+        <AgentPrompt />
       </Wrap>
     </section>
   );

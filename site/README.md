@@ -6,10 +6,10 @@ polishd (dogfooding it) and hosts the project's telemetry collector.
 
 ## Polishd on the site
 
-The site installs its own package, exactly the way `polishd init` would wire
-any host app: `proxy.ts` mints the session cookie, `instrumentation-client.ts`
-starts capture, `app/api/polishd/route.ts` ingests, and the dashboard is at
-`/polishd`.
+The site installs its own package, exactly the way `npx @polishd/next init`
+would wire any host app: `proxy.ts` mints the session cookie,
+`instrumentation-client.ts` starts capture, `app/api/polishd/route.ts`
+ingests, and the dashboard is at `/polishd`.
 
 On top of that, `app/api/polishd-telemetry/route.ts` is the **cross-install
 telemetry collector** — the endpoint every polishd installation's dashboard
@@ -58,7 +58,7 @@ npm run dev                  # then /polishd → Design → Capture snapshot
 Your Chrome shoots the site's pages and each dashboard tab, and the pictures
 upload to the production Blob store, so the live dashboard shows them.
 
-## Search and sharing
+## Search, sharing and agents
 
 - `lib/links.ts` `SITE_URL` is the production origin, `https://polishd.site`.
   `metadataBase`, the canonical link, `og:url`, the sitemap and the JSON-LD all
@@ -74,6 +74,15 @@ upload to the production Blob store, so the live dashboard shows them.
 - `app/robots.ts` and `app/sitemap.ts` generate `/robots.txt` and
   `/sitemap.xml`. `/polishd` is left crawlable on purpose: its page sets
   noindex (the package's own `metadata`), which a robots.txt block would hide.
+- `/AGENTS.md` serves the repo's install procedure as plain markdown, read
+  at build time (`app/AGENTS.md/route.ts`; main's copy from GitHub if the
+  build can't see the repo root). It is for agents asked to install a package
+  they don't know: npmjs.com answers them with a 403. `/llms.txt` indexes it
+  and the docs.
+- The install section ends on a button that copies the prompt for a coding
+  agent, `lib/agent-prompt.ts`; the prompt itself isn't shown. Keep it in
+  step with the copies in the root `README.md`, `docs/SETUP.md` and the CLI
+  help in `bin/polishd.mjs`.
 
 ## The story the page tells
 
