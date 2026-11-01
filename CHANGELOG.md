@@ -13,6 +13,9 @@
   changes only that tab: the AI summary, written from the default source,
   gives way to a note on the other view. `EventFilter` takes a `source`, and
   `getCaptureHealth` and `getCurrentBuild` take one too.
+- **Clicking the current build selects "This build".** A Builds row links to
+  its build by label, and for the build currently shipping the range picker
+  had no pill to light, so none was selected.
 
 ### Agents can find the package
 

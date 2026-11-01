@@ -16,7 +16,7 @@ register(
         }
       }`),
 );
-const { analyticsHref, parseAnalyticsRange, rangeBuild, rangeLabel, rangeSince } = await import(
+const { analyticsHref, parseAnalyticsRange, rangeBuild, rangeLabel, rangePill, rangeSince } = await import(
   "./analytics-range.ts"
 );
 const { parseAnalyticsSource } = await import("./analytics-source.ts");
@@ -78,4 +78,12 @@ test("analyticsHref carries the source only when the view names one", () => {
     analyticsHref("build:v1.2", "telemetry"),
     "?tab=analytics&range=build%3Av1.2&source=telemetry",
   );
+});
+
+test("rangePill lights “This build” for the current build named by label", () => {
+  assert.equal(rangePill("build:f804613", "f804613"), "build");
+  assert.equal(rangePill("build:a1b2c3d", "f804613"), "build:a1b2c3d", "an older build keeps its own pill");
+  assert.equal(rangePill("build:f804613", null), "build:f804613", "while the current build loads");
+  assert.equal(rangePill("build", "f804613"), "build");
+  assert.equal(rangePill("7d", "f804613"), "7d");
 });

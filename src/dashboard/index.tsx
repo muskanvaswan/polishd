@@ -29,6 +29,7 @@ import {
   parseAnalyticsRange,
   rangeBuild,
   rangeLabel,
+  rangePill,
   type AnalyticsRange,
 } from "../shared/analytics-range";
 import {
@@ -323,7 +324,8 @@ const WINDOW_OPTIONS: Omit<PillOption, "href">[] = [
 
 /**
  * The pills for a given store: the windows, plus "This build" once a build is
- * known, plus the one build a Builds-table row named, so the selected range
+ * known, plus the one build a Builds-table row named unless that's the
+ * current one (`rangePill` lights "This build" for it), so the selected range
  * is always among the pills. The static set is the picker's fallback while
  * the build loads.
  */
@@ -349,7 +351,13 @@ function rangeOptions(
 
 async function RangePickerData({ range, source }: Ranged) {
   const current = await loadCurrentBuild(source);
-  return <PillNav label="Range" active={range} options={rangeOptions(range, current, source)} />;
+  return (
+    <PillNav
+      label="Range"
+      active={rangePill(range, current?.build)}
+      options={rangeOptions(range, current, source)}
+    />
+  );
 }
 
 function RangeControl({ range, source }: Ranged) {

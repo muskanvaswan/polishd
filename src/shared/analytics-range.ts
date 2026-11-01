@@ -56,6 +56,16 @@ export function rangeBuild(range: AnalyticsRange): string | null {
   return range.startsWith("build:") ? range.slice("build:".length) : null;
 }
 
+/**
+ * The pill a range lights up. A Builds row names its build by label, and when
+ * that's the build currently shipping, the pill for it is "This build" — the
+ * picker lists no second pill for the same build, so without this none would
+ * be selected.
+ */
+export function rangePill(range: AnalyticsRange, currentBuild?: string | null): AnalyticsRange {
+  return currentBuild && rangeBuild(range) === currentBuild ? "build" : range;
+}
+
 /** When a windowed range starts, ms since epoch; null when it isn't a window. */
 export function rangeSince(range: AnalyticsRange, now: number = Date.now()): number | null {
   const window = ANALYTICS_WINDOWS.find((w) => w.id === range);
