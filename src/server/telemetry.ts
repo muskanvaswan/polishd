@@ -20,6 +20,7 @@
  */
 import { getMeta, setMeta, storeReady } from "./store";
 import { resolveSettings } from "../ai/settings";
+import type { PolishdAnalyticsSource } from "../shared/analytics-source";
 
 /** Where telemetry lands: the polishd site's own installation. */
 export const DEFAULT_TELEMETRY_ENDPOINT =
@@ -63,11 +64,13 @@ export function telemetryDisabledByEnv(): boolean {
 
 // ── Analytics source (collector side) ────────────────────────────────────────
 
-export type PolishdAnalyticsSource = "site" | "telemetry";
+export type { PolishdAnalyticsSource };
 
 /**
- * Which dataset the *whole dashboard* reads: the host site's own first-party
- * events (default), or the cross-install telemetry it collects.
+ * Which dataset the *whole dashboard* reads by default: the host site's own
+ * first-party events, or the cross-install telemetry it collects. The
+ * Analytics tab can show the other one as well (`?source=`); everything else
+ * — the AI summary included — reads this one.
  *
  * `POLISHD_ANALYTICS_SOURCE=telemetry` is for the collecting installation
  * (the polishd site) when what it cares about is the dashboard-usage story:

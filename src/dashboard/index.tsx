@@ -24,11 +24,19 @@ import Link from "next/link";
 import { registerPolishdDashboardRoute, type PolishdConfig } from "../config";
 import {
   ANALYTICS_WINDOWS,
+  DEFAULT_ANALYTICS_RANGE,
+  analyticsHref,
   parseAnalyticsRange,
   rangeBuild,
   rangeLabel,
+  rangePill,
   type AnalyticsRange,
 } from "../shared/analytics-range";
+import {
+  ANALYTICS_SOURCES,
+  parseAnalyticsSource,
+  type PolishdAnalyticsSource,
+} from "../shared/analytics-source";
 import { shortBuild } from "../shared/build";
 import { captureStatus, type CaptureHealth } from "../shared/capture-status";
 
@@ -58,7 +66,7 @@ import {
   loadTopUsed,
   loadTrends,
 } from "./data";
-import RangePicker, { type RangeOption } from "./range-picker";
+import PillNav, { type PillOption } from "./pill-nav";
 import {
   polishdAuthContext,
   registerPolishdAuth,
@@ -71,7 +79,7 @@ import {
   type PolishdTokenAuthOptions,
 } from "./token-auth";
 import { unlockPolishdDashboard } from "./unlock";
-import { loadPolishdTelemetryState } from "../server/telemetry";
+import { loadPolishdTelemetryState, resolveAnalyticsSource } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReview, loadDesignReviewState } from "../ai/design";
 import { loadOverviewState } from "../ai/overview";
@@ -266,7 +274,7 @@ export interface PolishdAIBundle {
 export type { PolishdDashboardTab } from "./chrome";
 
 // ── Analytics: header + status (shared by batch and streamed renders) ────────
-function AnalyticsHeader({ pill, range }: { pill: ReactNode; range: ReactNode }) {
+function AnalyticsHeader({ pill, controls }: { pill: ReactNode; controls: ReactNode }) {
   return (
     <PageHeader
       title="Analytics"
@@ -281,7 +289,7 @@ function AnalyticsHeader({ pill, range }: { pill: ReactNode; range: ReactNode })
       }
       actions={
         <>
-          {range}
+          {controls}
           {pill}
         </>
       }
@@ -289,13 +297,23 @@ function AnalyticsHeader({ pill, range }: { pill: ReactNode; range: ReactNode })
   );
 }
 
-// ── Analytics: the range ─────────────────────────────────────────────────────
+// ── Analytics: the range and the source ──────────────────────────────────────
 // Every section of the tab is scoped to one range, carried in the URL. The
-// control is a row of pills (range-picker.tsx); the data behind "this build"
+// control is a row of pills (pill-nav.tsx); the data behind "this build"
 // — whether there is one, and what it's called — streams in behind it.
+//
+// An install that collects telemetry holds two datasets, and the tab shows
+// either: `?source=` picks one, next to the range. Without it the tab reads
+// what POLISHD_ANALYTICS_SOURCE says, as every other tab always does.
+
+/** The tab's view: a range, and a source when it isn't the default one. */
+interface Ranged {
+  range: AnalyticsRange;
+  source?: PolishdAnalyticsSource;
+}
 
 /** The pills every store has: the fixed windows and all time. */
-const WINDOW_OPTIONS: RangeOption[] = [
+const WINDOW_OPTIONS: Omit<PillOption, "href">[] = [
   ...ANALYTICS_WINDOWS.map((w) => ({
     id: w.id,
     label: w.label,
@@ -306,12 +324,17 @@ const WINDOW_OPTIONS: RangeOption[] = [
 
 /**
  * The pills for a given store: the windows, plus "This build" once a build is
- * known, plus the one build a Builds-table row named, so the selected range
+ * known, plus the one build a Builds-table row named unless that's the
+ * current one (`rangePill` lights "This build" for it), so the selected range
  * is always among the pills. The static set is the picker's fallback while
  * the build loads.
  */
-function rangeOptions(active: AnalyticsRange, current: BuildStat | null): RangeOption[] {
-  const options = [...WINDOW_OPTIONS];
+function rangeOptions(
+  active: AnalyticsRange,
+  current: BuildStat | null,
+  source: PolishdAnalyticsSource | undefined,
+): PillOption[] {
+  const options: Omit<PillOption, "href">[] = [...WINDOW_OPTIONS];
   if (current) {
     options.push({
       id: "build",
@@ -323,19 +346,47 @@ function rangeOptions(active: AnalyticsRange, current: BuildStat | null): RangeO
   if (named && named !== current?.build) {
     options.push({ id: active, label: `Build ${shortBuild(named)}`, title: `Build ${named}` });
   }
-  return options;
+  return options.map((o) => ({ ...o, href: analyticsHref(o.id as AnalyticsRange, source) }));
 }
 
-async function RangePickerData({ range }: { range: AnalyticsRange }) {
-  const current = await loadCurrentBuild();
-  return <RangePicker active={range} options={rangeOptions(range, current)} />;
-}
-
-function RangeControl({ range }: { range: AnalyticsRange }) {
+async function RangePickerData({ range, source }: Ranged) {
+  const current = await loadCurrentBuild(source);
   return (
-    <Suspense fallback={<RangePicker active={range} options={rangeOptions(range, null)} />}>
-      <RangePickerData range={range} />
+    <PillNav
+      label="Range"
+      active={rangePill(range, current?.build)}
+      options={rangeOptions(range, current, source)}
+    />
+  );
+}
+
+function RangeControl({ range, source }: Ranged) {
+  return (
+    <Suspense
+      fallback={<PillNav label="Range" active={range} options={rangeOptions(range, null, source)} />}
+    >
+      <RangePickerData range={range} source={source} />
     </Suspense>
+  );
+}
+
+/**
+ * Site or telemetry, on an install that collects telemetry. Switching keeps
+ * the range, except a build a Builds row named: that label is one of the
+ * other dataset's builds.
+ */
+function SourceControl({ range, source }: Ranged) {
+  const fallback = resolveAnalyticsSource();
+  const kept = rangeBuild(range) ? DEFAULT_ANALYTICS_RANGE : range;
+  return (
+    <PillNav
+      label="Source"
+      active={source ?? fallback}
+      options={ANALYTICS_SOURCES.map((s) => ({
+        ...s,
+        href: analyticsHref(kept, s.id === fallback ? null : s.id),
+      }))}
+    />
   );
 }
 
@@ -343,11 +394,11 @@ function RangeControl({ range }: { range: AnalyticsRange }) {
  * The range in prose for the tiles' footnote, with "this build" named once
  * the build is known: "all time", "the last 7 days", "build f804613".
  */
-async function scopeLabel(range: AnalyticsRange): Promise<string> {
+async function scopeLabel({ range, source }: Ranged): Promise<string> {
   const named = rangeBuild(range);
   if (named) return rangeLabel(range, shortBuild(named));
   if (range === "build") {
-    const current = await loadCurrentBuild();
+    const current = await loadCurrentBuild(source);
     return rangeLabel(range, current ? shortBuild(current.build) : null);
   }
   return rangeLabel(range);
@@ -626,12 +677,15 @@ function BuildRow({
   b,
   current,
   active,
+  source,
 }: {
   b: BuildStat;
   /** The build currently shipping. */
   current: boolean;
   /** Whether the tab is already scoped to this build. */
   active: boolean;
+  /** The tab's source, kept by the row's link. */
+  source?: PolishdAnalyticsSource;
 }) {
   const num = "py-3 px-4 text-right text-[13px] tabular-nums text-fg-2";
   const none = <span className="text-fg-3">—</span>;
@@ -643,7 +697,7 @@ function BuildRow({
     >
       <td className="min-w-[220px] py-3 pl-5 pr-4">
         <Link
-          href={`?tab=analytics&range=${encodeURIComponent(`build:${b.build}`)}`}
+          href={analyticsHref(`build:${b.build}`, source)}
           prefetch={false}
           title={active ? b.build : `Scope the tab to build ${b.build}`}
           aria-current={active ? "page" : undefined}
@@ -676,10 +730,12 @@ function BuildsCard({
   builds,
   current,
   range,
+  source,
 }: {
   builds: BuildStat[];
   current: BuildStat | null;
   range: AnalyticsRange;
+  source?: PolishdAnalyticsSource;
 }) {
   const activeBuild = rangeBuild(range) ?? (range === "build" ? current?.build ?? null : null);
   const visible = builds.slice(0, BUILDS_VISIBLE);
@@ -690,6 +746,7 @@ function BuildsCard({
       b={b}
       current={b.build === current?.build}
       active={b.build === activeBuild}
+      source={source}
     />
   );
   return (
@@ -755,7 +812,7 @@ export function PolishdDashboard({
   return (
     <DashboardChrome active="analytics" showInstalls={showInstalls}>
     <main className="text-fg">
-      <AnalyticsHeader pill={<CaptureStatusPill ready={data.overview.ready} />} range={null} />
+      <AnalyticsHeader pill={<CaptureStatusPill ready={data.overview.ready} />} controls={null} />
       <StatusBanners overview={data.overview} health={data.health} />
 
       {/* AI summary — the model's story of how people use the site */}
@@ -865,13 +922,14 @@ function PillSkeleton() {
 // The pill and the banners describe capture itself, so they read the whole
 // store whatever range the tab is on: a quiet week must not read as a broken
 // proxy. On the default range this is the same cached query the tiles use.
-async function StatusPillData() {
-  const overview = await loadOverview("all");
+// They do follow the source, so the banners weigh that dataset's storing.
+async function StatusPillData({ source }: { source?: PolishdAnalyticsSource }) {
+  const overview = await loadOverview("all", source);
   return <CaptureStatusPill ready={overview.ready} />;
 }
 
-async function StatusBannersData() {
-  const [overview, health] = await Promise.all([loadOverview("all"), loadHealth()]);
+async function StatusBannersData({ source }: { source?: PolishdAnalyticsSource }) {
+  const [overview, health] = await Promise.all([loadOverview("all", source), loadHealth(source)]);
   return <StatusBanners overview={overview} health={health} />;
 }
 
@@ -937,109 +995,137 @@ async function SummaryData() {
   );
 }
 
-/** Each section's data, under the tab's range. */
-interface Ranged {
-  range: AnalyticsRange;
+/**
+ * In the summary's place on the view of the other dataset. The summary is
+ * written from the default one, so over this view's numbers it would narrate
+ * figures the page isn't showing.
+ */
+function SummaryElsewhere() {
+  const fallback = ANALYTICS_SOURCES.find((s) => s.id === resolveAnalyticsSource());
+  return (
+    <Callout tone="neutral" className="mb-10">
+      The AI summary is written from the {fallback?.label} view, the one{" "}
+      <Code>POLISHD_ANALYTICS_SOURCE</Code> picks, so it isn&apos;t shown here.
+    </Callout>
+  );
 }
 
-async function OverviewData({ range }: Ranged) {
+// Each section's data, under the tab's range and source.
+
+async function OverviewData({ range, source }: Ranged) {
   const [overview, trends, scope] = await Promise.all([
-    loadOverview(range),
-    loadTrends(range),
-    scopeLabel(range),
+    loadOverview(range, source),
+    loadTrends(range, source),
+    scopeLabel({ range, source }),
   ]);
   return <OverviewStatTiles overview={overview} trends={trends} scope={scope} />;
 }
 
-async function DevicesData({ range }: Ranged) {
-  return <DevicesCard devices={await loadDevices(range)} />;
+async function DevicesData({ range, source }: Ranged) {
+  return <DevicesCard devices={await loadDevices(range, source)} />;
 }
 
-async function PagesData({ range }: Ranged) {
-  return <TopPagesTable pages={await loadPages(range)} />;
+async function PagesData({ range, source }: Ranged) {
+  return <TopPagesTable pages={await loadPages(range, source)} />;
 }
 
-async function MonitoredData({ range }: Ranged) {
-  return <MonitoredCard monitored={await loadMonitored(range)} />;
+async function MonitoredData({ range, source }: Ranged) {
+  return <MonitoredCard monitored={await loadMonitored(range, source)} />;
 }
 
-async function JourneysData({ range }: Ranged) {
-  return <JourneyList journeys={await loadJourneys(range)} />;
+async function JourneysData({ range, source }: Ranged) {
+  return <JourneyList journeys={await loadJourneys(range, source)} />;
 }
 
-async function FeaturesData({ range }: Ranged) {
-  return <FeaturesCard topUsed={await loadTopUsed(range)} />;
+async function FeaturesData({ range, source }: Ranged) {
+  return <FeaturesCard topUsed={await loadTopUsed(range, source)} />;
 }
 
-async function ElementsData({ range }: Ranged) {
-  return <ElementsCard elements={await loadElements(range)} />;
+async function ElementsData({ range, source }: Ranged) {
+  return <ElementsCard elements={await loadElements(range, source)} />;
 }
 
-async function BuildsData({ range }: Ranged) {
-  const [builds, current] = await Promise.all([loadBuilds(range), loadCurrentBuild()]);
-  return <BuildsCard builds={builds} current={current} range={range} />;
+async function BuildsData({ range, source }: Ranged) {
+  const [builds, current] = await Promise.all([
+    loadBuilds(range, source),
+    loadCurrentBuild(source),
+  ]);
+  return <BuildsCard builds={builds} current={current} range={range} source={source} />;
 }
 
-/** The analytics tab, streamed section by section, every section on `range`. */
-function AnalyticsStream({ range }: Ranged) {
+/**
+ * The analytics tab, streamed section by section, every section on `range`
+ * and `source`. `sourceSwitch` shows the source control: only an install
+ * that collects telemetry has a second dataset to switch to.
+ */
+function AnalyticsStream({ range, source, sourceSwitch }: Ranged & { sourceSwitch: boolean }) {
   return (
     <main className="text-fg">
       <AnalyticsHeader
-        range={<RangeControl range={range} />}
+        controls={
+          <>
+            {sourceSwitch && <SourceControl range={range} source={source} />}
+            <RangeControl range={range} source={source} />
+          </>
+        }
         pill={
           <Suspense fallback={<PillSkeleton />}>
-            <StatusPillData />
+            <StatusPillData source={source} />
           </Suspense>
         }
       />
       {/* Banners have no skeleton: most renders show none, and a placeholder
           would promise a warning that usually isn't coming. */}
       <Suspense fallback={null}>
-        <StatusBannersData />
+        <StatusBannersData source={source} />
       </Suspense>
 
-      <Suspense fallback={<SummarySkeleton />}>
-        <SummaryData />
-      </Suspense>
+      {source ? (
+        <SummaryElsewhere />
+      ) : (
+        <Suspense fallback={<SummarySkeleton />}>
+          <SummaryData />
+        </Suspense>
+      )}
 
       <OverviewSection range={range}>
         <Suspense fallback={<TileGridSkeleton />}>
-          <OverviewData range={range} />
+          <OverviewData range={range} source={source} />
         </Suspense>
       </OverviewSection>
       <DevicesSection>
         <Suspense fallback={<CardSkeleton rows={3} />}>
-          <DevicesData range={range} />
+          <DevicesData range={range} source={source} />
         </Suspense>
       </DevicesSection>
       <PagesSection>
         <Suspense fallback={<CardSkeleton />}>
-          <PagesData range={range} />
+          <PagesData range={range} source={source} />
         </Suspense>
       </PagesSection>
       <MonitoredSection>
         <Suspense fallback={<CardSkeleton rows={3} />}>
-          <MonitoredData range={range} />
+          <MonitoredData range={range} source={source} />
         </Suspense>
       </MonitoredSection>
       <JourneysSection>
         <Suspense fallback={<CardSkeleton />}>
-          <JourneysData range={range} />
+          <JourneysData range={range} source={source} />
         </Suspense>
       </JourneysSection>
       <FeaturesSection>
         <Suspense fallback={<CardSkeleton />}>
-          <FeaturesData range={range} />
+          <FeaturesData range={range} source={source} />
         </Suspense>
       </FeaturesSection>
       <ElementsSection>
         <Suspense fallback={<CardSkeleton />}>
-          <ElementsData range={range} />
+          <ElementsData range={range} source={source} />
         </Suspense>
       </ElementsSection>
       <BuildsSection>
         <Suspense fallback={<CardSkeleton rows={2} />}>
-          <BuildsData range={range} />
+          <BuildsData range={range} source={source} />
         </Suspense>
       </BuildsSection>
     </main>
@@ -1556,6 +1642,11 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     // How far back the Analytics tab reaches, from `?range=`; anything that
     // isn't a known range is all time. Only that tab reads it.
     const range = parseAnalyticsRange(Array.isArray(sp.range) ? sp.range[0] : sp.range);
+    // Which dataset it shows, from `?source=` — honoured only where there are
+    // two. The default is carried as undefined, so the tab shares its cached
+    // queries with the summary, which reads the default without naming it.
+    const asked = parseAnalyticsSource(Array.isArray(sp.source) ? sp.source[0] : sp.source);
+    const source = showInstalls && asked && asked !== resolveAnalyticsSource() ? asked : undefined;
 
     // Every tab streams: the chrome and rail go out immediately, and the
     // tab's data loads behind a Suspense boundary showing the same skeleton
@@ -1586,7 +1677,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         // Analytics carries per-section boundaries instead of one big one, so
         // its header and section titles paint before any query has finished
         // and each card fills in on its own schedule.
-        <AnalyticsStream range={range} />
+        <AnalyticsStream range={range} source={source} sourceSwitch={showInstalls} />
       );
 
     return wrap(

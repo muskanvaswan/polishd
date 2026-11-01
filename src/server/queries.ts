@@ -18,7 +18,7 @@ import {
   type CaptureHealth,
 } from "../shared/capture-status";
 import { NO_SESSION_META_KEY } from "./ingest";
-import { resolveAnalyticsSource } from "./telemetry";
+import { resolveAnalyticsSource, type PolishdAnalyticsSource } from "./telemetry";
 import { resolveDashboardRoute } from "../config";
 import {
   EMPTY_FRICTION,
@@ -40,6 +40,8 @@ export interface EventFilter {
   since?: number | null;
   /** Only events captured on this build (see `PolishdEventRow.build`). */
   build?: string | null;
+  /** Which dataset to read. Omitted, `POLISHD_ANALYTICS_SOURCE` decides. */
+  source?: PolishdAnalyticsSource | null;
 }
 
 /** A string as a SQL literal. The values inlined here are never user-typed. */
@@ -85,7 +87,8 @@ export function polishdEventsSource(filter: EventFilter = {}): string {
   // experience (analytics, journeys, design, AI summary) over dashboard
   // usage. Telemetry paths are namespaced /~polishd/… by the emitter, so the
   // dashboard-route exclusion below has nothing to exclude in this mode.
-  if (resolveAnalyticsSource() === "telemetry") {
+  // `filter.source` overrides it per call: the Analytics tab's source switch.
+  if ((filter.source ?? resolveAnalyticsSource()) === "telemetry") {
     conditions.push("install_id IS NOT NULL");
   } else {
     // Telemetry rows (dashboard usage reported by *other* polishd installs,
@@ -1039,8 +1042,11 @@ export type { CaptureHealth } from "../shared/capture-status";
  * every event is attributed to the cookie the proxy mints, so a store dated
  * after the most recent drop means the proxy is minting right now. The
  * windowed counts let the dashboard describe the rest in proportion.
+ *
+ * `source` picks which dataset's storing is compared against the drops, as
+ * `EventFilter.source` does; omitted, `POLISHD_ANALYTICS_SOURCE` decides.
  */
-export async function getCaptureHealth(): Promise<CaptureHealth> {
+export async function getCaptureHealth(source?: PolishdAnalyticsSource | null): Promise<CaptureHealth> {
   const windowMs = CAPTURE_WINDOW_MS;
   const empty: CaptureHealth = {
     noSessionCount: 0,
@@ -1063,7 +1069,7 @@ export async function getCaptureHealth(): Promise<CaptureHealth> {
          MAX(received_at)                                                AS "lastStoredAt",
          SUM(CASE WHEN received_at >= ? THEN 1 ELSE 0 END)               AS "recentEvents",
          COUNT(DISTINCT CASE WHEN received_at >= ? THEN received_at END) AS "recentBatches"
-       FROM ${polishdEventsSource()}`,
+       FROM ${polishdEventsSource({ source })}`,
       [since, since],
     ),
     getMeta(NO_SESSION_META_KEY),
@@ -1146,9 +1152,10 @@ export async function getBuilds(limit = 50, filter: EventFilter = {}): Promise<B
 /**
  * The build currently shipping, as far as the store can tell: the one that
  * appeared most recently. Null until a build has been stamped on anything.
+ * `source` as in `EventFilter`.
  */
-export async function getCurrentBuild(): Promise<BuildStat | null> {
-  return (await getBuilds(1))[0] ?? null;
+export async function getCurrentBuild(source?: PolishdAnalyticsSource | null): Promise<BuildStat | null> {
+  return (await getBuilds(1, { source }))[0] ?? null;
 }
 
 // ── Aggregate loader ─────────────────────────────────────────────────────────
@@ -1173,7 +1180,8 @@ export interface PolishdDashboardData {
  *
  * `filter` scopes every section at once (the Analytics tab's range); the AI
  * summary always reads the whole history, so it passes none. Capture health
- * is never filtered — it describes the proxy, not a window of traffic.
+ * is never scoped to a window — it describes the proxy, not a window of
+ * traffic — but it does follow the filter's source.
  */
 export async function loadPolishdDashboardData(filter: EventFilter = {}): Promise<PolishdDashboardData> {
   // One-time sweep retyping historical text clicks recorded as dead/rage under
@@ -1194,7 +1202,7 @@ export async function loadPolishdDashboardData(filter: EventFilter = {}): Promis
     monitored,
   ] = await Promise.all([
     getOverview(filter),
-    getCaptureHealth(),
+    getCaptureHealth(filter.source),
     getTopPages(8, filter),
     getMetricTrends(filter),
     getElementStats(12, filter),

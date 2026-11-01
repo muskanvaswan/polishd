@@ -11,6 +11,7 @@
  * Pure: the dashboard resolves "this build" to a label and the loaders turn
  * the range into a filter (see server/queries.ts `EventFilter`).
  */
+import type { PolishdAnalyticsSource } from "./analytics-source";
 import { sanitizeBuild } from "./build";
 
 /** A fixed window, measured back from now. */
@@ -55,6 +56,16 @@ export function rangeBuild(range: AnalyticsRange): string | null {
   return range.startsWith("build:") ? range.slice("build:".length) : null;
 }
 
+/**
+ * The pill a range lights up. A Builds row names its build by label, and when
+ * that's the build currently shipping, the pill for it is "This build" — the
+ * picker lists no second pill for the same build, so without this none would
+ * be selected.
+ */
+export function rangePill(range: AnalyticsRange, currentBuild?: string | null): AnalyticsRange {
+  return currentBuild && rangeBuild(range) === currentBuild ? "build" : range;
+}
+
 /** When a windowed range starts, ms since epoch; null when it isn't a window. */
 export function rangeSince(range: AnalyticsRange, now: number = Date.now()): number | null {
   const window = ANALYTICS_WINDOWS.find((w) => w.id === range);
@@ -73,4 +84,14 @@ export function rangeLabel(range: AnalyticsRange, buildLabel?: string | null): s
   if (named) return `build ${buildLabel ?? named}`;
   const window = ANALYTICS_WINDOWS.find((w) => w.id === range);
   return window ? `the last ${window.label}` : "all time";
+}
+
+/**
+ * The Analytics tab on a range, carrying the source when the view isn't on
+ * the default one. Every link inside the tab is built here, so choosing a
+ * range never drops the source, or a source the range.
+ */
+export function analyticsHref(range: AnalyticsRange, source?: PolishdAnalyticsSource | null): string {
+  const href = `?tab=analytics&range=${encodeURIComponent(range)}`;
+  return source ? `${href}&source=${source}` : href;
 }
