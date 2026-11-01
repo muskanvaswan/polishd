@@ -58,6 +58,23 @@ npm run dev                  # then /polishd → Design → Capture snapshot
 Your Chrome shoots the site's pages and each dashboard tab, and the pictures
 upload to the production Blob store, so the live dashboard shows them.
 
+## Search and sharing
+
+- `lib/links.ts` `SITE_URL` is the production origin, `https://polishd.site`.
+  `metadataBase`, the canonical link, `og:url`, the sitemap and the JSON-LD all
+  resolve against it, so the other domains serving the same deployment
+  (`polishd.muskanvaswan.xyz`, `polishd-lac.vercel.app`) never compete with it
+  in search. Change it there if the domain moves.
+- `lib/seo.ts` holds the search title and description (what a result shows,
+  in the words people search for) and the schema.org data: a `WebSite` and a
+  `SoftwareApplication` for the package.
+- The share card, `app/opengraph-image.png`, is `teaser/promo-poster.png`
+  cropped to 1200×630; its alt text is `opengraph-image.alt.txt`. Next uses it
+  for X too. Recut it from the poster when the poster changes.
+- `app/robots.ts` and `app/sitemap.ts` generate `/robots.txt` and
+  `/sitemap.xml`. `/polishd` is left crawlable on purpose: its page sets
+  noindex (the package's own `metadata`), which a robots.txt block would hide.
+
 ## The story the page tells
 
 Shipping is cheap now, so working software is no longer the bar — taste is. The
@@ -101,7 +118,7 @@ JetBrains Mono its code — the same three the site uses.
 - `components/wordmark.tsx` — the logo: "polis" and "d" in the highway face
   (Overpass) with the halftone polish bottle for the h, the same mark the
   dashboard's sidebar carries. Used in the header and the hero.
-  The favicon in `app/layout.tsx` is the bottle as a solid silhouette,
+  The favicon, `app/icon.svg`, is the bottle as a solid silhouette,
   derived from the dot field in `components/dot-bottle.tsx` — the dots don't
   survive 16px, the shape does.
 - `components/loop-ring.tsx` — the ring. Six nodes; the shipped arc is solid and
