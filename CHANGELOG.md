@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### A collector's Analytics tab shows either dataset
+
+- **Site / Telemetry switch.** An install that collects telemetry holds two
+  datasets, and with `POLISHD_ANALYTICS_SOURCE=telemetry` its dashboard only
+  showed the telemetry, so the site's own visitors looked as if they weren't
+  being captured. They were. The Analytics tab now has a switch beside the
+  range (`?source=site|telemetry`) that shows either, with the range and the
+  Builds links keeping it. It appears only where telemetry has landed, and it
+  changes only that tab: the AI summary, written from the default source,
+  gives way to a note on the other view. `EventFilter` takes a `source`, and
+  `getCaptureHealth` and `getCurrentBuild` take one too.
+
 ### Agents can find the package
 
 - **The agent install prompt** (README, docs/SETUP.md, `--help`) now sends

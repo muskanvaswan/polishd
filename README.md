@@ -963,7 +963,10 @@ traffic can flip the whole thing: `POLISHD_ANALYTICS_SOURCE=telemetry` points
 every dashboard feature — Analytics, journeys, elements, device sizes, the
 Design tab (fed by the emitter's design scans *of the dashboard itself*), and
 the AI summary — at the telemetry dataset instead. First-party events are
-still captured and stored, just not shown, so flipping back loses nothing.
+still captured and stored, so flipping back loses nothing, and the Analytics
+tab can show them meanwhile: on a collector it has a **Site / Telemetry**
+switch beside the range (`?source=`). The switch changes only that tab; the
+AI summary and the other tabs keep reading what the variable picks.
 
 ## Configuration
 
@@ -1045,7 +1048,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_SITE_ORIGIN` | optional | The origin snapshots are taken of, if not the one the dashboard is opened on (proxies, tunnels) |
 | `POLISHD_TELEMETRY` | optional | `off` (or `0`/`false`/`no`) — disable [dashboard telemetry](#dashboard-telemetry) entirely, consent prompt included |
 | `POLISHD_TELEMETRY_ENDPOINT` | optional | Where dashboard telemetry is sent, if not the polishd project's own endpoint |
-| `POLISHD_ANALYTICS_SOURCE` | collector only | `telemetry` — point the whole dashboard (every tab, the AI summary included) at collected cross-install telemetry instead of the site's own traffic |
+| `POLISHD_ANALYTICS_SOURCE` | collector only | `telemetry` — point the whole dashboard (every tab, the AI summary included) at collected cross-install telemetry instead of the site's own traffic. The Analytics tab's Site / Telemetry switch still shows either |
 
 AI settings are optional — the dashboard's **Settings** tab configures the same
 fields, and what you save there overrides these env defaults.

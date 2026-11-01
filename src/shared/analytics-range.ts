@@ -11,6 +11,7 @@
  * Pure: the dashboard resolves "this build" to a label and the loaders turn
  * the range into a filter (see server/queries.ts `EventFilter`).
  */
+import type { PolishdAnalyticsSource } from "./analytics-source";
 import { sanitizeBuild } from "./build";
 
 /** A fixed window, measured back from now. */
@@ -73,4 +74,14 @@ export function rangeLabel(range: AnalyticsRange, buildLabel?: string | null): s
   if (named) return `build ${buildLabel ?? named}`;
   const window = ANALYTICS_WINDOWS.find((w) => w.id === range);
   return window ? `the last ${window.label}` : "all time";
+}
+
+/**
+ * The Analytics tab on a range, carrying the source when the view isn't on
+ * the default one. Every link inside the tab is built here, so choosing a
+ * range never drops the source, or a source the range.
+ */
+export function analyticsHref(range: AnalyticsRange, source?: PolishdAnalyticsSource | null): string {
+  const href = `?tab=analytics&range=${encodeURIComponent(range)}`;
+  return source ? `${href}&source=${source}` : href;
 }

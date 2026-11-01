@@ -24,7 +24,7 @@ Production needs (Vercel → Project → Environment Variables):
 |---|---|
 | `POLISHD_DATABASE_URL` | Pooled Postgres connection string — the site runs on an ephemeral FS, so SQLite can't persist |
 | `POLISHD_DASHBOARD_TOKEN` | Protects `/polishd`; generate with `openssl rand -hex 32` |
-| `POLISHD_ANALYTICS_SOURCE` | `telemetry` — the whole dashboard (Analytics, Design, AI summary) reads the cross-install telemetry instead of the site's own traffic |
+| `POLISHD_ANALYTICS_SOURCE` | `telemetry` — the whole dashboard (Analytics, Design, AI summary) reads the cross-install telemetry instead of the site's own traffic. The site's own visitors are still stored: the Analytics tab's **Site** pill shows them |
 
 Local dev needs nothing — events land in `.polishd/analytics.db` (gitignored).
 
