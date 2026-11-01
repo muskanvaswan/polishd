@@ -1,3 +1,5 @@
+import { PolishdMonitor } from "@polishd/next/client";
+
 import InstallCommand from "@/components/install-command";
 import ScrubHero from "@/components/scrub-hero";
 import { DOCS_URL } from "@/lib/links";
@@ -45,8 +47,12 @@ export default function Hero() {
             className="r-load mt-8 flex flex-wrap items-center justify-center gap-2.5"
             style={{ "--d": "260ms" } as React.CSSProperties}
           >
-            <InstallCommand />
-            <GhostLink href={DOCS_URL}>Read the docs</GhostLink>
+            <PolishdMonitor name="hero-install" className="flex">
+              <InstallCommand />
+            </PolishdMonitor>
+            <PolishdMonitor name="hero-docs" className="flex">
+              <GhostLink href={DOCS_URL}>Read the docs</GhostLink>
+            </PolishdMonitor>
           </div>
         </div>
 

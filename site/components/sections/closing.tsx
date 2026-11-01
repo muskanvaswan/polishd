@@ -1,3 +1,5 @@
+import { PolishdMonitor } from "@polishd/next/client";
+
 import InstallCommand from "@/components/install-command";
 import { NPM_URL, REPO_URL, DOCS_URL } from "@/lib/links";
 import { GhostLink, Wrap } from "@/components/ui";
@@ -24,8 +26,12 @@ export default function Closing() {
             className="r mt-9 flex flex-wrap items-center justify-center gap-2.5"
             style={{ "--d": "160ms" } as React.CSSProperties}
           >
-            <InstallCommand />
-            <GhostLink href={REPO_URL}>Star on GitHub</GhostLink>
+            <PolishdMonitor name="closing-install" className="flex">
+              <InstallCommand />
+            </PolishdMonitor>
+            <PolishdMonitor name="closing-github" className="flex">
+              <GhostLink href={REPO_URL}>Star on GitHub</GhostLink>
+            </PolishdMonitor>
           </div>
         </Wrap>
       </section>
