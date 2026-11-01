@@ -1,3 +1,5 @@
+import { PolishdMonitor } from "@polishd/next/client";
+
 import CopyButton from "@/components/copy-button";
 import { AGENT_PROMPT } from "@/lib/agent-prompt";
 
@@ -21,7 +23,9 @@ export default function AgentPrompt() {
           procedure, and to npm rather than a search that won&apos;t find a package this new.
         </p>
       </div>
-      <CopyButton text={AGENT_PROMPT} label="the agent prompt" idle="Copy prompt" primary />
+      <PolishdMonitor name="agent-prompt-copy" className="flex shrink-0">
+        <CopyButton text={AGENT_PROMPT} label="the agent prompt" idle="Copy prompt" primary />
+      </PolishdMonitor>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PolishdMonitor } from "@polishd/next/client";
 import ScrollFX from "@/components/scroll-fx";
 import Hero from "@/components/sections/hero";
 import Loop from "@/components/sections/loop";
@@ -30,17 +31,20 @@ export default function Page() {
       <div className="aura pointer-events-none fixed inset-0 z-0" />
       <div className="grain pointer-events-none fixed -inset-1/2 z-1 opacity-[0.16]" />
 
-      <main className="relative z-2">
-        <Hero />
-        <Design />
-        <Proof />
-        <Actionables />
-        <Fix />
-        <Loop />
-        <Frontier />
-        <Install />
-        <Closing />
-      </main>
+      {/* The whole page as one content region, for how far down it's read. */}
+      <PolishdMonitor name="landing-page" content className="block">
+        <main className="relative z-2">
+          <Hero />
+          <Design />
+          <Proof />
+          <Actionables />
+          <Fix />
+          <Loop />
+          <Frontier />
+          <Install />
+          <Closing />
+        </main>
+      </PolishdMonitor>
 
       <ScrollFX />
     </>
