@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Agents can find the package
+
+- **The agent install prompt** (README, docs/SETUP.md, `--help`) now sends
+  the agent to https://polishd.site/AGENTS.md and tells it to confirm the
+  package with `npm view @polishd/next` instead of searching for it. Agents
+  that didn't know the package searched, found nothing (npmjs.com answers
+  them with a 403) and stopped, or took it for a typo of `polished`.
+- **`homepage` is https://polishd.site**, which also serves the procedure as
+  plain markdown at `/AGENTS.md` and an index at `/llms.txt`. More keywords,
+  for npm search.
+
 ## 0.3.1
 
 ### Install and doctor fixes from an end-to-end pass

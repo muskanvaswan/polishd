@@ -1,0 +1,1 @@
+Polishd — Build fast, refine relentlessly. The taste loop for Next.js: npm i @polishd/next

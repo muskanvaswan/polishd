@@ -14,6 +14,9 @@ export default function Wordmark({ className = "" }: { className?: string }) {
       className={`font-highway inline-block whitespace-nowrap font-extrabold lowercase leading-none tracking-[-0.03em] ${className}`}
     >
       <span aria-hidden>polis</span>
+      {/* The bottle is the h. Spelled out for crawlers, which read the text
+          and would otherwise index the hero heading as "polisd". */}
+      <span className="sr-only">h</span>
       <DotBottle className="mx-[0.02em] inline-block h-[0.73em]" />
       <span aria-hidden>d</span>
     </span>
