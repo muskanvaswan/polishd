@@ -38,10 +38,12 @@ export default function Page() {
           <Design />
           <Proof />
           <Actionables />
+          {/* The ask comes once the live half has been shown, not after the
+              roadmap — most readers never reach the end of the page. */}
+          <Install />
           <Fix />
           <Loop />
           <Frontier />
-          <Install />
           <Closing />
         </main>
       </PolishdMonitor>

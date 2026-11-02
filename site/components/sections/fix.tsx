@@ -174,7 +174,7 @@ export default function Fix() {
         </Sub>
 
         {/* The handoffs, in order. */}
-        <div className="r lift mt-[34px]">
+        <div className="demo r lift mt-[34px]">
           {/* Steps 02–03 bracketed: the part that runs on the repo's own Actions. */}
           <div className="hidden grid-cols-5 lg:grid" aria-hidden>
             <div className="col-span-2 col-start-2 px-4">
@@ -233,7 +233,8 @@ export default function Fix() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {/* The run and the drawer are desktop-only: a phone gets the pipeline. */}
+        <div className="mt-3 grid grid-cols-1 gap-3 max-md:hidden lg:grid-cols-2">
           {/* The run, on GitHub Actions, over the workflow that heard the comment. */}
           <div className="card font-chart r lift overflow-hidden text-fg" style={delay(60)}>
             <div className={cardHeader}>

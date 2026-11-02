@@ -92,7 +92,9 @@ export default function Design() {
           pages and prints the brand guide you never made — after the build, not before.
         </Sub>
 
-        <div className="mt-[34px] grid grid-cols-1 gap-3 lg:grid-cols-[1.25fr_1fr]">
+        {/* On a phone: the palette and the contrast check, the rest left to the
+            real tab. */}
+        <div className="demo mt-[34px] grid grid-cols-1 gap-3 lg:grid-cols-[1.25fr_1fr]">
           <div className="grid content-start gap-3">
             {/* The palette, as the Overview's brand board draws it: the system
                 the pages actually ship, ranked, one-offs left out. */}
@@ -115,7 +117,7 @@ export default function Design() {
             </div>
 
             {/* The specimen sheet — every size the site ships, one-offs included. */}
-            <div className="card font-chart r lift overflow-hidden text-fg" style={delay(90)}>
+            <div className="card font-chart r lift overflow-hidden text-fg max-md:hidden" style={delay(90)}>
               <div className={cardHeader}>
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span className={cardTitleCls}>Typography</span>
@@ -156,7 +158,7 @@ export default function Design() {
               </Callout>
             </div>
 
-            <div className="card font-chart r lift overflow-hidden text-fg" style={delay(150)}>
+            <div className="card font-chart r lift overflow-hidden text-fg max-md:hidden" style={delay(150)}>
               <div className={cardHeader}>
                 <span className={cardTitleCls}>Corner radii</span>
                 <Badge tone="warn">6 radii</Badge>
@@ -223,7 +225,7 @@ export default function Design() {
               </div>
             </div>
 
-            <div className="card font-chart r lift overflow-hidden text-fg" style={delay(120)}>
+            <div className="card font-chart r lift overflow-hidden text-fg max-md:hidden" style={delay(120)}>
               <div className={cardHeader}>
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span className="text-accent">
@@ -254,7 +256,7 @@ export default function Design() {
               </div>
             </div>
 
-            <div className="card font-chart r lift overflow-hidden text-fg" style={delay(180)}>
+            <div className="card font-chart r lift overflow-hidden text-fg max-md:hidden" style={delay(180)}>
               <div className={cardHeader}>
                 <span className={cardTitleCls}>Spacing</span>
                 <Badge tone="warn">30% off-grid</Badge>

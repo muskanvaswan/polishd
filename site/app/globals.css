@@ -102,6 +102,16 @@
   }
 }
 
+/* On a phone the dashboard replicas are a sample of the tab, not the tab:
+   each section keeps one or two cards (the rest are `max-md:hidden`) and
+   draws them a size down. Zoom rather than scale, so the layout shrinks
+   with them and leaves no gap below. */
+@media (max-width: 767px) {
+  .demo {
+    zoom: 0.86;
+  }
+}
+
 /* ── Ambient field ───────────────────────────────────────────────────────────
    Jet black, no bloom. The only texture is a hairline grid, masked off at the
    top of the page, plus film grain. */
