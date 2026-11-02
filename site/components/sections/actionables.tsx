@@ -147,10 +147,11 @@ export default function Actionables() {
           with a reason the model reads back.
         </Sub>
 
-        <div className="mt-[34px] grid grid-cols-1 gap-3 lg:grid-cols-[1.35fr_1fr]">
+        {/* On a phone: the list alone, cut to its first three rows. */}
+        <div className="demo mt-[34px] grid grid-cols-1 gap-3 lg:grid-cols-[1.35fr_1fr]">
           {/* The tab: its counts, then the list. */}
           <div className="grid content-start gap-3">
-            <div className="r font-chart grid grid-cols-2 gap-3 text-fg sm:grid-cols-4">
+            <div className="r font-chart grid grid-cols-2 gap-3 text-fg max-md:hidden sm:grid-cols-4">
               {STATS.map((s) => (
                 <div key={s.label} className={`${card} px-4 py-4`}>
                   <div className={`flex items-center gap-1.5 ${labelCls}`}>
@@ -179,8 +180,8 @@ export default function Actionables() {
                 </GhostBtn>
               </div>
               <ul>
-                {ROWS.map((row) => (
-                  <ActionableRow key={row.title} row={row} />
+                {ROWS.map((row, i) => (
+                  <ActionableRow key={row.title} row={row} className={i < 3 ? "" : "max-md:hidden"} />
                 ))}
               </ul>
             </div>
@@ -194,7 +195,7 @@ export default function Actionables() {
           </div>
 
           {/* The Overview's move: every open problem, to the agent, and back. */}
-          <div className="grid content-start gap-3">
+          <div className="grid content-start gap-3 max-md:hidden">
             <div className="card font-chart r lift overflow-hidden text-fg" style={delay(90)}>
               <div className={cardHeader}>
                 <span className={cardTitleCls}>Fix prompt</span>
@@ -281,8 +282,8 @@ function SourceMark({ source, className = "" }: { source: Source; className?: st
   );
 }
 
-function ActionableRow({ row }: { row: Row }) {
-  const rowCls = "border-t border-line px-4 py-4 first:border-t-0 sm:px-5";
+function ActionableRow({ row, className = "" }: { row: Row; className?: string }) {
+  const rowCls = `border-t border-line px-4 py-4 first:border-t-0 sm:px-5 ${className}`;
 
   if (row.dismissed) {
     const { fixed, reason } = row.dismissed;
