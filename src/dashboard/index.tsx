@@ -426,8 +426,8 @@ function StatusBanners({
   overview: OverviewStats;
   health: CaptureHealth;
 }) {
-  // Events arriving without a session cookie mean the proxy didn't run on
-  // those requests — or that something posted straight at the public endpoint.
+  // Events arriving without a session cookie mean no session could be minted
+  // for them — or that something posted straight at the public endpoint.
   // Telling those apart is the whole job of `captureStatus`, which lives in
   // shared/capture-status.ts with the record ingest writes, and is tested.
   const capture = captureStatus(health, overview.totalEvents);
@@ -446,23 +446,24 @@ function StatusBanners({
         <Callout
           tone="bad"
           className="mb-8"
-          title="Receiving events, but no session cookie — your proxy isn't running."
+          title="Receiving events, but they arrive without a session, so none are stored."
         >
           <p>
             {capture.droppedBatches.toLocaleString()}{" "}
             {capture.droppedBatches === 1 ? "batch has" : "batches have"} been dropped
             {capture.nothingStored ? "" : ` and nothing has been stored in the last ${windowLabel}`}
-            . Polishd attributes every event to the anonymous cookie the proxy mints
-            {capture.nothingStored ? ", so nothing is being stored" : ""}. Check that you have a{" "}
-            <Code>proxy.ts</Code> (Next 16+) or <Code>middleware.ts</Code> (Next 15) at your project
-            root — matching your installed Next major — exporting a function of the same name, with{" "}
-            <Code>config.matcher</Code> written as an inline literal that covers the pages you&apos;re
-            capturing.
+            . Polishd stores every event under an anonymous session cookie, which the ingest route
+            mints on a visitor&apos;s first batch
+            {capture.nothingStored ? ", so nothing is being stored" : ""}. It mints one only for a
+            page&apos;s batch from this site, which the browser declares in the{" "}
+            <Code>Origin</Code> and <Code>Sec-Fetch-Site</Code> headers. Check that nothing in front
+            of your app (a CDN, firewall or proxy) strips both, and that a route of your own around{" "}
+            <Code>ingest()</Code> passes it a session id.
           </p>
           <p className="mt-2 text-fg-3">
             Run <Code>npx @polishd/next doctor --url &lt;your deployed origin&gt;</Code> to check
             this against the running site. Plain <Code>doctor</Code> only reads your source tree, so
-            it can pass every check while the deployed build still doesn&apos;t mint a cookie —{" "}
+            it can pass every check while the deployed site still drops these batches —{" "}
             <Code>--url</Code> is the part that proves it.
           </p>
         </Callout>
@@ -473,8 +474,9 @@ function StatusBanners({
           {capture.droppedBatches.toLocaleString()}{" "}
           {capture.droppedBatches === 1 ? "batch" : "batches"} arrived without a session cookie in
           the last {windowLabel}
-          {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (bots, or
-          visitors with cookies blocked). Those events aren&apos;t stored; capture itself is working
+          {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (scripts,
+          visitors with cookies blocked, or a browser&apos;s last batch as it quits). Those events
+          aren&apos;t stored; capture itself is working
           {capture.storedSinceDrop ? " — a batch has been stored since the most recent drop" : ""}.
         </Callout>
       )}

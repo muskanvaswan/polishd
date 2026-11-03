@@ -49,13 +49,15 @@ export function plausibleTs(raw: unknown, now: number = Date.now()): number {
 /**
  * Beacons dropped for want of a session cookie, recorded in `polishd_meta`.
  *
- * A missing cookie means the proxy isn't running — a misnamed proxy file, a
- * matcher that excludes the path, or a botched merge with an existing handler.
- * Left uncounted this is the worst failure mode in the package: ingest returns
- * `ok: true` with HTTP 200, the client cannot read the reason (`sendBeacon`
- * has no response), and the only symptom is an empty dashboard with nothing
- * anywhere pointing at the cause. Counting it is what lets the dashboard say
- * so out loud.
+ * The shipped route mints a session for a batch without one (route.ts), so it
+ * never lands here; a drop now means a host's own handler called
+ * {@link ingest} with no session. Before that, the route relied on a proxy to
+ * mint the cookie and dropped every batch when it wasn't running, and records
+ * from then still read the same way. Left uncounted this is the worst failure
+ * mode in the package: ingest returns `ok: true` with HTTP 200, the client
+ * cannot read the reason (`sendBeacon` has no response), and the only symptom
+ * is an empty dashboard with nothing anywhere pointing at the cause. Counting
+ * it is what lets the dashboard say so out loud.
  */
 export const NO_SESSION_META_KEY = "no_session_rejects";
 
@@ -85,9 +87,9 @@ function isDoctorProbe(b: { events?: unknown; probe?: unknown } | null): boolean
 /** Re-exported so callers keep importing the record shape from ingest. */
 export type { NoSessionRecord } from "../shared/capture-status";
 
-// A broken proxy means *every* beacon is rejected, so writing per rejection
-// would answer a diagnostic with a write storm. Collapse them instead: count
-// in memory, persist at most once a minute.
+// When no batch can get a session, *every* beacon is rejected, so writing
+// per rejection would answer a diagnostic with a write storm. Collapse them
+// instead: count in memory, persist at most once a minute.
 //
 // The in-memory half of that only works while the module stays alive. On
 // serverless every cold start resets it, so sparse traffic — scattered bot
@@ -97,7 +99,7 @@ export type { NoSessionRecord } from "../shared/capture-status";
 // if the minute isn't up. Its own tally is then lost with the instance, which
 // is the right trade — this counter is a health signal, not an audit log, and
 // under-reporting scattered noise is the behaviour that was intended all
-// along. A genuinely broken proxy still writes every minute, and the
+// along. Genuinely broken wiring still writes every minute, and the
 // dashboard's real evidence there is that nothing is being stored at all.
 const RECORD_INTERVAL_MS = 60_000;
 let lastPersistedAt = 0;
@@ -132,9 +134,8 @@ export interface IngestResult {
 }
 
 /**
- * Pull the anonymous session id from the cookie. Returns null when absent —
- * the middleware normally guarantees one, but a client with cookies disabled
- * legitimately has none, in which case we skip rather than error.
+ * Pull the anonymous session id from the cookie. Returns null when it is
+ * absent or unusable, which is the route's cue to mint one.
  */
 export function sessionIdFromCookie(cookieValue: string | undefined): string | null {
   return cookieValue && cookieValue.length <= 64 ? cookieValue : null;
@@ -189,7 +190,8 @@ function sanitize(raw: unknown): PolishdEvent | null {
 }
 
 /**
- * Ingest a raw request body. `cookieValue` is the session cookie's value.
+ * Ingest a raw request body. `cookieValue` is the session id: the session
+ * cookie's value, or the id the route has just minted for a batch without one.
  *
  * `config` carries the host app's overrides (the route handler forwards what it
  * was built with) so `enabled` and `dashboardRoute` mean the same thing here as

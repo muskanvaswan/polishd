@@ -120,7 +120,7 @@
     "build:css": "node scripts/build-css.mjs"
   },
   "peerDependencies": {
-    "next": ">=15",
+    "next": ">=15.3",
     "react": ">=18",
     "react-dom": ">=18"
   },

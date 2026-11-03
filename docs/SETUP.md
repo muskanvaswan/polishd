@@ -11,7 +11,9 @@ instead.
 
 ## Requirements
 
-- **Next.js 15 or later**, App Router. There is no Pages Router support.
+- **Next.js 15.3 or later**, App Router. Earlier versions ignore
+  `instrumentation-client.ts`, so capture would never start. There is no Pages
+  Router support.
 - **Node 22.5 or later.** The development store uses Node's built-in
   `node:sqlite`. On older Node, Polishd degrades to a no-op rather than
   crashing, but you won't capture anything locally.
@@ -32,9 +34,9 @@ Polishd at a Postgres URL. You don't need to install it yourself.
 npx @polishd/next init
 ```
 
-This detects whether your app uses `src/` or the repo root, detects your
-installed Next major so the proxy file gets the right name, writes four files,
-and adds `.polishd/` to `.gitignore`. Useful flags:
+This detects whether your app uses `src/` or the repo root, writes three
+files, and adds `.polishd/` to `.gitignore`. It adds no proxy or middleware,
+and never touches one you already have. Useful flags:
 
 | Flag | Effect |
 |---|---|
@@ -45,9 +47,7 @@ and adds `.polishd/` to `.gitignore`. Useful flags:
 
 **`--force` will never overwrite a file `init` didn't write.** Generated files
 carry a marker; anything without one is left alone whether or not you pass the
-flag, so re-running is safe even if you've since hand-written a proxy. When it
-finds a proxy it didn't author, it prints merge instructions instead — see
-[Composing with an existing proxy](#composing-with-an-existing-proxy).
+flag, so re-running is safe.
 
 Then check the result:
 
@@ -77,93 +77,44 @@ so a passing build does not mean the install worked.
 Finish by running `npx @polishd/next doctor` and fixing everything it reports.
 ```
 
-## 3. What the four files do
+## 3. What the three files do
 
 Paths below assume a `src/` layout; drop the `src/` prefix if your `app/`
 directory sits at the repo root.
 
-### `src/proxy.ts` — anonymous sessions
+### Sessions — no proxy needed
 
-Every visitor gets one httpOnly UUID cookie. No fingerprinting, no PII, so it's
-GDPR-safe by construction. The ingest endpoint trusts this cookie as the only
-source of session identity — the browser never sends a session id itself.
+Every visitor gets one httpOnly UUID cookie. No fingerprinting, no PII. The
+ingest route below mints it on the visitor's first batch: it stores that batch
+under the new id and sets the cookie on the response, so every later batch
+carries it. The capture script proposes the id, one per page load, so batches
+that leave a page before the first response comes back still share a session.
 
-```ts
-import type { NextRequest } from "next/server";
-import { withPolishdSession } from "@polishd/next/proxy";
+The route mints a session only for a batch that:
 
-export function proxy(request: NextRequest) {
-  return withPolishdSession(request);
-}
+- **comes from a page on your site.** Browsers say so in `Sec-Fetch-Site`, on
+  beacons too; one too old to send it (Safari before 16.4) still sends
+  `Origin`. A bare scripted POST is dropped, not counted as a visitor.
+- **opens a page**, with its `page_view`. Every page load's first batch does.
+  One that doesn't is the tail of a page whose cookie the browser has lost:
+  Firefox sends its last beacon without cookies while it quits.
 
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],
-};
-```
+Both headers can be forged, so this keeps out naive scripts, not determined
+ones. A batch that already carries the cookie is stored either way.
 
-**On Next 15**, name the file `middleware.ts` and the exported function
-`middleware`. Everything else is identical.
+### Already have a proxy or middleware?
 
-> **The matcher is load-bearing.** Next parses `config.matcher` statically, so
-> it has to be an inline literal in this file — it cannot be imported from the
-> package. And it must exclude all of `/api`: under Next 16 with Turbopack, a
-> proxy matcher that touches any `/api/*` route breaks route resolution for the
-> entire `/api` segment. The proxy's only job is setting a cookie, which page
-> navigations already trigger.
-
-### Composing with an existing proxy
-
-**Already have a proxy or middleware?** Don't replace it — Next loads exactly
-one such module, so Polishd has to go inside yours.
-
-Threading the response is the easy half:
-
-```ts
-export function proxy(request: NextRequest) {
-  const response = myExistingLogic(request);
-  return withPolishdSession(request, response);
-}
-```
-
-A redirect or rewrite you return keeps working and carries the analytics cookie.
-
-The hard half is the matcher, and it's easy to miss. One file means one
-`config.matcher`, so merging means widening it to the union of both — and
-Polishd's matcher is near-total. A handler you deliberately scoped to two routes
-now runs on **every request in the app**. Nothing errors. Your redirects just
-start firing where they never did before.
-
-`composePolishd` fixes that if you tell it the original scope:
-
-```ts
-import { composePolishd } from "@polishd/next/proxy";
-
-function myProxy(request: NextRequest) {
-  if (!hasSession(request)) return NextResponse.redirect(new URL("/login", request.url));
-}
-
-// Still runs only on /admin/*, even though the matcher below is near-total.
-export const proxy = composePolishd(myProxy, { matcher: "/admin/:path*" });
-
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],
-};
-```
-
-Read your existing `config.matcher` before replacing it and pass exactly that
-value. `matcher` takes Next's matcher strings (`"/admin/:path*"`,
-`"/((?!api).*)"`) or a `RegExp` for full control. Omit it only if your handler
-really did run everywhere.
-
-Widening is safe from Polishd's side: `withPolishdSession` returns early once
-the cookie exists, so the extra paths cost a cookie lookup and nothing more.
-
-The union literal still has to be written by hand — Next parses it statically,
-so no helper can generate it.
+Leave it alone; Polishd doesn't need to be in it. A proxy from an earlier
+install that calls `withPolishdSession` or `composePolishd` keeps working: it
+mints the cookie on the first page response, and the route then finds it there.
+You can take Polishd out of it whenever you like. Packages up to 0.3.2-dev.0
+required that proxy, so one of those still needs it — see the docs shipped in
+its `node_modules/@polishd/next`.
 
 ### `src/instrumentation-client.ts` — capture
 
-Next runs this before hydration, so capture starts on the first paint.
+Next runs this before hydration, so capture starts on the first paint. Next
+loads this file from 15.3; on anything earlier it is silently ignored.
 
 ```ts
 import { initPolishd } from "@polishd/next/client";
@@ -404,15 +355,23 @@ The fastest check is the doctor, which inspects the whole wiring and, with
 npx @polishd/next doctor --url http://localhost:3000
 ```
 
-It catches the failures that produce no error: a proxy named for the wrong Next
-major, `config.matcher` that isn't an inline literal, route segment config
-re-exported rather than declared, the dashboard stylesheet not imported, and events
-being dropped for want of a session cookie.
+It catches the failures that produce no error: route segment config
+re-exported rather than declared, capture or ingest missing, the dashboard
+stylesheet not imported, and events being dropped for want of a session.
 
 By hand:
 
-1. **Cookie.** `curl -sI http://localhost:3000/ | grep -i set-cookie` should
-   show `polishd_session=<uuid>` with `HttpOnly`.
+1. **Cookie.** A probe from a page on the site is minted one (and stores no
+   event):
+
+   ```bash
+   curl -si -X POST http://localhost:3000/api/polishd \
+     -H 'content-type: application/json' -H 'origin: http://localhost:3000' \
+     -d '{"probe":true,"events":[]}' | grep -i -E 'set-cookie|reason'
+   ```
+
+   It should show `polishd_session=<uuid>` with `HttpOnly`, then
+   `"reason":"probe"`. A plain page request sets no cookie; that's expected.
 2. **Dashboard.** Visit `/polishd` — expect HTTP 200, styled, with a "no events
    yet" state.
 3. **Capture.** Click around your app, then reload the dashboard. Events flush
@@ -525,24 +484,22 @@ import config from "../polishd.config";
 initPolishd(config);
 ```
 
-> **This file is not loaded for you.** It can't be: the three places that read
-> config run in three different runtimes — the browser, the Edge proxy, and the
-> Node route handler — and the Edge one has no filesystem to read it from.
+> **This file is not loaded for you.** It can't be: the places that read
+> config run in different runtimes — the browser and the Node route handler.
 
-So pass the same object to all three:
+So pass the same object to both:
 
 ```ts
 initPolishd(config);                             // instrumentation-client.ts
 export const POST = createPolishdRoute(config);  // app/api/polishd/route.ts
-const { proxy } = createPolishdProxy(config);    // proxy.ts
 ```
 
-Thread it into one but not another and they disagree silently. A proxy minting
-cookie `a` while ingest reads `b` produces exactly the "beacons return 200,
-dashboard stays empty" failure below.
+Thread it into one but not the other and they disagree silently: the client
+posting to one route while the handler listens on another, or the dashboard's
+own traffic dropped on one side only.
 
-For `sessionCookie` specifically, use the environment variable instead — it's
-the one channel all three runtimes can read, so it can't go half-applied:
+For `sessionCookie` specifically, use the environment variable instead — every
+runtime can read it, a proxy of yours included, so it can't go half-applied:
 
 ```bash
 POLISHD_SESSION_COOKIE=my_session
@@ -636,10 +593,12 @@ The commonest failure, and the quietest. Ingest deliberately answers a missing
 session cookie with `{"ok":true,"stored":0,"reason":"no_session"}` so beacons
 never retry, and `sendBeacon` can't read a response anyway — so nothing in the
 browser can tell you. The dashboard shows a banner when it detects this, and the
-dev console warns on the first flush. Causes, in order of likelihood: the proxy
-file is named for the wrong Next major; its matcher doesn't cover the pages
-you're visiting; a merge with an existing proxy went wrong; or the proxy and the
-route disagree about the cookie name (set `POLISHD_SESSION_COOKIE`).
+dev console warns on the first flush. The route mints a session for a page's
+first batch, so this means it can't: something in front of your app (a CDN,
+firewall or proxy) strips both the `Origin` and `Sec-Fetch-Site` headers it
+reads, or a route of your own around `ingest()` passes no session id. On a
+package up to 0.3.2-dev.0, it means the proxy that minted the cookie then isn't
+running.
 
 **Build fails: "can't recognize the exported `runtime` field in route"**
 Route segment config was re-exported. Declare `runtime` and `dynamic` inline in
@@ -659,7 +618,9 @@ this should be handled; if it persists, an ancestor with `transform`, `filter`,
 [The dashboard's own shell](#the-dashboards-own-shell).
 
 **Every `/api/*` route suddenly 404s**
-Your proxy matcher is matching `/api`. Restore the `(?!api|...)` exclusion.
+A proxy of yours has a matcher that touches `/api`, which under Next 16 with
+Turbopack breaks route resolution for the whole segment. Exclude `/api` from
+it.
 
 **The dashboard has white borders and no greys, or is unstyled**
 The package predates 0.2.3-dev.23, which made the dashboard load its own
@@ -670,8 +631,9 @@ See [Styling](#4-styling).
 Node is older than 22.5. Upgrade, or configure Postgres.
 
 **No `polishd_session` cookie**
-The proxy file is missing or misnamed — `proxy.ts` on Next 16, `middleware.ts`
-on Next 15 — or its matcher excludes the path you're testing.
+Expected on a page request: the cookie arrives with the response to the first
+batch, not with the page. If no batch gets one either, see "Beacons return 200
+but the dashboard stays empty" above.
 
 **Dashboard is empty but the app works**
 Expected before any events flush. If it persists, check the browser console for

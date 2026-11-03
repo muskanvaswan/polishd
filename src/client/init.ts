@@ -39,6 +39,12 @@ export function initPolishd(options: InitOptions = {}): void {
   // inlined (client/build.ts); null leaves it to the server to stamp.
   const build = sanitizeBuild(cfg.build) ?? detectClientBuild();
 
+  // The session id this page proposes, for the route to adopt if the request
+  // arrives without a session cookie (see `mintSessionId` in session.ts). The
+  // cookie is httpOnly, so the page can't tell whether it has one; it sends
+  // this every time and the route ignores it once the cookie is set.
+  const sid = proposeSessionId();
+
   const queue: PolishdEvent[] = [];
   let currentPath = location.pathname;
   let maxScrollPct = 0;
@@ -61,11 +67,12 @@ export function initPolishd(options: InitOptions = {}): void {
 
   // ---- transport -----------------------------------------------------------
 
-  // Ingest answers a missing session cookie with `ok: true` and HTTP 200 — on
+  // Ingest answers a batch with no session with `ok: true` and HTTP 200 — on
   // purpose, so beacons never retry — and `sendBeacon` cannot read a response
-  // at all. So a proxy that isn't running is invisible from the browser unless
-  // we deliberately look. Inspect the first fetch flush of the page; if the
-  // proxy is down every flush fails the same way, so one check is enough.
+  // at all. The shipped route mints a session, so this only fires behind a
+  // host's own handler that doesn't; it would be invisible from the browser
+  // unless we deliberately look. One check of the first fetch flush is enough:
+  // a handler like that drops every batch the same way.
   let diagnosed = false;
   const diagnose = (res: Response) => {
     if (diagnosed || !IS_DEV) return;
@@ -75,11 +82,10 @@ export function initPolishd(options: InitOptions = {}): void {
       .then((body: { stored?: number; reason?: string }) => {
         if (body?.reason !== "no_session") return;
         console.warn(
-          "[polishd] events are being dropped: the request carried no session cookie, " +
-            "so the proxy that mints it isn't running on this path.\n" +
-            "  Expected `proxy.ts` (Next 16+) or `middleware.ts` (Next 15) at the project " +
-            "root, exporting a function of the same name.\n" +
-            "  `config.matcher` must be an inline literal and must cover this path.\n" +
+          "[polishd] events are being dropped: the ingest route stored this batch under " +
+            "no session.\n" +
+            "  The route from `createPolishdRoute()` mints one itself; a handler of your own " +
+            "around `ingest()` has to pass a session id.\n" +
             "  Run `npx @polishd/next doctor` to check.",
         );
       })
@@ -91,7 +97,7 @@ export function initPolishd(options: InitOptions = {}): void {
   const flush = (useBeacon = false) => {
     if (queue.length === 0) return;
     const batch = queue.splice(0, queue.length);
-    const payload: PolishdIngestBody = { events: batch, page: currentPath };
+    const payload: PolishdIngestBody = { events: batch, page: currentPath, sid };
     if (build) payload.build = build;
     const body = JSON.stringify(payload);
     // sendBeacon survives unload; fetch is used for periodic flushes.
@@ -273,4 +279,18 @@ export function initPolishd(options: InitOptions = {}): void {
   emitViewport();
   push({ type: "page_view", path: currentPath });
   emitDesignScan();
+}
+
+/**
+ * A random UUID. `crypto.randomUUID` is missing outside secure contexts (a
+ * plain-http LAN address in development), so fall back to building one from
+ * `getRandomValues`, which every browser has.
+ */
+function proposeSessionId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
