@@ -19,6 +19,7 @@
  * it. Idempotent and chunked, so a crash mid-way (the key is only written at
  * the end) or two serverless instances racing just redo harmless UPDATEs.
  */
+import { EVENTS_TABLE } from "../shared/store-tables";
 import { reclassifiedClickType } from "../shared/text-signals";
 import { exec, getMeta, query, setMeta, storeReady } from "./store";
 
@@ -49,7 +50,7 @@ async function run(): Promise<void> {
   // All rows, including cross-install telemetry — every writer used the same
   // client classification, so every writer's history has the same skew.
   const rows = await query(
-    `SELECT id, type, selector, text FROM events WHERE type IN ('dead_click', 'rage_click')`,
+    `SELECT id, type, selector, text FROM ${EVENTS_TABLE} WHERE type IN ('dead_click', 'rage_click')`,
   );
 
   const ids: number[] = [];
@@ -64,7 +65,7 @@ async function run(): Promise<void> {
   for (let i = 0; i < ids.length; i += UPDATE_CHUNK) {
     const chunk = ids.slice(i, i + UPDATE_CHUNK);
     const ok = await exec(
-      `UPDATE events SET type = 'text_click' WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+      `UPDATE ${EVENTS_TABLE} SET type = 'text_click' WHERE id IN (${chunk.map(() => "?").join(", ")})`,
       chunk,
     );
     if (!ok) return; // no key written — retried on the next dashboard load

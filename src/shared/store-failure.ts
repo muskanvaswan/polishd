@@ -9,6 +9,8 @@
  * since a connection string carries the database password.
  */
 
+import { FOREIGN_TABLE_MARK } from "./store-tables";
+
 export type StoreFailureKind =
   /** No `POLISHD_DATABASE_URL`, and the local SQLite file can't be written. */
   | "no-database"
@@ -17,7 +19,9 @@ export type StoreFailureKind =
   /** A URL is set, but the optional `pg` driver isn't installed. */
   | "pg-missing"
   /** A URL is set, and connecting to it failed. */
-  | "postgres";
+  | "postgres"
+  /** The database has a table by one of Polishd's names that isn't Polishd's. */
+  | "taken";
 
 export interface StoreFailure {
   kind: StoreFailureKind;
@@ -59,6 +63,10 @@ export function describeStoreFailure(failure: {
   if (failure.tried === "sqlite") {
     const node = /node:sqlite|ERR_UNKNOWN_BUILTIN_MODULE|No such built-in module/i.test(failure.error);
     return { kind: node ? "node" : "no-database", host: null, hint: null, detail };
+  }
+  if (failure.error.includes(FOREIGN_TABLE_MARK)) {
+    // The store's own sentence, which names the table and carries no secret.
+    return { kind: "taken", host: failure.host, hint: failure.error.split(". ")[0] + ".", detail };
   }
   if (/Cannot find (module|package) ['"]pg['"]/i.test(failure.error)) {
     return { kind: "pg-missing", host: failure.host, hint: null, detail };

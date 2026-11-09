@@ -9,6 +9,7 @@
  * placeholders (the store rewrites them per dialect) and boolean aggregates
  * spelled `SUM(CASE WHEN … THEN 1 ELSE 0 END)` rather than SQLite's `SUM(x = y)`.
  */
+import { EVENTS_TABLE } from "../shared/store-tables";
 import { getMeta, parseMeta, query, storeReady } from "./store";
 import { ensureReclassifiedHistory } from "./reclassify";
 import {
@@ -113,7 +114,7 @@ export function polishdEventsSource(filter: EventFilter = {}): string {
     conditions.push(`build = ${literal(filter.build)}`);
   }
 
-  return `(SELECT * FROM events
+  return `(SELECT * FROM ${EVENTS_TABLE}
      WHERE ${conditions.join("\n       AND ")}) AS events`;
 }
 
@@ -1335,7 +1336,7 @@ export async function getTelemetryInstalls(limit = 100): Promise<TelemetryInstal
             SUM(CASE WHEN type = 'rage_click' THEN 1 ELSE 0 END) AS rage_clicks,
             SUM(CASE WHEN type = 'dead_click' THEN 1 ELSE 0 END) AS dead_clicks,
             MAX(received_at) AS last_seen
-     FROM events
+     FROM ${EVENTS_TABLE}
      WHERE install_id IS NOT NULL
      GROUP BY install_id
      ORDER BY last_seen DESC
@@ -1347,9 +1348,9 @@ export async function getTelemetryInstalls(limit = 100): Promise<TelemetryInstal
   // which one" — state the click stream can't carry. Latest wins so an
   // install that connects (or disconnects) a model reads correctly.
   const stateRows = await query(
-    `SELECT install_id, meta FROM events e
+    `SELECT install_id, meta FROM ${EVENTS_TABLE} e
      WHERE type = 'install_state' AND install_id IS NOT NULL
-       AND id = (SELECT MAX(id) FROM events e2
+       AND id = (SELECT MAX(id) FROM ${EVENTS_TABLE} e2
                  WHERE e2.type = 'install_state' AND e2.install_id = e.install_id)`,
   );
   const states = new Map<string, { hasModel: boolean; provider: string | null; model: string | null }>();
@@ -1396,7 +1397,7 @@ export async function getTelemetryTopPaths(limit = 10): Promise<TelemetryPathSta
             COUNT(*) AS views,
             COUNT(DISTINCT session_id) AS sessions,
             COUNT(DISTINCT install_id) AS installs
-     FROM events
+     FROM ${EVENTS_TABLE}
      WHERE install_id IS NOT NULL AND type = 'page_view'
      GROUP BY path
      ORDER BY views DESC
@@ -1418,6 +1419,6 @@ export async function getTelemetryTopPaths(limit = 10): Promise<TelemetryPathSta
  * only ever be an empty screen.
  */
 export async function hasTelemetryInstalls(): Promise<boolean> {
-  const rows = await query(`SELECT 1 AS present FROM events WHERE install_id IS NOT NULL LIMIT 1`);
+  const rows = await query(`SELECT 1 AS present FROM ${EVENTS_TABLE} WHERE install_id IS NOT NULL LIMIT 1`);
   return rows.length > 0;
 }

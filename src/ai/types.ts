@@ -91,6 +91,10 @@ export interface PolishdAISettingsPublic {
   dispatchPaused: boolean;
   /** True when provider settings came from env vars (read-only defaults). */
   fromEnv: boolean;
+  /** True when the app's polishd.defaults.json supplied any of these. */
+  fromFile: boolean;
+  /** The variable the key is read from, when polishd.defaults.json names one that's set. */
+  apiKeyEnv?: string;
 }
 
 /**

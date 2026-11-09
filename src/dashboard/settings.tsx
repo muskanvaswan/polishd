@@ -24,6 +24,7 @@ import {
   generateSummaryAction,
   listModelsAction,
   saveAISettingsAction,
+  skipOnboardingAction,
   verifyGithubAction,
 } from "../ai/actions";
 import type {
@@ -34,6 +35,7 @@ import type {
   PolishdProjectProfile,
   PolishdRefreshCadence,
 } from "../ai/types";
+import { githubTokenUrl } from "../shared/github-token";
 import DispatchCard, { type DispatchChoices } from "./dispatch-card";
 import {
   Badge,
@@ -65,8 +67,8 @@ export const PROVIDERS: {
     value: "anthropic",
     label: "Anthropic (Claude)",
     modelHint: "claude-opus-4-8",
-    keyUrl: "https://console.anthropic.com/settings/keys",
-    keyHost: "console.anthropic.com",
+    keyUrl: "https://platform.claude.com/settings/keys",
+    keyHost: "platform.claude.com",
   },
   {
     value: "openai",
@@ -295,7 +297,12 @@ export default function SettingsView({
               setGaps([]);
             }}
             onError={setError}
-            onSkip={() => setOnboarding(false)}
+            onSkip={() => {
+              setOnboarding(false);
+              // So a fresh visit stops opening here. Best effort: if it
+              // doesn't land, the next visit just offers setup again.
+              skipOnboardingAction().catch(() => {});
+            }}
             onFinished={() => {
               setOnboarding(false);
               // The first summary was just generated — go and read it.
@@ -730,15 +737,16 @@ function OnboardingWizard({
                   <span className="mt-1.5 block text-[12px] leading-relaxed text-fg-3">
                     Create a{" "}
                     <a
-                      href="https://github.com/settings/personal-access-tokens/new"
+                      href={githubTokenUrl(githubRepo.trim())}
                       target="_blank"
                       rel="noreferrer noopener"
                       className={textLink}
                     >
                       fine-grained token
                     </a>{" "}
-                    for this repo with Contents (read) and Issues &amp; Pull requests (write).
-                    Stored server-side; never sent to the browser.
+                    — the form opens with Contents (read) and Issues &amp; Pull requests (write)
+                    set; pick this repo under Repository access. Stored server-side; never sent to
+                    the browser.
                   </span>
                 </label>
               </div>
@@ -1038,12 +1046,20 @@ function SettingsForm({
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={
-                settings.hasApiKey ? "•••••••• (stored — leave blank to keep)" : "Paste your key"
+                settings.apiKeyEnv
+                  ? `Using ${settings.apiKeyEnv} — paste a key to use another`
+                  : settings.hasApiKey
+                    ? "•••••••• (stored — leave blank to keep)"
+                    : "Paste your key"
               }
               autoComplete="off"
               className={`${inputCls} mt-1.5`}
             />
-            {prov && (
+            {settings.apiKeyEnv ? (
+              <span className="mt-1.5 block text-[12px] text-fg-3">
+                Read from <Code>{settings.apiKeyEnv}</Code>, which polishd.defaults.json names.
+              </span>
+            ) : prov && (
               <span className="mt-1.5 block text-[12px] text-fg-3">
                 Get a key from{" "}
                 <a
@@ -1161,7 +1177,16 @@ function SettingsForm({
           <label className="block">
             <span className={labelCls}>Access token</span>
             <span className={`ml-1 ${fieldHintCls}`}>
-              — Contents (read), Issues &amp; Pull requests (write).
+              —{" "}
+              <a
+                href={githubTokenUrl(githubRepo.trim())}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={textLink}
+              >
+                create one
+              </a>{" "}
+              with Contents (read), Issues &amp; Pull requests (write).
             </span>
             <input
               type="password"
@@ -1247,6 +1272,11 @@ function SettingsForm({
         )}
         {settings.fromEnv && (
           <span className="text-[12px] text-fg-3">Defaults loaded from environment variables.</span>
+        )}
+        {settings.fromFile && (
+          <span className="text-[12px] text-fg-3">
+            Defaults come from polishd.defaults.json; what you change here is kept over them.
+          </span>
         )}
       </div>
     </>

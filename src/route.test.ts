@@ -50,7 +50,7 @@ const mintedCookie = (res: Response) =>
   res.headers.getSetCookie().find((v) => v.startsWith("polishd_session=")) ?? null;
 
 const sessionsFor = async (path: string) =>
-  (await query(`SELECT DISTINCT session_id FROM events WHERE path = ?`, [path])).map(
+  (await query(`SELECT DISTINCT session_id FROM polishd_events WHERE path = ?`, [path])).map(
     (r) => (r as { session_id: string }).session_id,
   );
 

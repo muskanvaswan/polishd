@@ -123,43 +123,240 @@ function envSettings(): SavedSettings {
   return out;
 }
 
+// ── Defaults file (polishd.defaults.json) ─────────────────────────────────────
+
 /**
- * Effective settings = saved (dashboard) over env defaults. Returns the full
- * settings (with key) for server use, plus whether the *provider config* came
- * purely from env (so the UI can show it as a read-only default).
+ * The shape of `polishd.defaults.json`: what an app commits about itself so
+ * the dashboard opens already knowing the site, the repo and the model. They
+ * are defaults: the environment beats them, and anything saved in the
+ * dashboard beats both. The file is in git, so it never holds a secret.
  */
-export async function resolveSettings(): Promise<{ settings: PolishdAISettings; fromEnv: boolean }> {
-  const env = envSettings();
-  const saved = await readSaved();
-  const merged: SavedSettings = { ...env, ...saved };
+export interface PolishdDefaults {
+  ai?: {
+    provider?: PolishdAIProvider;
+    model?: string;
+    /** For `openai-compatible` providers. */
+    baseUrl?: string;
+    /**
+     * Read the API key from this environment variable — typically one the app
+     * already sets, like `ANTHROPIC_API_KEY`. Only a name ending in `_KEY`.
+     */
+    apiKeyEnv?: string;
+    instructions?: string;
+    refresh?: PolishdRefreshCadence;
+  };
+  site?: {
+    description?: string;
+    audience?: string;
+    values?: string;
+    /** Folders the codebase scan reads, relative to the repo root. */
+    sourceDirs?: string[] | string;
+  };
+  github?: { repo?: string; autoIssues?: boolean };
+  fix?: { auto?: boolean; label?: string; dailyCap?: number };
+}
+
+export interface ParsedPolishdDefaults {
+  settings: SavedSettings;
+  apiKeyEnv?: string;
+  /** What was ignored and why: logged when the page registers the file. */
+  problems: string[];
+}
+
+/** The file's keys per section, and the setting each one fills. */
+export const DEFAULTS_FIELDS: Record<string, Record<string, keyof PolishdAISettings | "apiKeyEnv">> = {
+  ai: {
+    provider: "provider",
+    model: "model",
+    baseUrl: "baseUrl",
+    apiKeyEnv: "apiKeyEnv",
+    instructions: "instructions",
+    refresh: "refreshCadence",
+  },
+  site: {
+    description: "context",
+    audience: "audience",
+    values: "ideology",
+    sourceDirs: "sourceDirs",
+  },
+  github: { repo: "githubRepo", autoIssues: "githubAutoIssues" },
+  fix: { auto: "dispatchAuto", label: "dispatchLabel", dailyCap: "dispatchDailyCap" },
+};
+
+/** Keys that would put a secret in git, and where the secret goes instead. */
+export const DEFAULTS_SECRETS: Record<string, string> = {
+  "ai.apiKey": "set POLISHD_AI_API_KEY, or name an existing variable in ai.apiKeyEnv",
+  "ai.key": "set POLISHD_AI_API_KEY, or name an existing variable in ai.apiKeyEnv",
+  "github.token": "set POLISHD_GITHUB_TOKEN",
+  "github.githubToken": "set POLISHD_GITHUB_TOKEN",
+};
+
+const API_KEY_ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*_KEY$/;
+const GITHUB_REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+
+/**
+ * Read a parsed `polishd.defaults.json` into settings, keeping what's valid
+ * and naming everything it drops. Blank strings mean "not set", so a file
+ * with empty placeholders is fine as it is.
+ */
+export function parsePolishdDefaults(raw: unknown): ParsedPolishdDefaults {
+  const out: ParsedPolishdDefaults = { settings: {}, problems: [] };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    out.problems.push("expected a JSON object; nothing was read from it");
+    return out;
+  }
+  const settings = out.settings as Record<string, unknown>;
+  for (const [section, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (section === "$schema") continue;
+    const fields = DEFAULTS_FIELDS[section];
+    if (!fields) {
+      out.problems.push(`unknown section "${section}", ignored`);
+      continue;
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      out.problems.push(`"${section}" should be an object, ignored`);
+      continue;
+    }
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      const path = `${section}.${key}`;
+      const secret = DEFAULTS_SECRETS[path];
+      if (secret) {
+        out.problems.push(`${path} is a secret and this file is committed: ignored. Instead, ${secret}`);
+        continue;
+      }
+      const target = fields[key];
+      if (!target) {
+        out.problems.push(`unknown key ${path}, ignored`);
+        continue;
+      }
+      const read = readDefault(target, v);
+      if (read.problem) out.problems.push(`${path} ${read.problem}, ignored`);
+      else if (read.value === undefined) continue;
+      else if (target === "apiKeyEnv") out.apiKeyEnv = read.value as string;
+      else settings[target] = read.value;
+    }
+  }
+  return out;
+}
+
+function readDefault(
+  target: keyof PolishdAISettings | "apiKeyEnv",
+  v: unknown,
+): { value?: unknown; problem?: string } {
+  if (v === undefined || v === null || v === "") return {};
+  switch (target) {
+    case "provider":
+      return coerceProvider(v) ? { value: v } : { problem: `must be one of ${VALID_PROVIDERS.join(", ")}` };
+    case "refreshCadence":
+      return coerceCadence(v) ? { value: v } : { problem: `must be one of ${VALID_CADENCES.join(", ")}` };
+    case "githubAutoIssues":
+    case "dispatchAuto":
+      return typeof v === "boolean" ? { value: v } : { problem: "must be true or false" };
+    case "dispatchDailyCap": {
+      const cap = typeof v === "number" ? coerceCap(v) : undefined;
+      return cap === undefined ? { problem: "must be a number" } : { value: cap };
+    }
+    case "dispatchLabel": {
+      const label = coerceLabel(v);
+      return label === undefined ? { problem: "must be text" } : { value: label };
+    }
+    case "sourceDirs": {
+      const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : null;
+      if (!list || list.some((d) => typeof d !== "string")) {
+        return { problem: "must be a list of folder names" };
+      }
+      const dirs = (list as string[]).map((d) => d.trim()).filter(Boolean);
+      return dirs.length ? { value: dirs.join(",") } : {};
+    }
+    default: {
+      if (typeof v !== "string") return { problem: "must be text" };
+      const s = v.trim();
+      if (!s) return {};
+      if (target === "apiKeyEnv" && !API_KEY_ENV_RE.test(s)) {
+        return { problem: "must name an environment variable ending in _KEY" };
+      }
+      if (target === "githubRepo" && !GITHUB_REPO_RE.test(s)) {
+        return { problem: 'must be "owner/name"' };
+      }
+      return { value: s };
+    }
+  }
+}
+
+let fileDefaults: ParsedPolishdDefaults | null = null;
+const warnedDefaults = new Set<string>();
+
+/**
+ * Register the app's `polishd.defaults.json`, as `createPolishdPage({ defaults })`
+ * does at module evaluation — the same moment the access policy is registered,
+ * and for the same reason: server actions can run without the page rendering.
+ */
+export function registerPolishdDefaults(raw: unknown): ParsedPolishdDefaults {
+  fileDefaults = parsePolishdDefaults(raw);
+  for (const problem of fileDefaults.problems) {
+    if (warnedDefaults.has(problem)) continue;
+    warnedDefaults.add(problem);
+    console.warn(`[polishd] polishd.defaults.json: ${problem}`);
+  }
+  return fileDefaults;
+}
+
+/** Partial settings with every gap filled by the package's own default. */
+function complete(merged: SavedSettings): PolishdAISettings {
   const provider = merged.provider ?? "anthropic";
   return {
-    settings: {
-      provider,
-      model: merged.model || DEFAULT_MODEL[provider],
-      apiKey: merged.apiKey ?? "",
-      baseUrl: merged.baseUrl,
-      instructions: merged.instructions,
-      context: merged.context,
-      audience: merged.audience,
-      ideology: merged.ideology,
-      sourceDirs: merged.sourceDirs,
-      refreshCadence: merged.refreshCadence ?? "manual",
-      githubRepo: merged.githubRepo,
-      githubToken: merged.githubToken,
-      githubAutoIssues: merged.githubAutoIssues ?? false,
-      dispatchAuto: merged.dispatchAuto === true,
-      dispatchLabel: coerceLabel(merged.dispatchLabel) ?? DISPATCH_LABEL_DEFAULT,
-      dispatchDailyCap: coerceCap(merged.dispatchDailyCap) ?? DISPATCH_DAILY_CAP_DEFAULT,
-      dispatchPaused: merged.dispatchPaused === true,
-    },
+    provider,
+    model: merged.model || DEFAULT_MODEL[provider],
+    apiKey: merged.apiKey ?? "",
+    baseUrl: merged.baseUrl,
+    instructions: merged.instructions,
+    context: merged.context,
+    audience: merged.audience,
+    ideology: merged.ideology,
+    sourceDirs: merged.sourceDirs,
+    refreshCadence: merged.refreshCadence ?? "manual",
+    githubRepo: merged.githubRepo,
+    githubToken: merged.githubToken,
+    githubAutoIssues: merged.githubAutoIssues ?? false,
+    dispatchAuto: merged.dispatchAuto === true,
+    dispatchLabel: coerceLabel(merged.dispatchLabel) ?? DISPATCH_LABEL_DEFAULT,
+    dispatchDailyCap: coerceCap(merged.dispatchDailyCap) ?? DISPATCH_DAILY_CAP_DEFAULT,
+    dispatchPaused: merged.dispatchPaused === true,
+  };
+}
+
+/**
+ * Effective settings = saved (dashboard) over env over polishd.defaults.json.
+ * Returns the full settings (with key) for server use, plus whether the
+ * *provider config* came purely from env (so the UI can show it as a read-only
+ * default), whether the defaults file supplied anything, and the variable the
+ * key was read from when the file named one.
+ */
+export async function resolveSettings(): Promise<{
+  settings: PolishdAISettings;
+  fromEnv: boolean;
+  fromFile: boolean;
+  apiKeyEnv?: string;
+}> {
+  const env = envSettings();
+  const saved = await readSaved();
+  const file = fileDefaults?.settings ?? {};
+  const merged: SavedSettings = { ...file, ...env, ...saved };
+  // A key saved in the dashboard or set as POLISHD_AI_API_KEY wins; the
+  // variable the file names is the fallback, so naming one never overrides.
+  const namedEnv = fileDefaults?.apiKeyEnv;
+  const namedKey = !merged.apiKey && namedEnv ? (process.env[namedEnv] ?? "").trim() : "";
+  return {
+    settings: { ...complete(merged), apiKey: merged.apiKey || namedKey },
     fromEnv: Object.keys(saved).length === 0 && Object.keys(env).length > 0,
+    fromFile: Object.keys(file).length > 0 || namedEnv !== undefined,
+    apiKeyEnv: namedKey ? namedEnv : undefined,
   };
 }
 
 /** Public (no-secret) settings for the dashboard. */
 export async function getAISettingsPublic(): Promise<PolishdAISettingsPublic> {
-  const { settings, fromEnv } = await resolveSettings();
+  const { settings, fromEnv, fromFile, apiKeyEnv } = await resolveSettings();
   return {
     provider: settings.provider,
     model: settings.model,
@@ -179,6 +376,8 @@ export async function getAISettingsPublic(): Promise<PolishdAISettingsPublic> {
     dispatchDailyCap: settings.dispatchDailyCap ?? DISPATCH_DAILY_CAP_DEFAULT,
     dispatchPaused: settings.dispatchPaused === true,
     fromEnv,
+    fromFile,
+    apiKeyEnv,
   };
 }
 
@@ -237,8 +436,41 @@ export async function saveAISettings(
   if (input.dispatchDailyCap !== undefined) next.dispatchDailyCap = coerceCap(input.dispatchDailyCap);
   if (input.dispatchPaused !== undefined) next.dispatchPaused = input.dispatchPaused === true;
 
+  // Defaults stay defaults. The form sends every field on each save, so a
+  // value that matches what would apply without it — polishd.defaults.json,
+  // the environment, or the package's own default — isn't stored: storing it
+  // would pin it, and a later edit to the file would never land. Secrets are
+  // kept as given.
+  const defaults = complete({ ...(fileDefaults?.settings ?? {}), ...envSettings() });
+  for (const key of Object.keys(next) as (keyof SavedSettings)[]) {
+    if (key === "apiKey" || key === "githubToken") continue;
+    if (next[key] === defaults[key]) delete next[key];
+  }
+
   await setMeta(SETTINGS_KEY, JSON.stringify(next));
   return getAISettingsPublic();
+}
+
+// ── First-time setup ──────────────────────────────────────────────────────────
+
+/** Set once the owner skips the first-time setup; the value is when. */
+const ONBOARDING_SKIPPED_KEY = "onboarding_skipped";
+
+/**
+ * Whether the dashboard should open on the Settings tab's first-time setup: no
+ * model, saved or from env (the same test that shows the wizard), and the
+ * owner hasn't skipped it. Saving a key ends it. So does skipping, which is
+ * remembered, so a bare `/polishd` stops sending the owner back.
+ */
+export async function needsOnboarding(): Promise<boolean> {
+  const { settings, fromEnv } = await resolveSettings();
+  if (settings.apiKey || fromEnv) return false;
+  return (await getMeta(ONBOARDING_SKIPPED_KEY)) === null;
+}
+
+/** Remember that the owner skipped the first-time setup. */
+export async function skipOnboarding(): Promise<void> {
+  await setMeta(ONBOARDING_SKIPPED_KEY, String(Date.now()));
 }
 
 /** Fields the dashboard sends when asking a provider which models are available. */

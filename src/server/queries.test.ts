@@ -184,7 +184,7 @@ test("a doctor probe proves the store is writable without recording an event", a
   assert.equal(legacy.reason, "probe");
 
   assert.equal((await getOverview({ since: 0 })).totalEvents, before);
-  const rows = await query(`SELECT COUNT(*) AS n FROM events WHERE path = ?`, [DOCTOR_PROBE_PATH]);
+  const rows = await query(`SELECT COUNT(*) AS n FROM polishd_events WHERE path = ?`, [DOCTOR_PROBE_PATH]);
   assert.equal(Number(rows[0]?.n), 0);
 
   // A probe still needs the cookie: that's half of what it checks.

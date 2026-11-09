@@ -89,6 +89,7 @@ import { listFixRuns, loadIssueThreads } from "../ai/fix-dispatch";
 import { listFixSuggestions } from "../ai/fix";
 import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
+import { needsOnboarding, registerPolishdDefaults } from "../ai/settings";
 import { generateSummary, getAISettingsPublic, loadSummary, loadSummaryState } from "../ai/summary";
 import { getDesignData } from "../server/design";
 import { resolveSiteOrigin } from "../server/site-origin";
@@ -276,6 +277,9 @@ export interface PolishdAIBundle {
 // The tab rail (and the client-side navigation between tabs) lives in
 // ./chrome; re-exported here because this is the module hosts import.
 export type { PolishdDashboardTab } from "./chrome";
+
+// The shape of polishd.defaults.json, for hosts that type the import.
+export type { PolishdDefaults } from "../ai/settings";
 
 // ── Analytics: header + status (shared by batch and streamed renders) ────────
 function AnalyticsHeader({ pill, controls }: { pill: ReactNode; controls: ReactNode }) {
@@ -1435,6 +1439,14 @@ export interface CreatePolishdPageOptions {
    * @default false
    */
   suspense?: boolean;
+  /**
+   * The app's `polishd.defaults.json`, imported by the page: what the site
+   * is, its repository, the model, and the variable that holds the key. They
+   * are defaults — the environment and anything saved in the dashboard win.
+   * Passed in rather than read from disk, so the bundler ships the file with
+   * the page on hosts whose functions can't see the repo. `init` wires it.
+   */
+  defaults?: unknown;
 }
 
 /**
@@ -1529,8 +1541,27 @@ const DATABASE_GUIDE = "https://github.com/muskanvaswan/polishd/blob/main/DATABA
  * guard, and to the developer locally, but not to anyone reading a dashboard
  * made public on purpose.
  */
+/**
+ * Provisions a Neon database from the Vercel CLI and names its pooled string
+ * POLISHD_DATABASE_URL. Production only, and no env pull: by default it
+ * connects development too and pulls into .env.local, which would point local
+ * dev at production analytics.
+ */
+const NEON_COMMAND = "vercel integration add neon --prefix POLISHD_ -e production --no-env-pull";
+
 function DatabaseSetup({ failure, showDetail }: { failure: StoreFailure; showDetail: boolean }) {
   const step = "rounded-lg border border-line bg-sunken px-3.5 py-3";
+  // On Vercel one command does the first three steps: it creates a Neon
+  // database and sets its pooled string on the project under our name.
+  const onVercel = process.env.VERCEL === "1";
+  const neonCommand = (
+    <>
+      Run <Code>{NEON_COMMAND}</Code> in the app&apos;s folder. It creates a Neon database
+      (there&apos;s a free plan) and sets <Code>POLISHD_DATABASE_URL</Code>, the pooled
+      connection string, on this project&apos;s production environment only, so local dev and
+      previews don&apos;t write to it.
+    </>
+  );
   const copy: Record<StoreFailure["kind"], { title: string; intro: ReactNode; steps: ReactNode[] }> = {
     "no-database": {
       title: "Connect a database",
@@ -1541,19 +1572,52 @@ function DatabaseSetup({ failure, showDetail }: { failure: StoreFailure; showDet
           SQLite file, which is normal on serverless hosts: their filesystem is read-only.
         </>
       ),
+      steps: onVercel
+        ? [neonCommand, <>Redeploy. Polishd creates its tables on first use.</>]
+        : [
+            <>Create a Postgres database: Neon, Vercel (Storage → Postgres), Supabase or RDS.</>,
+            <>
+              Copy its <span className="font-medium text-fg">pooled</span> connection string. On
+              Neon the host contains{" "}
+              <span className="whitespace-nowrap">
+                <Code>-pooler</Code>.
+              </span>
+            </>,
+            <>
+              Set it as <Code>POLISHD_DATABASE_URL</Code> in your deployment&apos;s environment.
+            </>,
+            <>Redeploy. Polishd creates its tables on first use.</>,
+          ],
+    },
+    taken: {
+      title: "This database is already in use",
+      intro: (
+        <>
+          <Code>POLISHD_DATABASE_URL</Code> points at{" "}
+          {failure.host ? <Code>{failure.host}</Code> : "a database"}, which already has a table by
+          one of Polishd&apos;s names. Polishd won&apos;t write to a table that isn&apos;t its own,
+          so every visit is being dropped.
+          {failure.hint && <span className="mt-2 block text-fg-2">{failure.hint}</span>}
+        </>
+      ),
       steps: [
-        <>Create a Postgres database: Neon, Vercel (Storage → Postgres), Supabase or RDS.</>,
+        onVercel ? (
+          <>
+            Give Polishd a database of its own. Remove <Code>POLISHD_DATABASE_URL</Code> from the
+            project, then run <Code>{NEON_COMMAND}</Code>: it creates a Neon database and sets the
+            variable again, pointing at the new one.
+          </>
+        ) : (
+          <>
+            Give Polishd a database of its own — a new database on the same server works — and set
+            its <span className="font-medium text-fg">pooled</span> connection string as{" "}
+            <Code>POLISHD_DATABASE_URL</Code>.
+          </>
+        ),
         <>
-          Copy its <span className="font-medium text-fg">pooled</span> connection string. On Neon
-          the host contains{" "}
-          <span className="whitespace-nowrap">
-            <Code>-pooler</Code>.
-          </span>
+          Redeploy. Polishd creates its two tables, <Code>polishd_events</Code> and{" "}
+          <Code>polishd_meta</Code>, there.
         </>,
-        <>
-          Set it as <Code>POLISHD_DATABASE_URL</Code> in your deployment&apos;s environment.
-        </>,
-        <>Redeploy. Polishd creates its tables on first use.</>,
       ],
     },
     postgres: {
@@ -1714,6 +1778,8 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   if (opts.config?.dashboardRoute) {
     registerPolishdDashboardRoute(opts.config.dashboardRoute);
   }
+  // Same moment, same reason: the AI actions read settings without a render.
+  if (opts.defaults !== undefined) registerPolishdDefaults(opts.defaults);
 
   // Applied to the unauthorized screen as well: a sign-in prompt stranded
   // below a non-scrolling fold is the same bug with higher stakes.
@@ -1782,7 +1848,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
     // Which tab to render, from the `?tab=` query the sidebar links carry.
     // No (or an unknown) tab lands on the Overview. `issues` is the
-    // Actionables tab's old name, kept so a bookmark still lands.
+    // Actionables tab's old name, kept so a bookmark still lands. A fresh
+    // install with no model lands on Settings instead, where the first-time
+    // setup is, until a key is saved or the setup skipped. Only a bare visit
+    // does: every rail link names its tab, so the owner can always leave.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
     const tab: PolishdDashboardTab =
       rawTab === "analytics" ||
@@ -1793,7 +1862,9 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         ? rawTab
         : rawTab === "issues"
           ? "actionables"
-          : "overview";
+          : rawTab === undefined && (await needsOnboarding())
+            ? "settings"
+            : "overview";
 
     // How far back the Analytics tab reaches, from `?range=`; anything that
     // isn't a known range is all time. Only that tab reads it.
