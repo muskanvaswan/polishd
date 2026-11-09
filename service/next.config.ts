@@ -17,9 +17,11 @@ const nextConfig: NextConfig = {
   // Next's tracing can't see either of these — playwright-core reads its
   // registry with a computed path, and the Chromium binary is a brotli
   // archive unpacked at runtime — so they are named here. Keys match routes
-  // as substrings.
+  // as substrings, so this one covers GET /api/v1 as well as the shoot
+  // route: its health probe launches the same browser, and without these
+  // files the route can't even load playwright-core.
   outputFileTracingIncludes: {
-    "/api/v1/shoot": [
+    "/api/v1": [
       "./node_modules/playwright-core/browsers.json",
       "./node_modules/@sparticuz/chromium/bin/**",
     ],
