@@ -3,6 +3,9 @@
 // affect anything outside the dashboard.
 import "@polishd/next/dashboard.css";
 import { createPolishdPage, metadata as dashboardMetadata } from "@polishd/next/dashboard";
+// The site's description, audience and repo, so the dashboard opens already
+// knowing them. Imported rather than read from disk, so it ships to Vercel.
+import defaults from "../../polishd.defaults.json";
 
 // Next requires these to be declared inline in the page module.
 export const runtime = "nodejs";
@@ -18,4 +21,4 @@ export const metadata = dashboardMetadata;
 // POLISHD_DASHBOARD_TOKEN, pass your own `authenticate`, or opt out
 // explicitly with POLISHD_DASHBOARD_PUBLIC=true. It can change your AI
 // settings and spend your model tokens, so it is not public by default.
-export default createPolishdPage();
+export default createPolishdPage({ defaults });

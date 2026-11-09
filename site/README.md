@@ -7,9 +7,10 @@ polishd (dogfooding it) and hosts the project's telemetry collector.
 ## Polishd on the site
 
 The site installs its own package, exactly the way `npx @polishd/next init`
-would wire any host app: `proxy.ts` mints the session cookie,
-`instrumentation-client.ts` starts capture, `app/api/polishd/route.ts`
-ingests, and the dashboard is at `/polishd`.
+would wire any host app: `instrumentation-client.ts` starts capture,
+`app/api/polishd/route.ts` ingests (and mints the session cookie on a
+visitor's first batch), and the dashboard is at `/polishd`, opening with the
+site description from `polishd.defaults.json`.
 
 On top of that, `app/api/polishd-telemetry/route.ts` is the **cross-install
 telemetry collector** — the endpoint every polishd installation's dashboard

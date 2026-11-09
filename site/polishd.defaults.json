@@ -1,0 +1,15 @@
+{
+  "site": {
+    "description": "The landing page for @polishd/next, open-source product analytics and design review for Next.js. Visitors read the one-page pitch, copy the install command and follow links to the docs; /AGENTS.md and /llms.txt serve the install procedure to coding agents. /polishd is the owner-only dashboard, and in production it reads the opt-in telemetry from other installs' dashboards rather than this site's own traffic.",
+    "audience": "Developers building Next.js (App Router) apps, often shipped fast with a coding agent",
+    "values": ""
+  },
+  "github": {
+    "repo": "muskanvaswan/polishd"
+  },
+  "ai": {
+    "provider": "",
+    "model": "",
+    "apiKeyEnv": ""
+  }
+}
