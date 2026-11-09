@@ -118,6 +118,7 @@ import {
   BrandWordmark,
   Callout,
   Code,
+  DatabaseIcon,
   EmptyState,
   InfoIcon,
   InfoTip,
@@ -131,7 +132,10 @@ import {
   labelCls as label,
   primaryBtn,
   relTime,
+  textLink,
 } from "./ui";
+import { storeStatus } from "../server/store";
+import { describeStoreFailure, type StoreFailure } from "../shared/store-failure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -426,8 +430,8 @@ function StatusBanners({
   overview: OverviewStats;
   health: CaptureHealth;
 }) {
-  // Events arriving without a session cookie mean the proxy didn't run on
-  // those requests — or that something posted straight at the public endpoint.
+  // Events arriving without a session cookie mean no session could be minted
+  // for them — or that something posted straight at the public endpoint.
   // Telling those apart is the whole job of `captureStatus`, which lives in
   // shared/capture-status.ts with the record ingest writes, and is tested.
   const capture = captureStatus(health, overview.totalEvents);
@@ -446,23 +450,24 @@ function StatusBanners({
         <Callout
           tone="bad"
           className="mb-8"
-          title="Receiving events, but no session cookie — your proxy isn't running."
+          title="Receiving events, but they arrive without a session, so none are stored."
         >
           <p>
             {capture.droppedBatches.toLocaleString()}{" "}
             {capture.droppedBatches === 1 ? "batch has" : "batches have"} been dropped
             {capture.nothingStored ? "" : ` and nothing has been stored in the last ${windowLabel}`}
-            . Polishd attributes every event to the anonymous cookie the proxy mints
-            {capture.nothingStored ? ", so nothing is being stored" : ""}. Check that you have a{" "}
-            <Code>proxy.ts</Code> (Next 16+) or <Code>middleware.ts</Code> (Next 15) at your project
-            root — matching your installed Next major — exporting a function of the same name, with{" "}
-            <Code>config.matcher</Code> written as an inline literal that covers the pages you&apos;re
-            capturing.
+            . Polishd stores every event under an anonymous session cookie, which the ingest route
+            mints on a visitor&apos;s first batch
+            {capture.nothingStored ? ", so nothing is being stored" : ""}. It mints one only for a
+            page&apos;s batch from this site, which the browser declares in the{" "}
+            <Code>Origin</Code> and <Code>Sec-Fetch-Site</Code> headers. Check that nothing in front
+            of your app (a CDN, firewall or proxy) strips both, and that a route of your own around{" "}
+            <Code>ingest()</Code> passes it a session id.
           </p>
           <p className="mt-2 text-fg-3">
             Run <Code>npx @polishd/next doctor --url &lt;your deployed origin&gt;</Code> to check
             this against the running site. Plain <Code>doctor</Code> only reads your source tree, so
-            it can pass every check while the deployed build still doesn&apos;t mint a cookie —{" "}
+            it can pass every check while the deployed site still drops these batches —{" "}
             <Code>--url</Code> is the part that proves it.
           </p>
         </Callout>
@@ -473,8 +478,9 @@ function StatusBanners({
           {capture.droppedBatches.toLocaleString()}{" "}
           {capture.droppedBatches === 1 ? "batch" : "batches"} arrived without a session cookie in
           the last {windowLabel}
-          {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (bots, or
-          visitors with cookies blocked). Those events aren&apos;t stored; capture itself is working
+          {capture.sharePct !== null && ` — ${formatShare(capture.sharePct)} of traffic`} (scripts,
+          visitors with cookies blocked, or a browser&apos;s last batch as it quits). Those events
+          aren&apos;t stored; capture itself is working
           {capture.storedSinceDrop ? " — a batch has been stored since the most recent drop" : ""}.
         </Callout>
       )}
@@ -1282,10 +1288,12 @@ async function SettingsTabData() {
 function AccessScreen({
   title,
   width = "max-w-sm",
+  icon = <LockIcon size={15} />,
   children,
 }: {
   title: string;
   width?: string;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -1293,7 +1301,7 @@ function AccessScreen({
       <BrandWordmark height={44} />
       <div className={`mt-8 ${card} p-6`}>
         <div className="flex items-center gap-2 text-fg-3">
-          <LockIcon size={15} />
+          {icon}
           <h1 className="text-[17px] font-semibold text-fg">{title}</h1>
         </div>
         {children}
@@ -1419,6 +1427,14 @@ export interface CreatePolishdPageOptions {
    * @default true
    */
   shell?: boolean;
+  /**
+   * Render the dashboard inside a `<Suspense>` boundary. Required when the app
+   * sets `cacheComponents: true`: the dashboard reads cookies on every request,
+   * and Cache Components rejects request-time data read outside `<Suspense>`
+   * while it prerenders the route. `init` sets it for such apps.
+   * @default false
+   */
+  suspense?: boolean;
 }
 
 /**
@@ -1497,6 +1513,134 @@ function SetupRequired() {
       <p className="mt-5 text-[12px] text-fg-3">
         Local development is unaffected — this only applies when <Code>NODE_ENV=production</Code>.
       </p>
+    </AccessScreen>
+  );
+}
+
+const DATABASE_GUIDE = "https://github.com/muskanvaswan/polishd/blob/main/DATABASE.md";
+
+/**
+ * Shown instead of the dashboard, after the access check, when no analytics
+ * store could be opened. There is nothing to show then and every visit is
+ * being dropped, so this says what failed and how to connect one rather than
+ * rendering an empty dashboard with a warning on it.
+ *
+ * `showDetail` gates the raw (redacted) error: it goes to the owner past a
+ * guard, and to the developer locally, but not to anyone reading a dashboard
+ * made public on purpose.
+ */
+function DatabaseSetup({ failure, showDetail }: { failure: StoreFailure; showDetail: boolean }) {
+  const step = "rounded-lg border border-line bg-sunken px-3.5 py-3";
+  const copy: Record<StoreFailure["kind"], { title: string; intro: ReactNode; steps: ReactNode[] }> = {
+    "no-database": {
+      title: "Connect a database",
+      intro: (
+        <>
+          Polishd has nowhere to keep analytics on this deployment, so every visit is being dropped.
+          No <Code>POLISHD_DATABASE_URL</Code> is set, and the server can&apos;t write the local
+          SQLite file, which is normal on serverless hosts: their filesystem is read-only.
+        </>
+      ),
+      steps: [
+        <>Create a Postgres database: Neon, Vercel (Storage → Postgres), Supabase or RDS.</>,
+        <>
+          Copy its <span className="font-medium text-fg">pooled</span> connection string. On Neon
+          the host contains{" "}
+          <span className="whitespace-nowrap">
+            <Code>-pooler</Code>.
+          </span>
+        </>,
+        <>
+          Set it as <Code>POLISHD_DATABASE_URL</Code> in your deployment&apos;s environment.
+        </>,
+        <>Redeploy. Polishd creates its tables on first use.</>,
+      ],
+    },
+    postgres: {
+      title: "Can't reach the database",
+      intro: (
+        <>
+          <Code>POLISHD_DATABASE_URL</Code> is set, but Polishd couldn&apos;t connect to{" "}
+          {failure.host ? <Code>{failure.host}</Code> : "it"}, so every visit is being dropped.
+          {failure.hint && <span className="mt-2 block text-fg-2">{failure.hint}</span>}
+        </>
+      ),
+      steps: [
+        <>
+          Copy the connection string again from your provider, using the{" "}
+          <span className="font-medium text-fg">pooled</span> one, and set it as{" "}
+          <Code>POLISHD_DATABASE_URL</Code>.
+        </>,
+        <>
+          Redeploy or restart. Polishd tries the connection once per server instance, so a fixed
+          URL takes effect on the next one.
+        </>,
+      ],
+    },
+    "pg-missing": {
+      title: "Install the Postgres driver",
+      intro: (
+        <>
+          <Code>POLISHD_DATABASE_URL</Code> is set, but the <Code>pg</Code> driver isn&apos;t
+          installed. It&apos;s an optional dependency of <Code>@polishd/next</Code>, which some
+          installs skip.
+        </>
+      ),
+      steps: [<>Run <Code>npm install pg</Code> in your app.</>, <>Redeploy.</>],
+    },
+    node: {
+      title: "Upgrade Node",
+      intro: (
+        <>
+          This server runs Node {process.versions.node}. Polishd&apos;s local store uses{" "}
+          <Code>node:sqlite</Code>, which needs Node 22.5 or later, so every visit is being
+          dropped.
+        </>
+      ),
+      steps: [
+        <>Upgrade the server to Node 22.5 or later (on Vercel: Settings → Node.js Version).</>,
+        <>Redeploy, or restart the dev server.</>,
+      ],
+    },
+  };
+  const { title, intro, steps } = copy[failure.kind];
+
+  return (
+    <AccessScreen title={title} width="max-w-xl" icon={<DatabaseIcon size={15} />}>
+      <p className="mt-2 text-[13px] leading-relaxed text-fg-3">{intro}</p>
+      <ol className="mt-5 space-y-2 text-[13px] text-fg-2">
+        {steps.map((s, i) => (
+          <li key={i} className={`${step} flex gap-2.5`}>
+            <span className="font-medium tabular-nums text-fg-3">{i + 1}.</span>
+            <span>{s}</span>
+          </li>
+        ))}
+      </ol>
+      {showDetail && (
+        <details className="mt-4 text-[12px] text-fg-3">
+          <summary className="cursor-pointer select-none">What the store reported</summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words rounded-lg border border-line bg-sunken px-3 py-2 font-mono text-[12px] text-fg-2">
+            {failure.detail}
+          </pre>
+        </details>
+      )}
+      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
+        <a href="" className={`${primaryBtn} h-9`}>
+          Check again
+        </a>
+        <p className="text-[12px] leading-relaxed text-fg-3">
+          The dashboard opens once a store is connected.{" "}
+          <a href={DATABASE_GUIDE} target="_blank" rel="noreferrer" className={textLink}>
+            Database setup guide
+          </a>
+        </p>
+      </div>
+      {failure.kind === "no-database" && (
+        <p className="mt-3 text-[12px] leading-relaxed text-fg-3">
+          On a server with a writable, persistent disk, the SQLite file works too: set{" "}
+          <Code>POLISHD_DB_PATH</Code> to a path it can write.
+        </p>
+      )}
     </AccessScreen>
   );
 }
@@ -1583,7 +1727,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   // the unlock form and the "wire up your own UI" placeholder.
   const usingTokenAuth = !opts.authenticate && polishdDashboardToken() !== null;
 
-  return async function PolishdPage(props: PolishdPageProps = {}) {
+  async function PolishdPage(props: PolishdPageProps = {}) {
     const sp = props.searchParams ? await props.searchParams : {};
     const theme = await readPolishdTheme();
 
@@ -1602,6 +1746,18 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         }
         return wrap(theme, <Unauthorized />);
       }
+    }
+
+    // Past the access check, so the setup screen and its error detail only
+    // ever reach the dashboard's owner. With no store there is nothing to show
+    // and every visit is being dropped: say how to connect one instead.
+    const store = await storeStatus();
+    if (!store.ready) {
+      const showDetail = policy.mode === "guarded" || process.env.NODE_ENV !== "production";
+      return wrap(
+        theme,
+        <DatabaseSetup failure={describeStoreFailure(store)} showDetail={showDetail} />,
+      );
     }
 
     // Dogfood telemetry — decided per render, after auth, so the consent
@@ -1688,6 +1844,19 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         </DashboardChrome>
         {telemetryUi}
       </>,
+    );
+  }
+
+  if (!opts.suspense) return PolishdPage;
+
+  // Under Cache Components the route is prerendered, and the cookie reads
+  // above may only happen inside a boundary: the static shell is whatever the
+  // host's layout renders, and the dashboard streams into it per request.
+  return function PolishdSuspendedPage(props: PolishdPageProps = {}) {
+    return (
+      <Suspense fallback={null}>
+        <PolishdPage {...props} />
+      </Suspense>
     );
   };
 }

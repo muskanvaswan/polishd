@@ -48,9 +48,10 @@ export function detectLayout(cwd) {
 /**
  * Which Next major is actually installed.
  *
- * Load-bearing: 16+ loads `proxy.ts`, 15 loads `middleware.ts`, and writing
- * the wrong one means the file never runs — no session cookie, every beacon
- * still 200, nothing stored, and no error to follow.
+ * Two things hang on it: whether the version loads `instrumentation-client.ts`
+ * at all (see {@link nextLoadsClientInstrumentation}), and, for an app that
+ * already has a proxy, which file name it loads — 16+ loads `proxy.ts`, 15
+ * loads `middleware.ts`.
  */
 export function detectNextMajor(cwd) {
   // Prefer the resolved install. A declared range ("^16", "latest", "canary")
@@ -159,6 +160,38 @@ export function proxyShape(next, base, codeExt) {
     path: join(base, `${name}.${codeExt}`),
     otherPath: join(base, `${other}.${codeExt}`),
   };
+}
+
+const NEXT_CONFIGS = ["next.config.ts", "next.config.mts", "next.config.mjs", "next.config.js", "next.config.cjs"];
+
+/**
+ * Whether the app turns on Cache Components (`cacheComponents: true`, top
+ * level since Next 16, under `experimental` before it). It changes what the
+ * route and page may declare: Next rejects `runtime` and `dynamic` there, and
+ * the dashboard has to render inside `<Suspense>`. Read from the config's
+ * source, so a value computed at load time (an env check) reads as off.
+ */
+export function detectCacheComponents(cwd) {
+  for (const name of NEXT_CONFIGS) {
+    const src = readText(join(cwd, name));
+    if (src !== null) return { on: /\bcacheComponents\s*:\s*true\b/.test(src), file: name };
+  }
+  return { on: false, file: null };
+}
+
+/** The first Next that loads `instrumentation-client.ts`, which starts capture. */
+export const MIN_NEXT = { major: 15, minor: 3 };
+
+/**
+ * Whether the detected Next loads `instrumentation-client.ts`. Below 15.3 Next
+ * ignores the file, so `initPolishd()` never runs: no error, no events, an
+ * empty dashboard. `null` when it can't be told — nothing detected, or only a
+ * declared range, which may resolve to something newer.
+ */
+export function nextLoadsClientInstrumentation(next) {
+  if (next.major === null || next.source !== "node_modules") return null;
+  const [major, minor] = next.version.split(".").map((n) => Number.parseInt(n, 10));
+  return major > MIN_NEXT.major || (major === MIN_NEXT.major && minor >= MIN_NEXT.minor);
 }
 
 export const MIN_NODE = { major: 22, minor: 5 };

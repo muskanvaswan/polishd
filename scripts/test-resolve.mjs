@@ -9,8 +9,11 @@
  * `initPolishd` against a stubbed browser — and exercise the wiring itself.
  *
  * Only a relative specifier with no extension that fails to resolve is
- * retried, as `.ts`, `.tsx`, then `/index.ts`; everything else resolves as
- * Node would. Passed to `node --test` with `--import` in package.json.
+ * retried, as `.ts`, `.tsx`, then `/index.ts`. A package subpath with no
+ * extension (`next/server`, from a package with no exports map) is retried
+ * as `.js`, which is what lets a test load the route handler. Everything else
+ * resolves as Node would. Passed to `node --test` with `--import` in
+ * package.json.
  */
 import { register } from "node:module";
 
@@ -19,8 +22,10 @@ export async function resolve(specifier, context, next) {
   try {
     return await next(specifier, context);
   } catch (err) {
-    if (!/^\\.\\.?\\//.test(specifier) || /\\.[cm]?[jt]sx?$/.test(specifier)) throw err;
-    for (const suffix of [".ts", ".tsx", "/index.ts"]) {
+    if (/\\.[cm]?[jt]sx?$/.test(specifier)) throw err;
+    const relative = /^\\.\\.?\\//.test(specifier);
+    if (!relative && !/^(@[^/]+\\/)?[^/.@][^/]*\\/./.test(specifier)) throw err;
+    for (const suffix of relative ? [".ts", ".tsx", "/index.ts"] : [".js"]) {
       try {
         return await next(specifier + suffix, context);
       } catch {}

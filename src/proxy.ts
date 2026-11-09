@@ -1,7 +1,10 @@
 /**
- * @polishd/next/proxy — anonymous session assignment.
+ * @polishd/next/proxy — anonymous session assignment from a proxy. Optional.
  *
- * Consumers wire this up with a one-line re-export:
+ * The ingest route mints the session cookie itself (see route.ts), so a new
+ * install needs no proxy at all. These exports stay for hosts that already
+ * wire one up; with them the cookie is set on the first page response rather
+ * than the first batch, which changes nothing about what gets stored.
  *
  *   // src/proxy.ts   (Next 16; `middleware.ts` on Next 15)
  *   export { proxy, config } from "@polishd/next/proxy";

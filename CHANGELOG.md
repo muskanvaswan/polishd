@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+### A setup screen when there's no database
+
+- **`/polishd` shows how to connect a database instead of an empty
+  dashboard.** When no store could be opened, the page, once past its access
+  check, shows a setup screen in place of the dashboard: "Connect a database"
+  for a deployment with no `POLISHD_DATABASE_URL` that can't write the SQLite
+  file (every serverless host), "Can't reach the database" with the host and a
+  likely cause for a URL that doesn't connect, "Install the Postgres driver"
+  when `pg` was skipped, and "Upgrade Node" below 22.5. Its steps lead to a
+  pooled `POLISHD_DATABASE_URL` and a redeploy; "Check again" reloads. The
+  store error it shows has URLs and passwords removed, and it's left out on a
+  dashboard made public on purpose. A server that can write the SQLite file
+  opens the dashboard as before.
+- `storeStatus()` (server) reports which backend opened, or which was tried
+  and why it failed.
+
+### No proxy needed
+
+- **The ingest route mints the session cookie.** A batch that arrives without
+  one is stored under a new anonymous id and the cookie is set on its
+  response, so every later batch carries it. An app no longer needs a
+  `proxy.ts` or `middleware.ts` for Polishd, and `init` writes three files
+  instead of four. That step was behind the package's quietest failures: a
+  proxy named for the wrong Next major, a matcher that wasn't an inline
+  literal or touched `/api`, a merge into an existing middleware, a cookie
+  name the proxy and the route disagreed on. A proxy that already calls
+  `withPolishdSession` or `composePolishd` keeps working and can come out
+  whenever you like; `@polishd/next/proxy` stays.
+- **One session per page, even before the cookie lands.** The capture script
+  proposes a session id per page load (`sid` in the batch), which the route
+  adopts only when there is no cookie. Batches that leave a page before the
+  first response comes back share one session. Checked in Chrome, WebKit
+  26.5, Safari 26.5 and Firefox 153, a reload before any response included.
+- **Only a page's batch from this site is minted a session.** The route reads
+  `Sec-Fetch-Site` (or `Origin`, where a browser is too old to send it) and
+  wants the batch's `page_view`. A bare scripted POST is still dropped, and so
+  is the beacon Firefox sends without cookies as it quits, which would
+  otherwise count a visitor holding only a `session_end`. Visitors with
+  cookies blocked now have each page's first batch stored, one session per
+  page load; before, nothing of theirs was.
+- **`doctor`** passes an install with no proxy, calls a Polishd proxy under
+  the wrong name a warning rather than a failure, and checks live that ingest
+  mints the cookie; its probe sends `Origin` and `Sec-Fetch-Site` as a browser
+  would. An older `doctor` pointed at an upgraded site reports "No session
+  cookie on a page request": update the local package.
+- **Next 15.3 is the minimum.** It is the first Next that loads
+  `instrumentation-client.ts`, where capture starts; before it the file is
+  ignored, so Next 15.0–15.2 never captured anything, silently. The peer range
+  is now `next >=15.3`. Where the app's own range allows it, npm meets that by
+  moving Next up within the range (`^15.2.9` installs 15.5); where the app
+  pins Next below 15.3, npm stops with ERESOLVE naming the peer. `doctor`
+  fails on an installed Next below 15.3, and `init` warns.
+- **Apps with `cacheComponents: true` build.** Next rejects `runtime` and
+  `dynamic` in the route and the page under Cache Components, and fails to
+  prerender `/polishd` while the dashboard reads cookies outside `<Suspense>`.
+  `init` now reads `next.config` and leaves both exports out there, and
+  `createPolishdPage({ suspense: true })` renders the dashboard inside a
+  boundary. `doctor` checks the other way round for these apps: `runtime` or
+  `dynamic` present, or no boundary, is the failure.
+- **`/polishd` stays out of search engines.** The page `init` writes
+  re-exports the dashboard's `metadata` (`robots: noindex`), which Next only
+  reads from the page module itself; without it the route took the host
+  app's metadata. `doctor` warns on a page that doesn't.
+- **Docs and the dashboard.** README, docs/SETUP.md and AGENTS.md describe the
+  three-file install, and AGENTS.md's manual check probes ingest for the
+  cookie instead of expecting one on a page. The dashboard's red banner names
+  what can still stop sessions being minted rather than pointing at a proxy.
+
 ### A collector's Analytics tab shows either dataset
 
 - **Site / Telemetry switch.** An install that collects telemetry holds two

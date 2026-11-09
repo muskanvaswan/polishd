@@ -1032,15 +1032,15 @@ export async function getMonitoredComponents(filter: EventFilter = {}): Promise<
 export type { CaptureHealth } from "../shared/capture-status";
 
 /**
- * Read the proxy-health counters: the drop record ingest writes, plus what
+ * Read the capture-health counters: the drop record ingest writes, plus what
  * the events table says about storing over the same window.
  *
  * The pair is the point. A drop count on its own cannot tell "nobody has
  * visited yet" from "everybody visited and every event was thrown away" —
- * that is why it is recorded — but neither can it tell a broken proxy from a
- * crawler POSTing at a public endpoint. `lastStoredAt` settles that outright:
- * every event is attributed to the cookie the proxy mints, so a store dated
- * after the most recent drop means the proxy is minting right now. The
+ * that is why it is recorded — but neither can it tell broken session minting
+ * from a crawler POSTing at a public endpoint. `lastStoredAt` settles that
+ * outright: every event is attributed to the session cookie, so a store dated
+ * after the most recent drop means sessions are being minted right now. The
  * windowed counts let the dashboard describe the rest in proportion.
  *
  * `source` picks which dataset's storing is compared against the drops, as
@@ -1180,7 +1180,7 @@ export interface PolishdDashboardData {
  *
  * `filter` scopes every section at once (the Analytics tab's range); the AI
  * summary always reads the whole history, so it passes none. Capture health
- * is never scoped to a window — it describes the proxy, not a window of
+ * is never scoped to a window — it describes the wiring, not a window of
  * traffic — but it does follow the filter's source.
  */
 export async function loadPolishdDashboardData(filter: EventFilter = {}): Promise<PolishdDashboardData> {

@@ -2,6 +2,9 @@
  * `npx @polishd/next init` — scaffold the glue files a Next.js app needs to wire
  * up Polishd. Node builtins only; zero runtime dependencies.
  *
+ * It writes no proxy: the ingest route mints the session cookie itself, so a
+ * host's own `proxy.ts` / `middleware.ts` is never touched or merged into.
+ *
  * Flags:
  *   --force     regenerate files this CLI wrote (backed up first). Files it did
  *               not write are never overwritten, with or without this flag.
@@ -14,10 +17,11 @@ import { dirname, join } from "node:path";
 
 import {
   c,
+  detectCacheComponents,
   detectLayout,
   detectNextMajor,
+  nextLoadsClientInstrumentation,
   nodeVersionOk,
-  proxyShape,
   readText,
 } from "./shared.mjs";
 
@@ -62,57 +66,33 @@ export function runInit(argv, cwd) {
     );
   }
 
-  // ── Detect the installed Next major ────────────────────────────────────────
+  // Capture starts from instrumentation-client.ts, which Next loads from 15.3.
+  // Below that every file here is written and nothing is ever captured, so
+  // say so now rather than leave it to an empty dashboard.
   const next = detectNextMajor(cwd);
-  const shape = proxyShape(next, base, codeExt);
-
-  if (next.major === null) {
-    // An unannounced guess here is exactly the silent failure this detection
-    // exists to prevent, so say so.
+  if (nextLoadsClientInstrumentation(next) === false) {
     console.log(
-      c.warn("⚠ Could not determine the installed Next.js version") +
-        c.dim(`\n  Assuming 16+ and writing ${shape.path}.`) +
-        c.dim(`\n  On Next 15 rename it to ${shape.otherPath} and rename the exported`) +
-        c.dim(`\n  function to \`${shape.other}\` — Next 15 does not load ${shape.path}.`),
-    );
-  } else {
-    console.log(
-      c.ok(`✔ Detected Next.js ${next.version}`) +
-        c.dim(` — using ${shape.path}`) +
-        (next.source === "package.json" ? c.dim(" (from package.json range)") : ""),
+      c.warn(`⚠ Next.js ${next.version}`) +
+        c.dim(" — Polishd needs >= 15.3, the first Next that loads instrumentation-client.ts.") +
+        c.dim("\n  Below it capture never starts. Upgrade Next."),
     );
   }
 
-  // ── File templates ─────────────────────────────────────────────────────────
-  const mergeHint =
-    c.dim(`  Add Polishd to your existing handler instead:\n`) +
-    `    import { composePolishd } from "@polishd/next/proxy";\n` +
-    `    export const ${shape.name} = composePolishd(myHandler, { matcher: "/your/scope" });\n` +
-    c.dim(`    // Then widen your inline config.matcher to the union of both.\n`) +
-    c.dim(`    // Declaring your original scope keeps your handler running only where\n`) +
-    c.dim(`    // it ran before, even though the matcher now feeds Polishd everything.\n`) +
-    c.dim(`    // See README → "Composing with an existing proxy".`);
+  // Cache Components rejects `runtime` and `dynamic` in the route and the page,
+  // and wants the dashboard's cookie reads inside <Suspense>.
+  const cc = detectCacheComponents(cwd);
+  if (cc.on) {
+    console.log(
+      c.ok(`✔ Detected cacheComponents`) +
+        c.dim(` in ${cc.file} — writing the route and page without runtime/dynamic`),
+    );
+  }
+  const ccNote =
+    `// cacheComponents is on, so there is no \`runtime\` or \`dynamic\` here: Next\n` +
+    `// rejects both. Node is already the runtime, and nothing here is cached.\n`;
 
+  // ── File templates ─────────────────────────────────────────────────────────
   const files = [
-    {
-      path: shape.path,
-      // The other spelling of this same file. A host on Next 16 that still has
-      // a middleware.ts (or vice versa) has a real collision worth flagging.
-      counterpart: shape.otherPath,
-      mergeHint,
-      body:
-        (JS ? "" : `import type { NextRequest } from "next/server";\n`) +
-        `import { withPolishdSession } from "@polishd/next/proxy";\n\n` +
-        `export function ${shape.name}(request${JS ? "" : ": NextRequest"}) {\n` +
-        `  return withPolishdSession(request);\n` +
-        `}\n\n` +
-        `// Next statically parses config.matcher, so it must be an inline literal\n` +
-        `// here. Excluding all of /api is required — under Next 16 + Turbopack a\n` +
-        `// matcher that touches /api breaks the whole /api segment.\n` +
-        `export const config = {\n` +
-        `  matcher: ["/((?!api|_next/static|_next/image|favicon|assets).*)"],\n` +
-        `};\n`,
-    },
     {
       path: join(base, `instrumentation-client.${codeExt}`),
       body: `import { initPolishd } from "@polishd/next/client";\n\ninitPolishd();\n`,
@@ -124,11 +104,13 @@ export function runInit(argv, cwd) {
       // ("Next.js can't recognize the exported `runtime` field in route").
       body:
         `import { createPolishdRoute } from "@polishd/next/route";\n\n` +
-        `// node:sqlite / pg need the Node runtime — never the Edge runtime.\n` +
-        `export const runtime = "nodejs";\n` +
-        `// This route mutates per-request; it must never be statically cached.\n` +
-        `export const dynamic = "force-dynamic";\n\n` +
-        `export const POST = createPolishdRoute();\n`,
+        (cc.on
+          ? ccNote
+          : `// node:sqlite / pg need the Node runtime — never the Edge runtime.\n` +
+            `export const runtime = "nodejs";\n` +
+            `// This route mutates per-request; it must never be statically cached.\n` +
+            `export const dynamic = "force-dynamic";\n`) +
+        `\nexport const POST = createPolishdRoute();\n`,
     },
     {
       path: join(appDir, "polishd", `page.${pageExt}`),
@@ -138,9 +120,13 @@ export function runInit(argv, cwd) {
         `// affect anything outside the dashboard.\n` +
         `import "@polishd/next/dashboard.css";\n` +
         `import { createPolishdPage } from "@polishd/next/dashboard";\n\n` +
-        `// Next requires these to be declared inline in the page module.\n` +
-        `export const runtime = "nodejs";\n` +
-        `export const dynamic = "force-dynamic";\n` +
+        `// The dashboard's metadata, which keeps /polishd out of search engines.\n` +
+        `export { metadata } from "@polishd/next/dashboard";\n\n` +
+        (cc.on
+          ? ccNote + `\n`
+          : `// Next requires these to be declared inline in the page module.\n` +
+            `export const runtime = "nodejs";\n` +
+            `export const dynamic = "force-dynamic";\n`) +
         `// Server actions inherit this page's time limit; 300s gives the AI\n` +
         `// analyses headroom on hosts with strict function limits.\n` +
         `export const maxDuration = 300;\n\n` +
@@ -148,7 +134,11 @@ export function runInit(argv, cwd) {
         `// POLISHD_DASHBOARD_TOKEN, pass your own \`authenticate\`, or opt out\n` +
         `// explicitly with POLISHD_DASHBOARD_PUBLIC=true. It can change your AI\n` +
         `// settings and spend your model tokens, so it is not public by default.\n` +
-        `export default createPolishdPage();\n`,
+        (cc.on
+          ? `// \`suspense\` renders it inside <Suspense>, which Cache Components needs\n` +
+            `// around the cookies it reads on every request.\n` +
+            `export default createPolishdPage({ suspense: true });\n`
+          : `export default createPolishdPage();\n`),
     },
   ];
 
@@ -176,18 +166,6 @@ export function runInit(argv, cwd) {
     const abs = join(cwd, file.path);
     const body = STAMP + file.body;
 
-    // A proxy under the *other* name is a collision even when our target is
-    // free: the host already has a handler, and Next loads only one of these.
-    const counterpartAbs = file.counterpart ? join(cwd, file.counterpart) : null;
-    if (counterpartAbs && existsSync(counterpartAbs) && !isOurs(counterpartAbs)) {
-      console.log(
-        c.warn(`⚠ ${file.counterpart} already exists`) +
-          c.dim(` — Next loads only one proxy module, and on this version it is ${file.path}.\n`) +
-          mergeHint,
-      );
-      return;
-    }
-
     if (existsSync(abs)) {
       // Never overwrite code this CLI did not author — not even with --force.
       // Losing a hand-written proxy (auth redirects, i18n, rate limiting) to a
@@ -196,7 +174,7 @@ export function runInit(argv, cwd) {
         console.log(
           c.warn(`⚠ ${file.path} exists and was not written by Polishd`) +
             c.dim(" — left untouched.\n") +
-            (file.mergeHint ?? c.dim(`  Rename or delete it to have a fresh copy scaffolded.`)),
+            c.dim(`  Rename or delete it to have a fresh copy scaffolded.`),
         );
         return;
       }
@@ -233,6 +211,20 @@ export function runInit(argv, cwd) {
   }
 
   for (const f of files) write(f);
+
+  // A proxy an earlier `init` wrote does nothing the route doesn't now. It's
+  // harmless, so it's left alone; deleting it is the owner's call, since they
+  // may have added their own logic to it since.
+  for (const name of ["proxy", "middleware"]) {
+    const rel = join(base, `${name}.${codeExt}`);
+    if (isOurs(join(cwd, rel))) {
+      console.log(
+        c.dim(`• ${rel} from an earlier init is no longer needed`) +
+          c.dim(" — the ingest route mints the session cookie now. Delete it unless you've") +
+          c.dim(" added your own logic to it."),
+      );
+    }
+  }
 
   // ── .gitignore ─────────────────────────────────────────────────────────────
   const giPath = join(cwd, ".gitignore");

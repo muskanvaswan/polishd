@@ -3,8 +3,8 @@
  *
  * Two things live here, and they are the same subject seen from both ends:
  * the on-disk shape ingest writes when it drops a cookie-less batch, and the
- * rule the dashboard applies to decide whether that means "your proxy isn't
- * running" or "some bots posted to a public endpoint".
+ * rule the dashboard applies to decide whether that means "no batch is getting
+ * a session" or "some bots posted to a public endpoint".
  *
  * They are together, and pure, because the rule is the part that has been
  * wrong: it compared an all-time drop total against an all-time event total
@@ -31,9 +31,9 @@ const MIN_NOTICE_DROPS = 3;
 
 /**
  * Drops in the window before "nothing stored in the window" is allowed to
- * read as a broken proxy. A real proxy failure drops *every* batch, so on any
- * site with traffic the count climbs fast; the floor is what keeps a dormant
- * site poked twice by a crawler from accusing a working install.
+ * read as broken. When no batch can get a session, *every* batch is dropped,
+ * so on any site with traffic the count climbs fast; the floor is what keeps a
+ * dormant site poked twice by a crawler from accusing a working install.
  */
 const MIN_BROKEN_DROPS = 5;
 
@@ -144,7 +144,7 @@ export interface CaptureStatus {
   storedBatches: number;
   /** Dropped share of all batches seen in the window, or null if unknowable. */
   sharePct: number | null;
-  /** A store landed *after* the last drop — proof the proxy is minting now. */
+  /** A store landed *after* the last drop — proof sessions are minted now. */
   storedSinceDrop: boolean;
   /** Nothing has ever been stored. Gates the "nothing is being stored" copy. */
   nothingStored: boolean;
@@ -155,9 +155,9 @@ export interface CaptureStatus {
  * batches.
  *
  * The load-bearing signal is `storedSinceDrop`. Every event is attributed to
- * the cookie the proxy mints, so a proxy that isn't running drops *every*
- * batch — one successful store after the most recent drop is proof it is
- * running, and no threshold can argue with it. Everything else here only
+ * the session cookie, so when nothing can be minted one *every* batch is
+ * dropped — one successful store after the most recent drop is proof that
+ * sessions are being minted, and no threshold can argue with it. Everything else here only
  * decides how loudly to describe traffic that is already known to be flowing.
  */
 export function captureStatus(

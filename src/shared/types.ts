@@ -86,6 +86,13 @@ export interface PolishdIngestBody {
    * the server knows (see server/build.ts).
    */
   build?: string;
+  /**
+   * A session id the client proposes, one per page load. Read only when the
+   * request carries no session cookie: the route then mints the session under
+   * this id, so batches that leave one page before the first response lands
+   * still share one session. Ignored whenever a cookie is present.
+   */
+  sid?: string;
 }
 
 /**
