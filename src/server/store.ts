@@ -314,6 +314,8 @@ function openPostgres(url: string): Backend {
 
 /** undefined = not yet attempted; null = failed, stay no-op; Backend = ready. */
 let backend: Backend | null | undefined;
+/** Which backend was tried, and why it failed when it did: the dashboard says. */
+let attempt: { tried: StoreBackendKind; host: string | null; error: string | null } | null = null;
 /** Shared init promise so concurrent callers don't race to open the backend. */
 let initPromise: Promise<Backend | null> | null = null;
 
@@ -322,12 +324,13 @@ async function getBackend(): Promise<Backend | null> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
+    // BUFFD_/POLISH_ fallbacks keep pre-rename deployments working.
+    const url =
+      process.env.POLISHD_DATABASE_URL ||
+      process.env.BUFFD_DATABASE_URL ||
+      process.env.POLISH_DATABASE_URL;
+    attempt = { tried: url ? "postgres" : "sqlite", host: url ? databaseHost(url) : null, error: null };
     try {
-      // BUFFD_/POLISH_ fallbacks keep pre-rename deployments working.
-      const url =
-        process.env.POLISHD_DATABASE_URL ||
-        process.env.BUFFD_DATABASE_URL ||
-        process.env.POLISH_DATABASE_URL;
       if (url) {
         const pg = openPostgres(url);
         // Force the lazy connection now so a bad URL latches to no-op loudly,
@@ -338,10 +341,9 @@ async function getBackend(): Promise<Backend | null> {
         backend = await openSqlite();
       }
     } catch (err) {
-      console.warn(
-        "[polishd] analytics store unavailable, capture disabled:",
-        err instanceof Error ? err.message : err,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[polishd] analytics store unavailable, capture disabled:", message);
+      attempt.error = message;
       backend = null;
     }
     return backend;
@@ -353,6 +355,33 @@ async function getBackend(): Promise<Backend | null> {
 /** True when events are actually being persisted (used by the dashboard). */
 export async function storeReady(): Promise<boolean> {
   return (await getBackend()) !== null;
+}
+
+export type StoreBackendKind = "postgres" | "sqlite";
+
+/**
+ * Whether a store is open, which one, and if not, why. The error is the raw
+ * message the open threw: shown only to someone already past the dashboard's
+ * access check, and redacted first (see shared/store-failure.ts).
+ */
+export type StoreStatus =
+  | { ready: true; backend: StoreBackendKind }
+  | { ready: false; tried: StoreBackendKind; host: string | null; error: string };
+
+export async function storeStatus(): Promise<StoreStatus> {
+  const b = await getBackend();
+  const tried = attempt?.tried ?? "sqlite";
+  if (b) return { ready: true, backend: tried };
+  return { ready: false, tried, host: attempt?.host ?? null, error: attempt?.error ?? "unknown error" };
+}
+
+/** The host a connection string names, never the string itself (it holds the password). */
+function databaseHost(url: string): string | null {
+  try {
+    return new URL(url).host || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

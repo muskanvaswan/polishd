@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### A setup screen when there's no database
+
+- **`/polishd` shows how to connect a database instead of an empty
+  dashboard.** When no store could be opened, the page, once past its access
+  check, shows a setup screen in place of the dashboard: "Connect a database"
+  for a deployment with no `POLISHD_DATABASE_URL` that can't write the SQLite
+  file (every serverless host), "Can't reach the database" with the host and a
+  likely cause for a URL that doesn't connect, "Install the Postgres driver"
+  when `pg` was skipped, and "Upgrade Node" below 22.5. Its steps lead to a
+  pooled `POLISHD_DATABASE_URL` and a redeploy; "Check again" reloads. The
+  store error it shows has URLs and passwords removed, and it's left out on a
+  dashboard made public on purpose. A server that can write the SQLite file
+  opens the dashboard as before.
+- `storeStatus()` (server) reports which backend opened, or which was tried
+  and why it failed.
+
 ### No proxy needed
 
 - **The ingest route mints the session cookie.** A batch that arrives without

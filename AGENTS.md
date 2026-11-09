@@ -353,7 +353,10 @@ local development.
 
 When no store can be opened — no database URL on a read-only filesystem, an
 unreachable database, or Node < 22.5 — the package degrades to a safe no-op: a
-console warning, a notice on the dashboard, and no impact on the host app.
+console warning and no impact on the host app. `/polishd` then shows a setup
+screen instead of the dashboard, after its access check, naming what failed
+and the steps to fix it. That screen is expected on a fresh serverless deploy
+until `POLISHD_DATABASE_URL` is set.
 
 ## Troubleshooting
 
@@ -368,7 +371,7 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Ingest answers 413 `too_large` | Request body over 1MB. A real batch is well under 64KB | Nothing to fix for real traffic; a client sending that much isn't the capture script |
 | Every `/api/*` route 404s | A proxy of the app's whose matcher matches `/api` | Exclude `/api` from that matcher |
 | Dashboard has harsh white borders and no greys | Package older than 0.2.3-dev.23 with no `dashboard.css` import, so the host's Tailwind styles it with the host's palette | Upgrade; remove the `@polishd/next/dist` scan line (Phase 4) |
-| Dashboard is empty, warning about the store | No writable backend | Set `POLISHD_DATABASE_URL`, or check Node ≥ 22.5 in dev |
+| `/polishd` shows "Connect a database", "Can't reach the database", "Install the Postgres driver" or "Upgrade Node" | No store could be opened; the screen says which and why | Follow its steps: set `POLISHD_DATABASE_URL` (pooled), fix the URL, `npm install pg`, or Node ≥ 22.5. Redeploy after changing the environment |
 | Dashboard shows *"they arrive without a session, so none are stored"* | No batch can be minted a session: something in front of the app (CDN, firewall, proxy) strips both `Origin` and `Sec-Fetch-Site`, or a route of the app's own around `ingest()` passes no session id. Red means *nothing is being stored* — with events landing you get a neutral note instead | `doctor --url <origin>`; plain `doctor` only reads the source tree, so it can pass while a deployed site still drops every batch |
 | Beacons return 200 but nothing is stored | Same as above — ingest answers `{ok:true,stored:0,reason:"no_session"}` so the client cannot see a failure | `doctor --url http://localhost:3000` |
 | `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` | Node < 22.5 | Upgrade Node, or configure Postgres |

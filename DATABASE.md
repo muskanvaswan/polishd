@@ -22,8 +22,13 @@ order:
 2. Otherwise → use SQLite at **`POLISHD_DB_PATH`** (defaults to
    `.polishd/analytics.db`), good for local dev.
 3. If neither can be opened (read-only FS, bad URL) → the store **latches to a
-   safe no-op**: capture silently drops, the `/polishd` dashboard shows a notice,
-   and the host app is never taken down.
+   safe no-op**: capture silently drops and the host app is never taken down.
+   `/polishd`, once past its access check, shows a setup screen in place of the
+   dashboard: what failed (no URL on a read-only filesystem, a database it
+   can't reach, the `pg` driver missing, Node too old for SQLite), the likely
+   cause, and the steps. The error it shows has URLs and passwords removed.
+   The latch lasts for the server instance, so redeploy or restart after
+   changing the URL.
 
 > Both backends sit behind one async interface (`storeReady`, `insertEvents`,
 > the `query` helper), so no caller knows which is live. Aggregation SQL is

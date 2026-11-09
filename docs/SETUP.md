@@ -398,8 +398,10 @@ By hand:
 4. **Store.** In development, `.polishd/analytics.db` should exist. That file
    appearing is proof the whole write path works.
 
-If the dashboard shows a notice about the store being unavailable, capture is
-disabled — check Node ≥ 22.5 locally, or your database URL in production.
+If `/polishd` shows a setup screen ("Connect a database", "Can't reach the
+database"…) instead of the dashboard, no store could be opened and capture is
+disabled. The screen says why and what to do: Node ≥ 22.5 locally, or your
+database URL in production.
 
 ## 7. Deploying
 
@@ -447,8 +449,11 @@ being called; snapshots are then taken only in local development.
 See [DATABASE.md](../DATABASE.md) for schema, pooling notes, and retention.
 
 Until a database URL is set, Polishd runs as a safe no-op in production: a
-console warning, a notice on the dashboard, and zero impact on your app. It is
-designed never to be the reason your site goes down.
+console warning and zero impact on your app. It is designed never to be the
+reason your site goes down. Once you're past the dashboard's access check,
+`/polishd` shows a "Connect a database" screen with these steps instead of an
+empty dashboard, and opens as soon as the database is connected and you've
+redeployed.
 
 ## 8. Optional — component-level tracking
 

@@ -118,6 +118,7 @@ import {
   BrandWordmark,
   Callout,
   Code,
+  DatabaseIcon,
   EmptyState,
   InfoIcon,
   InfoTip,
@@ -131,7 +132,10 @@ import {
   labelCls as label,
   primaryBtn,
   relTime,
+  textLink,
 } from "./ui";
+import { storeStatus } from "../server/store";
+import { describeStoreFailure, type StoreFailure } from "../shared/store-failure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1284,10 +1288,12 @@ async function SettingsTabData() {
 function AccessScreen({
   title,
   width = "max-w-sm",
+  icon = <LockIcon size={15} />,
   children,
 }: {
   title: string;
   width?: string;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -1295,7 +1301,7 @@ function AccessScreen({
       <BrandWordmark height={44} />
       <div className={`mt-8 ${card} p-6`}>
         <div className="flex items-center gap-2 text-fg-3">
-          <LockIcon size={15} />
+          {icon}
           <h1 className="text-[17px] font-semibold text-fg">{title}</h1>
         </div>
         {children}
@@ -1511,6 +1517,134 @@ function SetupRequired() {
   );
 }
 
+const DATABASE_GUIDE = "https://github.com/muskanvaswan/polishd/blob/main/DATABASE.md";
+
+/**
+ * Shown instead of the dashboard, after the access check, when no analytics
+ * store could be opened. There is nothing to show then and every visit is
+ * being dropped, so this says what failed and how to connect one rather than
+ * rendering an empty dashboard with a warning on it.
+ *
+ * `showDetail` gates the raw (redacted) error: it goes to the owner past a
+ * guard, and to the developer locally, but not to anyone reading a dashboard
+ * made public on purpose.
+ */
+function DatabaseSetup({ failure, showDetail }: { failure: StoreFailure; showDetail: boolean }) {
+  const step = "rounded-lg border border-line bg-sunken px-3.5 py-3";
+  const copy: Record<StoreFailure["kind"], { title: string; intro: ReactNode; steps: ReactNode[] }> = {
+    "no-database": {
+      title: "Connect a database",
+      intro: (
+        <>
+          Polishd has nowhere to keep analytics on this deployment, so every visit is being dropped.
+          No <Code>POLISHD_DATABASE_URL</Code> is set, and the server can&apos;t write the local
+          SQLite file, which is normal on serverless hosts: their filesystem is read-only.
+        </>
+      ),
+      steps: [
+        <>Create a Postgres database: Neon, Vercel (Storage → Postgres), Supabase or RDS.</>,
+        <>
+          Copy its <span className="font-medium text-fg">pooled</span> connection string. On Neon
+          the host contains{" "}
+          <span className="whitespace-nowrap">
+            <Code>-pooler</Code>.
+          </span>
+        </>,
+        <>
+          Set it as <Code>POLISHD_DATABASE_URL</Code> in your deployment&apos;s environment.
+        </>,
+        <>Redeploy. Polishd creates its tables on first use.</>,
+      ],
+    },
+    postgres: {
+      title: "Can't reach the database",
+      intro: (
+        <>
+          <Code>POLISHD_DATABASE_URL</Code> is set, but Polishd couldn&apos;t connect to{" "}
+          {failure.host ? <Code>{failure.host}</Code> : "it"}, so every visit is being dropped.
+          {failure.hint && <span className="mt-2 block text-fg-2">{failure.hint}</span>}
+        </>
+      ),
+      steps: [
+        <>
+          Copy the connection string again from your provider, using the{" "}
+          <span className="font-medium text-fg">pooled</span> one, and set it as{" "}
+          <Code>POLISHD_DATABASE_URL</Code>.
+        </>,
+        <>
+          Redeploy or restart. Polishd tries the connection once per server instance, so a fixed
+          URL takes effect on the next one.
+        </>,
+      ],
+    },
+    "pg-missing": {
+      title: "Install the Postgres driver",
+      intro: (
+        <>
+          <Code>POLISHD_DATABASE_URL</Code> is set, but the <Code>pg</Code> driver isn&apos;t
+          installed. It&apos;s an optional dependency of <Code>@polishd/next</Code>, which some
+          installs skip.
+        </>
+      ),
+      steps: [<>Run <Code>npm install pg</Code> in your app.</>, <>Redeploy.</>],
+    },
+    node: {
+      title: "Upgrade Node",
+      intro: (
+        <>
+          This server runs Node {process.versions.node}. Polishd&apos;s local store uses{" "}
+          <Code>node:sqlite</Code>, which needs Node 22.5 or later, so every visit is being
+          dropped.
+        </>
+      ),
+      steps: [
+        <>Upgrade the server to Node 22.5 or later (on Vercel: Settings → Node.js Version).</>,
+        <>Redeploy, or restart the dev server.</>,
+      ],
+    },
+  };
+  const { title, intro, steps } = copy[failure.kind];
+
+  return (
+    <AccessScreen title={title} width="max-w-xl" icon={<DatabaseIcon size={15} />}>
+      <p className="mt-2 text-[13px] leading-relaxed text-fg-3">{intro}</p>
+      <ol className="mt-5 space-y-2 text-[13px] text-fg-2">
+        {steps.map((s, i) => (
+          <li key={i} className={`${step} flex gap-2.5`}>
+            <span className="font-medium tabular-nums text-fg-3">{i + 1}.</span>
+            <span>{s}</span>
+          </li>
+        ))}
+      </ol>
+      {showDetail && (
+        <details className="mt-4 text-[12px] text-fg-3">
+          <summary className="cursor-pointer select-none">What the store reported</summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words rounded-lg border border-line bg-sunken px-3 py-2 font-mono text-[12px] text-fg-2">
+            {failure.detail}
+          </pre>
+        </details>
+      )}
+      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
+        <a href="" className={`${primaryBtn} h-9`}>
+          Check again
+        </a>
+        <p className="text-[12px] leading-relaxed text-fg-3">
+          The dashboard opens once a store is connected.{" "}
+          <a href={DATABASE_GUIDE} target="_blank" rel="noreferrer" className={textLink}>
+            Database setup guide
+          </a>
+        </p>
+      </div>
+      {failure.kind === "no-database" && (
+        <p className="mt-3 text-[12px] leading-relaxed text-fg-3">
+          On a server with a writable, persistent disk, the SQLite file works too: set{" "}
+          <Code>POLISHD_DB_PATH</Code> to a path it can write.
+        </p>
+      )}
+    </AccessScreen>
+  );
+}
+
 /**
  * Decide the access policy from the host's configuration and environment.
  *
@@ -1612,6 +1746,18 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         }
         return wrap(theme, <Unauthorized />);
       }
+    }
+
+    // Past the access check, so the setup screen and its error detail only
+    // ever reach the dashboard's owner. With no store there is nothing to show
+    // and every visit is being dropped: say how to connect one instead.
+    const store = await storeStatus();
+    if (!store.ready) {
+      const showDetail = policy.mode === "guarded" || process.env.NODE_ENV !== "production";
+      return wrap(
+        theme,
+        <DatabaseSetup failure={describeStoreFailure(store)} showDetail={showDetail} />,
+      );
     }
 
     // Dogfood telemetry — decided per render, after auth, so the consent

@@ -1018,8 +1018,9 @@ AI settings are optional — the dashboard's **Settings** tab configures the sam
 fields, and what you save there overrides these env defaults.
 
 Local dev needs nothing. If no writable store is available the package degrades
-to a safe no-op (a console warning, dashboard notice) — your app never breaks.
-See [DATABASE.md](./DATABASE.md) for production setup.
+to a safe no-op — your app never breaks — and `/polishd`, past its access check,
+shows a setup screen saying what failed and how to connect a database in place
+of the dashboard. See [DATABASE.md](./DATABASE.md) for production setup.
 
 ## Troubleshooting
 
