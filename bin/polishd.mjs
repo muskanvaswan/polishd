@@ -22,6 +22,7 @@ ${c.bold("polishd")} — drop-in product analytics for Next.js
 ${c.bold("Usage")}
   npx @polishd/next init [options]      scaffold the files a Next.js app needs
   npx @polishd/next doctor [options]    check an existing install
+  npx @polishd/next db check [options]  can Polishd use this database? (never prints the URL)
 
 ${c.bold("init options")}
   --force        regenerate files this CLI wrote (backed up to .bak first).
@@ -29,6 +30,13 @@ ${c.bold("init options")}
   --dry-run      print what would happen, write nothing
   --js           emit .js/.jsx instead of TypeScript
   --config       also write a starter polishd.config.ts
+  --fix-workflow also write the Fix workflow (.github/workflows/claude.yml),
+                 reading CLAUDE_CODE_OAUTH_TOKEN; =api-key reads ANTHROPIC_API_KEY
+
+${c.bold("db check options")}
+  --env-file <path> read the URL from this file (e.g. one vercel env pull wrote)
+  --var <NAME>   the variable holding it (default: POLISHD_DATABASE_URL,
+                 then DATABASE_URL, then POSTGRES_URL)
 
 ${c.bold("doctor options")}
   --url <origin> also run live checks against a running server
@@ -78,9 +86,14 @@ switch (command) {
     code = await runDoctor(rest, cwd);
     break;
   }
+  case "db": {
+    const { runDb } = await import("./db.mjs");
+    code = await runDb(rest, cwd);
+    break;
+  }
   default:
     console.error(
-      c.err(`✗ Unknown command "${command}"`) + c.dim("\n  Try `init` or `doctor`, or --help."),
+      c.err(`✗ Unknown command "${command}"`) + c.dim("\n  Try `init`, `doctor` or `db check`, or --help."),
     );
     code = 1;
 }

@@ -19,6 +19,12 @@
  * its synchronous results. Callers never know which backend is live.
  */
 import { defaultPolishdConfig } from "../config";
+import {
+  EVENTS_TABLE,
+  INSPECTED_TABLES,
+  LEGACY_EVENTS_TABLE,
+  planTables,
+} from "../shared/store-tables";
 import type { PolishdEvent, PolishdEventRow } from "../shared/types";
 
 /**
@@ -125,8 +131,25 @@ async function openSqlite(): Promise<Backend> {
   const path = resolveDbPath();
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
+
+  // The same plan as on Postgres, though this file is Polishd's own: refuse a
+  // Polishd name that isn't Polishd's, and rename the pre-0.3.2 `events`.
+  const columnsOf = (table: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  const plan = planTables(columnsOf);
+  if (plan.refuse) throw new Error(plan.refuse);
+  if (plan.renameLegacy) {
+    db.exec(`ALTER TABLE ${LEGACY_EVENTS_TABLE} RENAME TO ${EVENTS_TABLE}`);
+    // Its indexes moved with it under their old names; the new ones below
+    // replace them. SQLite can't rename an index.
+    const old = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`)
+      .all(EVENTS_TABLE) as { name: string }[];
+    for (const { name } of old) if (name.startsWith("idx_events_")) db.exec(`DROP INDEX "${name}"`);
+  }
+
   db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
+    CREATE TABLE IF NOT EXISTS ${EVENTS_TABLE} (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id  TEXT    NOT NULL,
       type        TEXT    NOT NULL,
@@ -141,10 +164,10 @@ async function openSqlite(): Promise<Backend> {
       install_id  TEXT,
       build       TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_events_path ON events(path);
-    CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
-    CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-    CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_path ON ${EVENTS_TABLE}(path);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_type ON ${EVENTS_TABLE}(type);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_session ON ${EVENTS_TABLE}(session_id);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_received ON ${EVENTS_TABLE}(received_at);
 
     CREATE TABLE IF NOT EXISTS polishd_meta (
       key        TEXT    PRIMARY KEY,
@@ -159,13 +182,13 @@ async function openSqlite(): Promise<Backend> {
   // column is guaranteed present.
   for (const column of ["install_id", "build"]) {
     try {
-      db.exec(`ALTER TABLE events ADD COLUMN ${column} TEXT`);
+      db.exec(`ALTER TABLE ${EVENTS_TABLE} ADD COLUMN ${column} TEXT`);
     } catch {
       // Column already there — fresh table or already-migrated database.
     }
   }
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_build ON events(build)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_polishd_events_install ON ${EVENTS_TABLE}(install_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_polishd_events_build ON ${EVENTS_TABLE}(build)`);
 
   migrateLegacyMeta(
     (sql) => db.exec(sql),
@@ -178,7 +201,7 @@ async function openSqlite(): Promise<Backend> {
       if (events.length === 0) return 0;
       const now = Date.now();
       const placeholders = Array.from({ length: INSERT_COL_COUNT }, () => "?").join(", ");
-      const stmt = db.prepare(`INSERT INTO events (${INSERT_COLS}) VALUES (${placeholders})`);
+      const stmt = db.prepare(`INSERT INTO ${EVENTS_TABLE} (${INSERT_COLS}) VALUES (${placeholders})`);
       let written = 0;
       // node:sqlite has no .transaction() helper; wrap manually for batch speed.
       db.exec("BEGIN");
@@ -235,8 +258,22 @@ function openPostgres(url: string): Backend {
     return sql.replace(/\?/g, () => `$${++i}`);
   };
 
-  const ready = pool.query(`
-    CREATE TABLE IF NOT EXISTS events (
+  // This is often a database the app already uses. Look before creating
+  // anything: a table by one of Polishd's names that isn't Polishd's fails the
+  // open, so the dashboard says so, rather than being adopted by "if not
+  // exists" and altered below. And Polishd's own pre-0.3.2 `events` table is
+  // renamed into place; an app's `events` is never touched.
+  const ready = (async () => {
+    const { rows } = await pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = ANY($1)`,
+      [INSPECTED_TABLES],
+    );
+    const plan = planTables((t) => rows.filter((r) => r.table_name === t).map((r) => r.column_name));
+    if (plan.refuse) throw new Error(plan.refuse);
+    if (plan.renameLegacy) await renameLegacyPostgres(pool);
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${EVENTS_TABLE} (
       id          BIGSERIAL PRIMARY KEY,
       session_id  TEXT        NOT NULL,
       type        TEXT        NOT NULL,
@@ -252,28 +289,28 @@ function openPostgres(url: string): Backend {
       build       TEXT
     );
     -- Migrates tables created before install_id / build existed; no-op otherwise.
-    ALTER TABLE events ADD COLUMN IF NOT EXISTS install_id TEXT;
-    ALTER TABLE events ADD COLUMN IF NOT EXISTS build TEXT;
-    CREATE INDEX IF NOT EXISTS idx_events_path     ON events(path);
-    CREATE INDEX IF NOT EXISTS idx_events_type     ON events(type);
-    CREATE INDEX IF NOT EXISTS idx_events_session  ON events(session_id);
-    CREATE INDEX IF NOT EXISTS idx_events_install  ON events(install_id);
-    CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at);
-    CREATE INDEX IF NOT EXISTS idx_events_build    ON events(build);
+    ALTER TABLE ${EVENTS_TABLE} ADD COLUMN IF NOT EXISTS install_id TEXT;
+    ALTER TABLE ${EVENTS_TABLE} ADD COLUMN IF NOT EXISTS build TEXT;
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_path     ON ${EVENTS_TABLE}(path);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_type     ON ${EVENTS_TABLE}(type);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_session  ON ${EVENTS_TABLE}(session_id);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_install  ON ${EVENTS_TABLE}(install_id);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_received ON ${EVENTS_TABLE}(received_at);
+    CREATE INDEX IF NOT EXISTS idx_polishd_events_build    ON ${EVENTS_TABLE}(build);
 
     CREATE TABLE IF NOT EXISTS polishd_meta (
       key        TEXT   PRIMARY KEY,
       value      TEXT   NOT NULL,
       updated_at BIGINT NOT NULL
     );
-  `).then(async () => {
+  `);
     await migrateLegacyMetaAsync(
       (sql) => pool.query(sql).then(() => undefined),
       `INSERT INTO polishd_meta (key, value, updated_at)
        SELECT key, value, updated_at FROM buffd_meta
        ON CONFLICT (key) DO NOTHING`,
     );
-  });
+  })();
 
   return {
     async insert(sessionId, events, tags) {
@@ -293,7 +330,7 @@ function openPostgres(url: string): Backend {
         params.push(...eventValues(sessionId, e, now, tags));
       });
       const res = await pool.query(
-        `INSERT INTO events (${INSERT_COLS}) VALUES ${tuples.join(", ")}`,
+        `INSERT INTO ${EVENTS_TABLE} (${INSERT_COLS}) VALUES ${tuples.join(", ")}`,
         params,
       );
       return res.rowCount ?? 0;
@@ -308,6 +345,30 @@ function openPostgres(url: string): Backend {
       await pool.query(toPg(sql), params as unknown[]);
     },
   };
+}
+
+/**
+ * Rename Polishd's pre-0.3.2 `events` table, and its indexes, into place.
+ * Several instances may open at once on a deploy, so every step tolerates
+ * another having done it first.
+ */
+async function renameLegacyPostgres(pool: import("pg").Pool): Promise<void> {
+  await pool.query(`ALTER TABLE IF EXISTS ${LEGACY_EVENTS_TABLE} RENAME TO ${EVENTS_TABLE}`);
+  // Only the indexes now on our table: an app's own idx_events_* stay put.
+  const { rows } = await pool.query<{ indexname: string }>(
+    `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = $1`,
+    [EVENTS_TABLE],
+  );
+  for (const { indexname } of rows) {
+    if (!indexname.startsWith("idx_events_")) continue;
+    const renamed = indexname.replace(/^idx_events_/, "idx_polishd_events_");
+    try {
+      await pool.query(`ALTER INDEX IF EXISTS "${indexname}" RENAME TO "${renamed}"`);
+    } catch {
+      // Another instance already created the new one: the old copy is spare.
+      await pool.query(`DROP INDEX IF EXISTS "${indexname}"`);
+    }
+  }
 }
 
 // ── Backend selection (lazy, cached, fault-tolerant) ─────────────────────────
@@ -484,7 +545,7 @@ export async function setMeta(key: string, value: string): Promise<boolean> {
 
 /** Raw rows, newest first. For debugging and the queries layer. */
 export async function allRows(limit = 1000): Promise<PolishdEventRow[]> {
-  const rows = await query(`SELECT * FROM events ORDER BY id DESC LIMIT ?`, [limit]);
+  const rows = await query(`SELECT * FROM ${EVENTS_TABLE} ORDER BY id DESC LIMIT ?`, [limit]);
   return rows.map(deserialize);
 }
 

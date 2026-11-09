@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+### Connecting the database
+
+- **The events table is now `polishd_events`.** Polishd's tables were `events`
+  and `polishd_meta`; a plain `events` could clash with the app's own, and
+  "create if not exists" would have adopted the app's table and added columns
+  to it. With both names Polishd's own, the app's production database is
+  safe to share, and that's now the first choice.
+- **Existing installs move over by themselves.** On the first open after
+  upgrading, the store renames Polishd's `events` to `polishd_events`, rows
+  and indexes included, on SQLite and Postgres alike. It tells Polishd's
+  table from an app's by its columns and never touches an app's. Concurrent
+  instances opening during a deploy each tolerate another having done it
+  first. A deployment rolled back to an older version afterwards writes to a
+  new `events` table, which stays separate when you upgrade again.
+- **A table by one of Polishd's names that isn't Polishd's is refused** before
+  anything is created or altered: the store stays off and `/polishd` shows
+  "This database is already in use", naming the table.
+- **`npx @polishd/next db check`** says whether Polishd can use a database: not
+  Postgres at all, unreachable, a Polishd name taken, Polishd's tables already
+  there, or clear beside the app's tables. It warns when Prisma or Drizzle
+  manages the schema, since their push commands can drop tables they don't
+  know. It reads the URL from a variable or an env file (`--env-file`,
+  `--var`) and never prints it.
+- **An installing agent connects production on Vercel.** AGENTS.md's new
+  Phase 6a runs only when the project is already there: the CLI is signed
+  in, the repo is linked, and a production deployment is live. It never
+  signs in, links or deploys for you. It then uses the app's production
+  database when `db check` clears it (copying the URL into
+  `POLISHD_DATABASE_URL` without it passing through the terminal), or
+  provisions a free Neon database with
+  `vercel integration add neon --prefix POLISHD_ -e production --no-env-pull`,
+  which sets `POLISHD_DATABASE_URL` on the project with no secret passing
+  through the agent. It confirms before provisioning, and asks before deploying.
+  Other hosts set the URL themselves; Cloudflare Workers isn't supported yet.
+- On Vercel, the "Connect a database" setup screen gives that one command in
+  place of its four manual steps.
+
+### Site defaults in `polishd.defaults.json`
+
+- **The dashboard opens already knowing the site.** A committed
+  `polishd.defaults.json` at the root holds what Settings asks for: the
+  site's description, audience and values, the folders the scan reads, the
+  repository, the provider and model, the refresh cadence and the Fix
+  choices. The page imports it and passes it on
+  (`createPolishdPage({ defaults })`), so it ships with the page on
+  serverless hosts. `init` writes it once, with the repository read from the
+  `origin` remote, and never overwrites it; AGENTS.md has an installing agent
+  fill in the rest from the repo and show it to you before it goes in the PR.
+- **Defaults, not locks.** `POLISHD_AI_*` / `POLISHD_GITHUB_*` beat the file,
+  and Settings beats both. Saving now stores only what differs from the file
+  and the environment, so a later edit to the file still shows through the
+  fields you never changed. (The form sends every field; storing them all
+  would have pinned the file's values on the first save.)
+- **No secrets in it.** A key or token in the file is ignored and named in
+  the server log, and `doctor` fails it. `ai.apiKeyEnv` names a variable the
+  app already has instead — `"ANTHROPIC_API_KEY"` — and the key is read from
+  it, so an app that already calls a model needs no new secret. Only names
+  ending in `_KEY`; a key saved in Settings or `POLISHD_AI_API_KEY` still wins,
+  and the browser only ever sees the variable's name.
+- **A GitHub token in three clicks.** `init` prints, and Settings links to,
+  GitHub's new-token form with the name, owner, a year's expiry and Contents
+  (read), Issues and Pull requests (write) filled in. GitHub can't mint the
+  token from a command line or preselect the repository, so you choose the
+  repository, press Generate and copy.
+- **`init --fix-workflow`** writes the Fix workflow
+  (`.github/workflows/claude.yml`, the one the Fix card recommends) into the
+  same change, reading `CLAUDE_CODE_OAUTH_TOKEN`, or `ANTHROPIC_API_KEY` with
+  `=api-key`. A workflow of your own is left alone.
+- `doctor` checks the file: valid JSON, no secrets, no keys it doesn't read,
+  and a page that imports it.
+- The Anthropic key links point at `platform.claude.com/settings/keys`, where
+  `console.anthropic.com` now redirects.
+
 ### A setup screen when there's no database
 
 - **`/polishd` shows how to connect a database instead of an empty

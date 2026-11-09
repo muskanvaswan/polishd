@@ -16,8 +16,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  DEFAULTS_FILE,
   DIST_GLOB,
   c,
+  defaultsFileProblems,
   detectCacheComponents,
   detectJsInstall,
   detectLayout,
@@ -251,6 +253,53 @@ export async function runDoctor(argv, cwd) {
         "So /polishd takes your app's metadata, and search engines may index it. Add " +
           '`export { metadata } from "@polishd/next/dashboard";`.',
       );
+    }
+  }
+
+  // ── Defaults file ──────────────────────────────────────────────────────────
+  // Optional, but each way it goes wrong is silent: a page that doesn't import
+  // it reads none of it, and a key in it sits in git for good.
+  const defaultsSrc = readText(join(cwd, DEFAULTS_FILE));
+  const pageReadsDefaults = Boolean(pageCode && pageCode.includes(DEFAULTS_FILE));
+  if (defaultsSrc === null) {
+    if (pageReadsDefaults) {
+      add(FAIL, `${pagePath} imports ${DEFAULTS_FILE}, which doesn't exist`, "The build fails until it does. `npx @polishd/next init` writes one.");
+    }
+  } else {
+    let parsed;
+    try {
+      parsed = JSON.parse(defaultsSrc);
+    } catch (e) {
+      add(FAIL, `${DEFAULTS_FILE} isn't valid JSON`, `${e.message}. The build fails on it.`);
+    }
+    if (parsed !== undefined) {
+      const { secrets, unknown, notObject } = defaultsFileProblems(parsed);
+      if (notObject) add(WARN, `${DEFAULTS_FILE} isn't a JSON object`, "Nothing in it is read.");
+      if (secrets.length > 0) {
+        add(
+          FAIL,
+          `${DEFAULTS_FILE} holds a secret (${secrets.join(", ")})`,
+          "The file is committed, so the secret is in git — rotate it. Polishd ignores it: set " +
+            "POLISHD_AI_API_KEY / POLISHD_GITHUB_TOKEN where the app runs, or name a variable the " +
+            "app already has in ai.apiKeyEnv.",
+        );
+      }
+      if (unknown.length > 0) {
+        add(WARN, `${DEFAULTS_FILE} has keys Polishd doesn't read`, `${unknown.join(", ")} — a typo, usually. They're ignored.`);
+      }
+      if (!pageSrc) {
+        // Reported above as a missing page.
+      } else if (!pageReadsDefaults) {
+        add(
+          WARN,
+          `${pagePath} doesn't import ${DEFAULTS_FILE}`,
+          "So the dashboard reads none of it. Add " +
+            `\`import defaults from "…/${DEFAULTS_FILE}";\` and pass \`createPolishdPage({ defaults })\`` +
+            " — or run `npx @polishd/next init --force` if init wrote the page.",
+        );
+      } else if (!notObject && secrets.length === 0) {
+        add(PASS, `${DEFAULTS_FILE} is read by the dashboard`, "saved settings override it");
+      }
     }
   }
 

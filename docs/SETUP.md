@@ -148,6 +148,7 @@ export const POST = createPolishdRoute();
 ```tsx
 import "@polishd/next/dashboard.css";
 import { createPolishdPage } from "@polishd/next/dashboard";
+import defaults from "../../../polishd.defaults.json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -155,7 +156,7 @@ export const dynamic = "force-dynamic";
 // analyses headroom on hosts with strict function limits.
 export const maxDuration = 300;
 
-export default createPolishdPage();
+export default createPolishdPage({ defaults });
 ```
 
 Same inline-config rule as the route. In production this refuses to render
@@ -167,6 +168,40 @@ the page. That is the dashboard's own metadata, `robots: noindex` included;
 without it `/polishd` takes your app's metadata and search engines may index
 it.
 
+### `polishd.defaults.json` — what the dashboard starts with
+
+The page imports this file from the project root. `init` writes it once, with
+your repository from the `origin` remote, and never overwrites it.
+
+```json
+{
+  "site": {
+    "description": "A personal notes site. Visitors read articles and browse by tag.",
+    "audience": "Developers who keep public notes",
+    "values": "Fast and quiet: no pop-ups, no dark patterns",
+    "sourceDirs": ["app", "components"]
+  },
+  "github": { "repo": "owner/name", "autoIssues": false },
+  "ai": { "provider": "anthropic", "model": "claude-opus-4-8", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+  "fix": { "auto": false, "label": "polishd-fix", "dailyCap": 5 }
+}
+```
+
+- **Defaults, not locks.** `POLISHD_AI_*` and `POLISHD_GITHUB_*` beat the file,
+  and anything saved in Settings beats both. Saving only stores what you
+  changed, so a later edit to the file still shows through every field you
+  left alone.
+- **No secrets.** The file is committed. A key or token in it is ignored and
+  `doctor` fails it. Set `POLISHD_AI_API_KEY` / `POLISHD_GITHUB_TOKEN` where the
+  app runs, or paste them in Settings.
+- **`ai.apiKeyEnv` reuses a key the app already has.** Name the variable —
+  `"ANTHROPIC_API_KEY"`, not its value — and Polishd reads the key from it.
+  Only names ending in `_KEY`. A key saved in Settings or set as
+  `POLISHD_AI_API_KEY` still wins.
+- Blank strings mean "not set", so `init`'s placeholders are fine as they are.
+- The page imports the file (`createPolishdPage({ defaults })`) rather than
+  Polishd reading it from disk, so it ships with the page on serverless hosts.
+
 ### With `cacheComponents`
 
 If your `next.config` sets `cacheComponents: true`, Next rejects `runtime` and
@@ -176,7 +211,7 @@ request. `init` reads your config and writes both files to suit: no `runtime`
 or `dynamic` (Node is already the runtime and nothing here is cached), and
 
 ```tsx
-export default createPolishdPage({ suspense: true });
+export default createPolishdPage({ defaults, suspense: true });
 ```
 
 `doctor` checks the same way round.

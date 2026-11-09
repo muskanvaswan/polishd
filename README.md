@@ -77,8 +77,10 @@ npx @polishd/next doctor     # confirm the wiring
 
 That's it locally — events write to `.polishd/analytics.db` with no
 configuration. `init` detects your layout (`src/` or root), writes the three
-files below, and adds `.polishd/` to `.gitignore`. There is no proxy or
-middleware to add, and an existing one is never touched.
+files below, adds `.polishd/` to `.gitignore`, and writes
+[`polishd.defaults.json`](#site-defaults-polishddefaultsjson) for what the
+dashboard should know about your site. There is no proxy or middleware to
+add, and an existing one is never touched.
 
 The first visit to `/polishd` opens Settings on its first-time setup, which
 connects the model the summaries and the design review use. Skip it to go
@@ -108,10 +110,11 @@ export const POST = createPolishdRoute();
 // src/app/polishd/page.tsx — the dashboard
 import "@polishd/next/dashboard.css";   // self-contained; no Tailwind needed
 import { createPolishdPage } from "@polishd/next/dashboard";
+import defaults from "../../../polishd.defaults.json"; // your site's defaults
 export { metadata } from "@polishd/next/dashboard"; // robots: noindex
 export const runtime = "nodejs";       // Next requires these inline in the page
 export const dynamic = "force-dynamic";
-export default createPolishdPage();    // see Protecting the dashboard
+export default createPolishdPage({ defaults }); // see Protecting the dashboard
 ```
 
 > **Route segment config can't be re-exported.** Next statically parses
@@ -121,7 +124,7 @@ export default createPolishdPage();    // see Protecting the dashboard
 
 > **With `cacheComponents: true`, leave them out.** Next rejects `runtime` and
 > `dynamic` there, and the dashboard has to render inside `<Suspense>`:
-> `export default createPolishdPage({ suspense: true })`. `init` reads your
+> `export default createPolishdPage({ defaults, suspense: true })`. `init` reads your
 > `next.config` and writes the files that way.
 
 ## Sessions, and why there's no proxy
@@ -389,7 +392,7 @@ settings take precedence.
 
 | Provider | Get a key | Notes |
 |---|---|---|
-| Anthropic (Claude) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | default model `claude-opus-4-8` |
+| Anthropic (Claude) | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) | default model `claude-opus-4-8` |
 | OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | default model `gpt-4o-mini` |
 | OpenAI-compatible | e.g. [openrouter.ai/keys](https://openrouter.ai/keys), [console.groq.com/keys](https://console.groq.com/keys) | also set **Base URL** |
 | Google (Gemini) | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | default model `gemini-2.5-flash` |
@@ -938,6 +941,49 @@ tab can show them meanwhile: on a collector it has a **Site / Telemetry**
 switch beside the range (`?source=`). The switch changes only that tab; the
 AI summary and the other tabs keep reading what the variable picks.
 
+## Site defaults (`polishd.defaults.json`)
+
+What the dashboard should know about your site from the first visit: what it
+is, who it's for, what it values, its repository and its model. `init` writes
+the file at the root with the repository from your `origin` remote; a coding
+agent installing Polishd fills in the rest from the repo
+([AGENTS.md](./AGENTS.md), Phase 6b). It goes in git with everything else.
+
+```json
+{
+  "site": {
+    "description": "A personal notes site. Visitors read articles and browse by tag.",
+    "audience": "Developers who keep public notes",
+    "values": "Fast and quiet: no pop-ups, no dark patterns",
+    "sourceDirs": ["app", "components"]
+  },
+  "github": { "repo": "owner/name", "autoIssues": false },
+  "ai": { "provider": "anthropic", "model": "claude-opus-4-8", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+  "fix": { "auto": false, "label": "polishd-fix", "dailyCap": 5 }
+}
+```
+
+- **Defaults, not locks.** `POLISHD_AI_*` and `POLISHD_GITHUB_*` beat the file,
+  and anything saved in Settings beats both. Saving only stores what you
+  changed, so a later edit to the file still shows through every field you
+  left alone.
+- **No secrets.** The file is committed. A key or token in it is ignored and
+  `doctor` fails it. Set `POLISHD_AI_API_KEY` / `POLISHD_GITHUB_TOKEN` where the
+  app runs, or paste them in Settings.
+- **`ai.apiKeyEnv` reuses a key the app already has.** Name the variable —
+  `"ANTHROPIC_API_KEY"`, not its value — and Polishd reads the key from it.
+  Only names ending in `_KEY`. A key saved in Settings or set as
+  `POLISHD_AI_API_KEY` still wins.
+- Blank strings mean "not set", so `init`'s placeholders are fine as they are.
+- The page imports the file (`createPolishdPage({ defaults })`) rather than
+  Polishd reading it from disk, so it ships with the page on serverless hosts.
+
+`init` also prints a link to GitHub's token form with Polishd's permissions
+and your repository's owner filled in: choose the repository, press
+Generate, copy. GitHub's form can't preselect the repository itself.
+`init --fix-workflow` adds the Fix workflow (`.github/workflows/claude.yml`)
+to the same change.
+
 ## Configuration
 
 Defaults suit a low-traffic site. Override via `polishd.config.ts`:
@@ -1062,8 +1108,9 @@ Run `npx @polishd/next doctor` first — it catches most of these by name, and
 
 | Command | Purpose |
 |---|---|
-| `npx @polishd/next init` | Scaffold the glue files. `--dry-run`, `--force`, `--js`, `--config` |
+| `npx @polishd/next init` | Scaffold the glue files. `--dry-run`, `--force`, `--js`, `--config`, `--fix-workflow[=api-key]` |
 | `npx @polishd/next doctor` | Check an install. `--url <origin>` adds live checks |
+| `npx @polishd/next db check` | Can Polishd use this database: is it Postgres, reachable, and free of tables by Polishd's names? `--env-file <path>`, `--var <NAME>`. Never prints the URL |
 
 ## Development
 

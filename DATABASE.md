@@ -54,7 +54,7 @@ Events land in `.polishd/analytics.db` (gitignored). Inspect them directly:
 ```bash
 node -e "const {DatabaseSync}=require('node:sqlite'); \
   const db=new DatabaseSync('.polishd/analytics.db'); \
-  console.log(db.prepare('SELECT type, count(*) c FROM events GROUP BY type').all())"
+  console.log(db.prepare('SELECT type, count(*) c FROM polishd_events GROUP BY type').all())"
 ```
 
 To use a custom path (e.g. a tmpfs-backed location), set `POLISHD_DB_PATH`.
@@ -65,6 +65,25 @@ To use a custom path (e.g. a tmpfs-backed location), set `POLISHD_DB_PATH`.
 
 Serverless Postgres with connection pooling, which matters because each
 serverless invocation opens its own connection.
+
+**If the app already has a Postgres database in production, use that one** —
+see [Sharing the app's own database](#sharing-the-apps-own-database). A new
+one is for when it has none.
+
+**On Vercel, from the command line** (in the app's folder, project linked):
+
+```bash
+vercel integration add neon --prefix POLISHD_ -e production --no-env-pull
+```
+
+It creates a Neon database (pick the free plan when asked), connects it to
+the project, and — because of the prefix — names the pooled connection string
+`POLISHD_DATABASE_URL`, so there is nothing to copy. `-e production` keeps
+preview deployments out of your production analytics, and `--no-env-pull`
+leaves your `.env.local` alone. Redeploy, and you're done. A coding agent
+installing Polishd does this for you (AGENTS.md, Phase 6a), after asking.
+
+**Or by hand:**
 
 1. Create a database: **Vercel Dashboard → Storage → Create → Postgres**
    (Vercel provisions a [Neon](https://neon.tech) database), or sign up at
@@ -77,12 +96,37 @@ serverless invocation opens its own connection.
    POLISHD_DATABASE_URL=postgres://user:password@ep-xxx-pooler.region.aws.neon.tech/polishd?sslmode=require
    ```
 
-4. Redeploy. The store creates the `events` table on first write.
+4. Redeploy. The store creates its tables on first write.
+
+### Sharing the app's own database
+
+The usual choice. Polishd adds two tables, `polishd_events` and
+`polishd_meta`, in the default schema; their names keep them clear of the
+app's. Point `POLISHD_DATABASE_URL` at the same database the app uses. Two
+things to know:
+
+- **A table by one of Polishd's names that isn't Polishd's** is refused before
+  anything is created or altered, and `/polishd` shows "This database is
+  already in use". In practice nothing else uses these names.
+- **A schema tool that drops what it doesn't know.** `prisma db push`,
+  `prisma migrate dev` and `drizzle-kit push` treat Polishd's tables as drift
+  and can drop them. With one of those, keep Polishd's tables out of its view
+  (Drizzle: `tablesFilter`) or give Polishd a database of its own.
+
+`npx @polishd/next db check` answers both before anything is written, and
+says when the app's database isn't Postgres at all. It reads the URL from an
+environment variable or an env file and never prints it:
+
+```bash
+vercel env pull .polishd/env.check --environment production --yes
+npx @polishd/next db check --env-file .polishd/env.check --var DATABASE_URL
+rm .polishd/env.check
+```
 
 ### Schema (created automatically; shown for reference)
 
 ```sql
-CREATE TABLE IF NOT EXISTS events (
+CREATE TABLE IF NOT EXISTS polishd_events (
   id          BIGSERIAL PRIMARY KEY,
   session_id  TEXT        NOT NULL,
   type        TEXT        NOT NULL,
@@ -97,13 +141,19 @@ CREATE TABLE IF NOT EXISTS events (
   install_id  TEXT,
   build       TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_events_path     ON events(path);
-CREATE INDEX IF NOT EXISTS idx_events_type     ON events(type);
-CREATE INDEX IF NOT EXISTS idx_events_session  ON events(session_id);
-CREATE INDEX IF NOT EXISTS idx_events_install  ON events(install_id);
-CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at);
-CREATE INDEX IF NOT EXISTS idx_events_build    ON events(build);
+CREATE INDEX IF NOT EXISTS idx_polishd_events_path     ON polishd_events(path);
+CREATE INDEX IF NOT EXISTS idx_polishd_events_type     ON polishd_events(type);
+CREATE INDEX IF NOT EXISTS idx_polishd_events_session  ON polishd_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_polishd_events_install  ON polishd_events(install_id);
+CREATE INDEX IF NOT EXISTS idx_polishd_events_received ON polishd_events(received_at);
+CREATE INDEX IF NOT EXISTS idx_polishd_events_build    ON polishd_events(build);
 ```
+
+**Before 0.3.2 this table was called `events`.** The store renames Polishd's
+own on the first open after upgrading, rows and indexes included; it tells
+it from an app's `events` by its columns, and leaves an app's alone. A
+deployment rolled back to an older version afterwards writes to a fresh
+`events` table again, and those rows stay there when you upgrade back.
 
 (`install_id` is null on every first-party event; it is only set on rows that
 arrived through a `@polishd/next/telemetry` endpoint, which tags each event
@@ -115,6 +165,12 @@ were tracked or where none was known. Databases created before either column
 existed are migrated automatically at open.)
 
 ---
+
+## Cloudflare — not supported yet
+
+Polishd's production store doesn't run on Cloudflare Workers (OpenNext) yet.
+It keeps one Postgres pool across requests, which Workers don't allow, and it
+has no D1 backend. Capture there stays a safe no-op.
 
 ## Production — Option B: Turso (edge SQLite) — not yet wired up
 
@@ -133,7 +189,7 @@ turso db show polishd --url        # → POLISHD_DATABASE_URL (libsql://...)
 turso db tokens create polishd     # → POLISHD_DATABASE_AUTH_TOKEN
 ```
 
-The same `events` schema applies (SQLite types, as in `store.ts`).
+The same `polishd_events` schema applies (SQLite types, as in `store.ts`).
 
 ---
 
@@ -158,7 +214,7 @@ server only.
 - Prune old rows on whatever cadence you like, e.g. a scheduled job:
 
   ```sql
-  DELETE FROM events WHERE received_at < (extract(epoch from now()) - 60*60*24*90) * 1000;
+  DELETE FROM polishd_events WHERE received_at < (extract(epoch from now()) - 60*60*24*90) * 1000;
   ```
 
   (90-day retention; `received_at` is milliseconds since epoch.)

@@ -452,7 +452,7 @@ const SECRET_CHOICES: { value: DispatchSecretChoice; label: string; cost: string
     from: (
       <>
         Create it in the{" "}
-        <ExternalLink href="https://console.anthropic.com/settings/keys">Anthropic Console</ExternalLink>.
+        <ExternalLink href="https://platform.claude.com/settings/keys">Anthropic Console</ExternalLink>.
       </>
     ),
   },
