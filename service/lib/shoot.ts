@@ -8,6 +8,12 @@
  * that browser, takes a fresh one on the same lease, and is tried once more;
  * everything already shot is kept. Before this, a wedged Chromium failed
  * every shot on its instance for as long as the instance lived.
+ *
+ * A shot still running at the request's deadline is abandoned and its
+ * browser retired. A Chromium can wedge without disconnecting, leaving a
+ * Playwright call pending for good, and waiting it out ran a request into
+ * Vercel's `maxDuration`, whose timeout page has no CORS headers, so the
+ * dashboard could only say the service didn't respond.
  */
 import {
   DEVICES,
@@ -60,6 +66,21 @@ const SHOT_ESTIMATE_MS = 20_000;
 
 /** What the cell says when even a fresh browser couldn't shoot it. */
 const REPLACED_TEXT = "the screenshot service's browser had to be replaced — try this page again";
+/** What the cell says when it was still being shot at the deadline. */
+const TIMED_OUT_TEXT = "the screenshot service ran out of time on this page — try it again";
+
+/**
+ * `work`'s value, or null once `deadline` passes first. The work isn't
+ * stopped — whoever stops waiting has to deal with what it's running on —
+ * and a rejection after the deadline is dropped.
+ */
+export function byDeadline<T>(work: Promise<T>, deadline: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), null);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Install the request guard: top-level navigation stays on the origin, and
@@ -275,18 +296,30 @@ export async function shootAll(
               maxImageBytes,
             );
 
-          let outcome = await shoot();
-          if (outcome.fault) {
+          let outcome = await byDeadline(shoot(), deadline);
+          if (outcome?.fault) {
             await replaceBrowser(`browser fault (${outcome.fault}) shooting ${cell.device}/${cell.theme}`);
             if (Date.now() + SHOT_ESTIMATE_MS <= deadline) {
-              outcome = await shoot();
-              if (outcome.fault) {
+              outcome = await byDeadline(shoot(), deadline);
+              if (outcome?.fault) {
                 // A fresh browser faulting at once means the instance itself
                 // is short of room; don't keep that one either.
                 pool.discard(lease, `browser fault (${outcome.fault}) right after a relaunch`);
               }
             }
-            if (outcome.fault) outcome.shot = { ...outcome.shot, skipped: REPLACED_TEXT };
+            if (outcome?.fault) outcome.shot = { ...outcome.shot, skipped: REPLACED_TEXT };
+          }
+          if (!outcome) {
+            // Still running at the deadline. The shot is left where it hung,
+            // and the browser it hung on is retired — closed, or killed if it
+            // won't close, once this request lets go — taking the encoder
+            // with it, so there's nothing left here to wait on.
+            pool.discard(lease, `a ${cell.device}/${cell.theme} shot was still running at the deadline`);
+            held.encoder = null;
+            outcome = {
+              shot: { ...cell, reason: "timeout", skipped: TIMED_OUT_TEXT, previews: [], looked: [] },
+              fault: null,
+            };
           }
           pool.noteShots(lease, 1);
           spent += shotWireBytes(outcome.shot);

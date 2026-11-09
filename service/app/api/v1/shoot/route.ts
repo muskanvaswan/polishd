@@ -12,7 +12,7 @@ import { CORS_HEADERS, errorResponse, json, readBodyCapped } from "../../../../l
 import { LimiterUnavailableError } from "../../../../lib/limiter.ts";
 import { resolvePublic } from "../../../../lib/net.ts";
 import { clientIp, parseOriginHeader } from "../../../../lib/origin.ts";
-import { shootAll } from "../../../../lib/shoot.ts";
+import { byDeadline, shootAll } from "../../../../lib/shoot.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +20,12 @@ export const maxDuration = 60;
 
 /** Wall-clock budget for the shots, inside `maxDuration`. */
 const SHOOT_BUDGET_MS = 50_000;
+/**
+ * When the route answers whatever is still running: a slot that never came
+ * free, a browser launch or close that hangs. Inside `maxDuration`, because
+ * past it Vercel answers instead, with a page that has no CORS headers.
+ */
+const ANSWER_BY_MS = 55_000;
 
 const config = loadConfig();
 
@@ -87,9 +93,16 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
-    const shots = await withBrowser(config, (lease, pool) =>
-      shootAll(pool, lease, origin.origin, request, started + SHOOT_BUDGET_MS),
+    const shots = await byDeadline(
+      withBrowser(config, (lease, pool) =>
+        shootAll(pool, lease, origin.origin, request, started + SHOOT_BUDGET_MS),
+      ),
+      started + ANSWER_BY_MS,
     );
+    if (!shots) {
+      console.error("[shots] capture still running at the answer deadline");
+      return errorResponse("unavailable", "The screenshot service ran out of time before it could answer.");
+    }
     return json({ v: 1, origin: origin.origin, shots });
   } catch (err) {
     // The message only — never the URL or anything the page returned.
