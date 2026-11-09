@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 
 import {
   c,
+  detectCacheComponents,
   detectLayout,
   detectNextMajor,
   nextLoadsClientInstrumentation,
@@ -77,6 +78,19 @@ export function runInit(argv, cwd) {
     );
   }
 
+  // Cache Components rejects `runtime` and `dynamic` in the route and the page,
+  // and wants the dashboard's cookie reads inside <Suspense>.
+  const cc = detectCacheComponents(cwd);
+  if (cc.on) {
+    console.log(
+      c.ok(`✔ Detected cacheComponents`) +
+        c.dim(` in ${cc.file} — writing the route and page without runtime/dynamic`),
+    );
+  }
+  const ccNote =
+    `// cacheComponents is on, so there is no \`runtime\` or \`dynamic\` here: Next\n` +
+    `// rejects both. Node is already the runtime, and nothing here is cached.\n`;
+
   // ── File templates ─────────────────────────────────────────────────────────
   const files = [
     {
@@ -90,11 +104,13 @@ export function runInit(argv, cwd) {
       // ("Next.js can't recognize the exported `runtime` field in route").
       body:
         `import { createPolishdRoute } from "@polishd/next/route";\n\n` +
-        `// node:sqlite / pg need the Node runtime — never the Edge runtime.\n` +
-        `export const runtime = "nodejs";\n` +
-        `// This route mutates per-request; it must never be statically cached.\n` +
-        `export const dynamic = "force-dynamic";\n\n` +
-        `export const POST = createPolishdRoute();\n`,
+        (cc.on
+          ? ccNote
+          : `// node:sqlite / pg need the Node runtime — never the Edge runtime.\n` +
+            `export const runtime = "nodejs";\n` +
+            `// This route mutates per-request; it must never be statically cached.\n` +
+            `export const dynamic = "force-dynamic";\n`) +
+        `\nexport const POST = createPolishdRoute();\n`,
     },
     {
       path: join(appDir, "polishd", `page.${pageExt}`),
@@ -104,9 +120,13 @@ export function runInit(argv, cwd) {
         `// affect anything outside the dashboard.\n` +
         `import "@polishd/next/dashboard.css";\n` +
         `import { createPolishdPage } from "@polishd/next/dashboard";\n\n` +
-        `// Next requires these to be declared inline in the page module.\n` +
-        `export const runtime = "nodejs";\n` +
-        `export const dynamic = "force-dynamic";\n` +
+        `// The dashboard's metadata, which keeps /polishd out of search engines.\n` +
+        `export { metadata } from "@polishd/next/dashboard";\n\n` +
+        (cc.on
+          ? ccNote + `\n`
+          : `// Next requires these to be declared inline in the page module.\n` +
+            `export const runtime = "nodejs";\n` +
+            `export const dynamic = "force-dynamic";\n`) +
         `// Server actions inherit this page's time limit; 300s gives the AI\n` +
         `// analyses headroom on hosts with strict function limits.\n` +
         `export const maxDuration = 300;\n\n` +
@@ -114,7 +134,11 @@ export function runInit(argv, cwd) {
         `// POLISHD_DASHBOARD_TOKEN, pass your own \`authenticate\`, or opt out\n` +
         `// explicitly with POLISHD_DASHBOARD_PUBLIC=true. It can change your AI\n` +
         `// settings and spend your model tokens, so it is not public by default.\n` +
-        `export default createPolishdPage();\n`,
+        (cc.on
+          ? `// \`suspense\` renders it inside <Suspense>, which Cache Components needs\n` +
+            `// around the cookies it reads on every request.\n` +
+            `export default createPolishdPage({ suspense: true });\n`
+          : `export default createPolishdPage();\n`),
     },
   ];
 

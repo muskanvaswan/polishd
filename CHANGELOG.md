@@ -38,6 +38,17 @@
   moving Next up within the range (`^15.2.9` installs 15.5); where the app
   pins Next below 15.3, npm stops with ERESOLVE naming the peer. `doctor`
   fails on an installed Next below 15.3, and `init` warns.
+- **Apps with `cacheComponents: true` build.** Next rejects `runtime` and
+  `dynamic` in the route and the page under Cache Components, and fails to
+  prerender `/polishd` while the dashboard reads cookies outside `<Suspense>`.
+  `init` now reads `next.config` and leaves both exports out there, and
+  `createPolishdPage({ suspense: true })` renders the dashboard inside a
+  boundary. `doctor` checks the other way round for these apps: `runtime` or
+  `dynamic` present, or no boundary, is the failure.
+- **`/polishd` stays out of search engines.** The page `init` writes
+  re-exports the dashboard's `metadata` (`robots: noindex`), which Next only
+  reads from the page module itself; without it the route took the host
+  app's metadata. `doctor` warns on a page that doesn't.
 - **Docs and the dashboard.** README, docs/SETUP.md and AGENTS.md describe the
   three-file install, and AGENTS.md's manual check probes ingest for the
   cookie instead of expecting one on a page. The dashboard's red banner names

@@ -1421,6 +1421,14 @@ export interface CreatePolishdPageOptions {
    * @default true
    */
   shell?: boolean;
+  /**
+   * Render the dashboard inside a `<Suspense>` boundary. Required when the app
+   * sets `cacheComponents: true`: the dashboard reads cookies on every request,
+   * and Cache Components rejects request-time data read outside `<Suspense>`
+   * while it prerenders the route. `init` sets it for such apps.
+   * @default false
+   */
+  suspense?: boolean;
 }
 
 /**
@@ -1585,7 +1593,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
   // the unlock form and the "wire up your own UI" placeholder.
   const usingTokenAuth = !opts.authenticate && polishdDashboardToken() !== null;
 
-  return async function PolishdPage(props: PolishdPageProps = {}) {
+  async function PolishdPage(props: PolishdPageProps = {}) {
     const sp = props.searchParams ? await props.searchParams : {};
     const theme = await readPolishdTheme();
 
@@ -1690,6 +1698,19 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         </DashboardChrome>
         {telemetryUi}
       </>,
+    );
+  }
+
+  if (!opts.suspense) return PolishdPage;
+
+  // Under Cache Components the route is prerendered, and the cookie reads
+  // above may only happen inside a boundary: the static shell is whatever the
+  // host's layout renders, and the dashboard streams into it per request.
+  return function PolishdSuspendedPage(props: PolishdPageProps = {}) {
+    return (
+      <Suspense fallback={null}>
+        <PolishdPage {...props} />
+      </Suspense>
     );
   };
 }

@@ -162,6 +162,25 @@ Same inline-config rule as the route. In production this refuses to render
 until you decide how it is protected — see
 [Protecting the dashboard](#5-protecting-the-dashboard).
 
+`init` also writes `export { metadata } from "@polishd/next/dashboard";` into
+the page. That is the dashboard's own metadata, `robots: noindex` included;
+without it `/polishd` takes your app's metadata and search engines may index
+it.
+
+### With `cacheComponents`
+
+If your `next.config` sets `cacheComponents: true`, Next rejects `runtime` and
+`dynamic` in the route and the page, and prerendering `/polishd` fails unless
+the dashboard renders inside `<Suspense>`, because it reads cookies on every
+request. `init` reads your config and writes both files to suit: no `runtime`
+or `dynamic` (Node is already the runtime and nothing here is cached), and
+
+```tsx
+export default createPolishdPage({ suspense: true });
+```
+
+`doctor` checks the same way round.
+
 ### The dashboard's own shell
 
 The dashboard is a route in *your* app, so it inherits your `<body>`. That

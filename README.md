@@ -104,6 +104,7 @@ export const POST = createPolishdRoute();
 // src/app/polishd/page.tsx — the dashboard
 import "@polishd/next/dashboard.css";   // self-contained; no Tailwind needed
 import { createPolishdPage } from "@polishd/next/dashboard";
+export { metadata } from "@polishd/next/dashboard"; // robots: noindex
 export const runtime = "nodejs";       // Next requires these inline in the page
 export const dynamic = "force-dynamic";
 export default createPolishdPage();    // see Protecting the dashboard
@@ -113,6 +114,11 @@ export default createPolishdPage();    // see Protecting the dashboard
 > `runtime` and `dynamic`, so `export { POST, runtime, dynamic } from
 > "@polishd/next/route"` fails the build — declare them inline as above. The same
 > applies to the dashboard page.
+
+> **With `cacheComponents: true`, leave them out.** Next rejects `runtime` and
+> `dynamic` there, and the dashboard has to render inside `<Suspense>`:
+> `export default createPolishdPage({ suspense: true })`. `init` reads your
+> `next.config` and writes the files that way.
 
 ## Sessions, and why there's no proxy
 

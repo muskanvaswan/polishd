@@ -192,3 +192,51 @@ test("a declared Next range alone is not judged: it may resolve to a newer Next"
   const { out } = await capture(() => runDoctor([], dir));
   assert.doesNotMatch(out, /never loads instrumentation-client/);
 });
+
+test("under cacheComponents init omits runtime/dynamic and doctor holds it to that", async () => {
+  const dir = project(16, {
+    "next.config.ts": `export default { cacheComponents: true };`,
+  });
+  const init = await capture(() => runInit([], dir));
+  assert.match(init.out, /Detected cacheComponents in next\.config\.ts/);
+  const route = readFileSync(join(dir, "app/api/polishd/route.ts"), "utf8");
+  const page = readFileSync(join(dir, "app/polishd/page.tsx"), "utf8");
+  for (const src of [route, page]) assert.doesNotMatch(src, /export const (runtime|dynamic)/);
+  assert.match(page, /createPolishdPage\(\{ suspense: true \}\)/);
+  assert.match(page, /export \{ metadata \} from "@polishd\/next\/dashboard"/);
+
+  const ok = await capture(() => runDoctor([], dir));
+  assert.match(ok.out, /route\.ts omits runtime and dynamic/);
+  assert.match(ok.out, /Dashboard renders inside <Suspense>/);
+  assert.equal(ok.code, 0);
+
+  // The 0.3.1 templates in the same app: the build rejects them, and so does doctor.
+  writeFileSync(join(dir, "app/api/polishd/route.ts"), `${route}export const runtime = "nodejs";\nexport const dynamic = "force-dynamic";\n`);
+  writeFileSync(join(dir, "app/polishd/page.tsx"), page.replace("createPolishdPage({ suspense: true })", "createPolishdPage()"));
+  const bad = await capture(() => runDoctor([], dir));
+  assert.match(bad.out, /route\.ts declares `runtime` and `dynamic`/);
+  assert.match(bad.out, /renders the dashboard outside <Suspense>/);
+  assert.equal(bad.code, 1);
+});
+
+test("without cacheComponents the page keeps runtime/dynamic and gains the metadata", async () => {
+  const dir = project(16, { "next.config.ts": `export default { reactStrictMode: true };` });
+  await capture(() => runInit([], dir));
+  const page = readFileSync(join(dir, "app/polishd/page.tsx"), "utf8");
+  assert.match(page, /export const runtime = "nodejs"/);
+  assert.match(page, /export \{ metadata \} from "@polishd\/next\/dashboard"/);
+  assert.match(page, /createPolishdPage\(\);/);
+  const { out } = await capture(() => runDoctor([], dir));
+  assert.doesNotMatch(out, /metadata/);
+});
+
+test("doctor points out a page that leaves /polishd indexable", async () => {
+  const dir = project(16, { "next.config.ts": `export default {};` });
+  await capture(() => runInit([], dir));
+  const pagePath = join(dir, "app/polishd/page.tsx");
+  // Only the export goes; the comment above it still says "metadata".
+  writeFileSync(pagePath, readFileSync(pagePath, "utf8").replace(/export \{ metadata \}.*\n/, ""));
+  const { code, out } = await capture(() => runDoctor([], dir));
+  assert.match(out, /doesn't export the dashboard's metadata/);
+  assert.equal(code, 0);
+});

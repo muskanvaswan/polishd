@@ -20,9 +20,11 @@ Read these from the target app before changing anything.
 | Node ≥ 22.5 | `node -v`, plus `engines`/`.nvmrc`/host setting | Capture silently no-ops on older Node. Warn the user and continue only if they accept that. |
 | Package manager | lockfile name | Use it consistently; don't mix. |
 
-Record one fact you will need throughout:
+Record two facts you will need throughout:
 
 - **`BASE`** — `src` if `src/app/` exists, otherwise `` (repo root).
+- **`CC`** — whether `next.config.*` sets `cacheComponents: true`. It changes
+  what the route and page may declare (Phase 3b, Invariants 1 and 4).
 
 ## Phase 2 — Install
 
@@ -40,7 +42,7 @@ proxy was required: if that is what got installed, follow
 
 ## Phase 3 — Scaffold
 
-Prefer the CLI. It detects `BASE` itself:
+Prefer the CLI. It detects `BASE` and `CC` itself:
 
 ```bash
 npx @polishd/next init
@@ -87,10 +89,23 @@ export const POST = createPolishdRoute();
 import "@polishd/next/dashboard.css";
 import { createPolishdPage } from "@polishd/next/dashboard";
 
+export { metadata } from "@polishd/next/dashboard"; // keeps /polishd unindexed
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default createPolishdPage();
+```
+
+**When `CC` is true**, Next rejects `runtime` and `dynamic` in both files
+(*"Route segment config … is not compatible with
+`nextConfig.cacheComponents`"*). Leave both out of the route and the page —
+Node is already the runtime and nothing here is cached — and render the
+dashboard inside `<Suspense>`, which Cache Components needs around the cookies
+it reads:
+
+```tsx
+export default createPolishdPage({ suspense: true });
 ```
 
 Then add `.polishd/` to `.gitignore`.
@@ -140,7 +155,8 @@ style preferences.
 1. **`runtime` and `dynamic` must be declared inline** in both the route and the
    page module. `export { POST, runtime, dynamic } from "@polishd/next/route"`
    fails the build with *"Next.js can't recognize the exported `runtime` field
-   in route. It mustn't be reexported."*
+   in route. It mustn't be reexported."* **Exception: when `CC` is true,
+   declare neither** — Next fails the build on both, in either form.
 
 2. **The dashboard refuses to serve in production until access is decided.**
    It is not a read-only report: its settings change the configured model and
@@ -154,7 +170,8 @@ style preferences.
    database drivers into the browser bundle. Use `@polishd/next/client` there.
 
 4. **`runtime` must be `"nodejs"`.** The store uses `node:sqlite`/`pg`; neither
-   runs on the Edge runtime.
+   runs on the Edge runtime. When `CC` is true, leave `runtime` out: Cache
+   Components only runs on Node.
 
 5. **Do not add a proxy or middleware for Polishd.** The ingest route mints the
    session cookie. A proxy added for it is wasted at best, and one whose
@@ -231,7 +248,9 @@ npx @polishd/next doctor
 It verifies that capture and ingest exist, that `runtime` and `dynamic` are
 declared rather than re-exported, that the dashboard stylesheet is imported,
 and the access posture. A proxy is not expected; if the app has one that calls
-Polishd, it checks that one's matcher too. It inspects
+Polishd, it checks that one's matcher too. With `cacheComponents` on, it checks
+the opposite of the usual: that `runtime` and `dynamic` are absent and the
+dashboard renders inside `<Suspense>`. It inspects
 `.js`/`.jsx` files on its own when the install is JavaScript. Fix everything it
 reports before continuing.
 
@@ -343,6 +362,8 @@ Run `npx @polishd/next doctor` first — it names most of these directly.
 | Symptom | Cause | Fix |
 |---|---|---|
 | *"can't recognize the exported `runtime` field"* | Route segment config re-exported | Declare `runtime`/`dynamic` inline (Phase 3b) |
+| *"Route segment config "dynamic" is not compatible with `nextConfig.cacheComponents`"* (or `"runtime"`) | The app sets `cacheComponents: true` | Remove both exports from the route and the page (Phase 3b) |
+| *"Route "/polishd": … uncached or runtime data during prerendering"* | `cacheComponents` is on and the dashboard renders outside `<Suspense>` | `export default createPolishdPage({ suspense: true });` |
 | *"Cannot find module '@polishd/next/route' or its corresponding type declarations"* at build | tsconfig has `"moduleResolution": "node"` and the package predates its `typesVersions` fallback | Upgrade the package. Don't change the host's tsconfig to work around it |
 | Ingest answers 413 `too_large` | Request body over 1MB. A real batch is well under 64KB | Nothing to fix for real traffic; a client sending that much isn't the capture script |
 | Every `/api/*` route 404s | A proxy of the app's whose matcher matches `/api` | Exclude `/api` from that matcher |

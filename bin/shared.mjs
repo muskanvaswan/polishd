@@ -162,6 +162,23 @@ export function proxyShape(next, base, codeExt) {
   };
 }
 
+const NEXT_CONFIGS = ["next.config.ts", "next.config.mts", "next.config.mjs", "next.config.js", "next.config.cjs"];
+
+/**
+ * Whether the app turns on Cache Components (`cacheComponents: true`, top
+ * level since Next 16, under `experimental` before it). It changes what the
+ * route and page may declare: Next rejects `runtime` and `dynamic` there, and
+ * the dashboard has to render inside `<Suspense>`. Read from the config's
+ * source, so a value computed at load time (an env check) reads as off.
+ */
+export function detectCacheComponents(cwd) {
+  for (const name of NEXT_CONFIGS) {
+    const src = readText(join(cwd, name));
+    if (src !== null) return { on: /\bcacheComponents\s*:\s*true\b/.test(src), file: name };
+  }
+  return { on: false, file: null };
+}
+
 /** The first Next that loads `instrumentation-client.ts`, which starts capture. */
 export const MIN_NEXT = { major: 15, minor: 3 };
 

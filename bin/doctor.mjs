@@ -18,6 +18,7 @@ import { join } from "node:path";
 import {
   DIST_GLOB,
   c,
+  detectCacheComponents,
   detectJsInstall,
   detectLayout,
   detectNextMajor,
@@ -172,10 +173,34 @@ export async function runDoctor(argv, cwd) {
     add(PASS, `${clientPath} present`, "capture is initialised");
   }
 
+  // Under Cache Components Next rejects `runtime` and `dynamic` in the route and
+  // the page, so the checks below turn around: present is the failure.
+  const cc = detectCacheComponents(cwd);
+  const declares = (src, decl) =>
+    new RegExp(`export\\s+const\\s+${decl}\\s*=`).test(src) ||
+    new RegExp(`export\\s*\\{[^}]*\\b${decl}\\b`).test(src);
+  const ccChecks = (path, src) => {
+    const found = ["runtime", "dynamic"].filter((decl) => declares(src, decl));
+    if (found.length === 0) {
+      add(PASS, `${path} omits runtime and dynamic`, `as cacheComponents (${cc.file}) requires`);
+      return;
+    }
+    add(
+      FAIL,
+      `${path} declares ${found.map((d) => `\`${d}\``).join(" and ")}`,
+      `${cc.file} turns on cacheComponents, and Next then fails the build on route segment ` +
+        "config it doesn't support: remove them. Node is already the runtime, and nothing " +
+        "Polishd serves is cached.",
+    );
+  };
+
   const routePath = join(appDir, "api", "polishd", `route.${codeExt}`);
   const routeSrc = readText(join(cwd, routePath));
   if (!routeSrc) {
     add(FAIL, `Missing ${routePath}`, "Beacons have nowhere to POST to.");
+  } else if (cc.on) {
+    add(PASS, `${routePath} present`, "ingest endpoint exists");
+    ccChecks(routePath, stripComments(routeSrc));
   } else {
     add(PASS, `${routePath} present`, "ingest endpoint exists");
     for (const [decl, value, why] of [
@@ -199,10 +224,34 @@ export async function runDoctor(argv, cwd) {
 
   const pagePath = join(appDir, "polishd", `page.${pageExt}`);
   const pageSrc = readText(join(cwd, pagePath));
+  // The generated page's comments name `<Suspense>` and `metadata`; read the code.
+  const pageCode = pageSrc && stripComments(pageSrc);
   if (!pageSrc) {
     add(WARN, `Missing ${pagePath}`, "No dashboard. Note the AI server actions fail closed without it.");
   } else {
     add(PASS, `${pagePath} present`, "dashboard route exists");
+    if (cc.on) {
+      ccChecks(pagePath, pageCode);
+      if (/suspense\s*:\s*true|<Suspense\b|\binstant\s*=\s*false/.test(pageCode)) {
+        add(PASS, "Dashboard renders inside <Suspense>", "as Cache Components needs around its cookies");
+      } else {
+        add(
+          FAIL,
+          `${pagePath} renders the dashboard outside <Suspense>`,
+          "Cache Components prerenders /polishd, and the dashboard reads cookies on every " +
+            "request, so the build fails with \"uncached or runtime data during prerendering\". " +
+            "Use `export default createPolishdPage({ suspense: true });`.",
+        );
+      }
+    }
+    if (!/\bmetadata\b/.test(pageCode)) {
+      add(
+        WARN,
+        `${pagePath} doesn't export the dashboard's metadata`,
+        "So /polishd takes your app's metadata, and search engines may index it. Add " +
+          '`export { metadata } from "@polishd/next/dashboard";`.',
+      );
+    }
   }
 
   // ── Styling ────────────────────────────────────────────────────────────────
@@ -364,6 +413,11 @@ async function liveChecks(origin, add, cwd) {
   } catch (err) {
     add(FAIL, `Could not POST to ${route}`, String(err.message ?? err));
   }
+}
+
+/** Source with its comments removed, so a check reads only the code. */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 }
 
 function report(results, origin) {
