@@ -33,6 +33,7 @@ import { loadPolishdDashboardData } from "../server/queries";
 import {
   listModelsForProvider,
   saveAISettings,
+  skipOnboarding,
   type ListModelsInput,
   type SaveAISettingsInput,
 } from "./settings";
@@ -99,6 +100,12 @@ export async function saveAISettingsAction(
 ): Promise<PolishdAISettingsPublic> {
   await requirePolishdAuth();
   return saveAISettings(input);
+}
+
+/** Remember a skipped first-time setup, so the dashboard stops opening on it. */
+export async function skipOnboardingAction(): Promise<void> {
+  await requirePolishdAuth();
+  await skipOnboarding();
 }
 
 /**

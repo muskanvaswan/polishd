@@ -241,6 +241,28 @@ export async function saveAISettings(
   return getAISettingsPublic();
 }
 
+// ── First-time setup ──────────────────────────────────────────────────────────
+
+/** Set once the owner skips the first-time setup; the value is when. */
+const ONBOARDING_SKIPPED_KEY = "onboarding_skipped";
+
+/**
+ * Whether the dashboard should open on the Settings tab's first-time setup: no
+ * model, saved or from env (the same test that shows the wizard), and the
+ * owner hasn't skipped it. Saving a key ends it. So does skipping, which is
+ * remembered, so a bare `/polishd` stops sending the owner back.
+ */
+export async function needsOnboarding(): Promise<boolean> {
+  const { settings, fromEnv } = await resolveSettings();
+  if (settings.apiKey || fromEnv) return false;
+  return (await getMeta(ONBOARDING_SKIPPED_KEY)) === null;
+}
+
+/** Remember that the owner skipped the first-time setup. */
+export async function skipOnboarding(): Promise<void> {
+  await setMeta(ONBOARDING_SKIPPED_KEY, String(Date.now()));
+}
+
 /** Fields the dashboard sends when asking a provider which models are available. */
 export interface ListModelsInput {
   provider?: string;

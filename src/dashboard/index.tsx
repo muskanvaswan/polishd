@@ -89,6 +89,7 @@ import { listFixRuns, loadIssueThreads } from "../ai/fix-dispatch";
 import { listFixSuggestions } from "../ai/fix";
 import { listFiledIssues } from "../ai/issues";
 import { loadProfileState } from "../ai/profile";
+import { needsOnboarding } from "../ai/settings";
 import { generateSummary, getAISettingsPublic, loadSummary, loadSummaryState } from "../ai/summary";
 import { getDesignData } from "../server/design";
 import { resolveSiteOrigin } from "../server/site-origin";
@@ -1782,7 +1783,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
 
     // Which tab to render, from the `?tab=` query the sidebar links carry.
     // No (or an unknown) tab lands on the Overview. `issues` is the
-    // Actionables tab's old name, kept so a bookmark still lands.
+    // Actionables tab's old name, kept so a bookmark still lands. A fresh
+    // install with no model lands on Settings instead, where the first-time
+    // setup is, until a key is saved or the setup skipped. Only a bare visit
+    // does: every rail link names its tab, so the owner can always leave.
     const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
     const tab: PolishdDashboardTab =
       rawTab === "analytics" ||
@@ -1793,7 +1797,9 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         ? rawTab
         : rawTab === "issues"
           ? "actionables"
-          : "overview";
+          : rawTab === undefined && (await needsOnboarding())
+            ? "settings"
+            : "overview";
 
     // How far back the Analytics tab reaches, from `?range=`; anything that
     // isn't a known range is all time. Only that tab reads it.

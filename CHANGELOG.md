@@ -15,6 +15,13 @@
   store error it shows has URLs and passwords removed, and it's left out on a
   dashboard made public on purpose. A server that can write the SQLite file
   opens the dashboard as before.
+- **Then straight to first-time setup.** With a database connected and no
+  model configured, `/polishd` opens Settings on its first-time setup instead
+  of an empty Overview. It stops once a key is saved (or set in
+  `POLISHD_AI_*`) or the owner presses Skip setup, which is now remembered in
+  the store. Only a visit that names no tab is sent there; every rail link
+  names one, so the owner can always leave. An existing install that never
+  connected a model opens there too, until it's skipped.
 - `storeStatus()` (server) reports which backend opened, or which was tried
   and why it failed.
 

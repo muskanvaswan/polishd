@@ -80,6 +80,10 @@ configuration. `init` detects your layout (`src/` or root), writes the three
 files below, and adds `.polishd/` to `.gitignore`. There is no proxy or
 middleware to add, and an existing one is never touched.
 
+The first visit to `/polishd` opens Settings on its first-time setup, which
+connects the model the summaries and the design review use. Skip it to go
+straight to the dashboard; it won't open there again.
+
 Files it already wrote are skipped unless you pass `--force`, which backs them
 up to `.bak` first. **Files it did not write are never overwritten**, with or
 without `--force`. Other flags: `--dry-run` to preview, `--js` for

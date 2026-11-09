@@ -24,6 +24,7 @@ import {
   generateSummaryAction,
   listModelsAction,
   saveAISettingsAction,
+  skipOnboardingAction,
   verifyGithubAction,
 } from "../ai/actions";
 import type {
@@ -295,7 +296,12 @@ export default function SettingsView({
               setGaps([]);
             }}
             onError={setError}
-            onSkip={() => setOnboarding(false)}
+            onSkip={() => {
+              setOnboarding(false);
+              // So a fresh visit stops opening here. Best effort: if it
+              // doesn't land, the next visit just offers setup again.
+              skipOnboardingAction().catch(() => {});
+            }}
             onFinished={() => {
               setOnboarding(false);
               // The first summary was just generated — go and read it.
