@@ -3,90 +3,28 @@
 import { useEffect } from "react";
 
 /**
- * One observer for the whole page.
- *
- * Sections stay server components and just opt in with `className="r"`; this
- * flips them to `.in` on entry, counts up any `[data-count]` inside, and fills
- * any `.fill` meters. It also toggles the sticky header's hairline.
+ * One page-wide observer: anything tagged `.r` comes into view once, as it
+ * arrives. Anything already scrolled past on load (a hash link, a reload
+ * halfway down) is shown at once rather than left hidden above the reader.
  */
 export default function ScrollFX() {
   useEffect(() => {
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // Sticky header hairline.
-    const bar = document.getElementById("top-bar");
-    const onScroll = () => bar?.classList.toggle("stuck", window.scrollY > 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-
-    const countUp = (el: HTMLElement, instant: boolean) => {
-      const target = Number(el.dataset.count ?? 0);
-      if (reduce || instant) {
-        el.textContent = target.toLocaleString("en-US");
-        return;
-      }
-      const duration = 1200;
-      let start: number | null = null;
-      const frame = (ts: number) => {
-        if (start === null) start = ts;
-        const p = Math.min((ts - start) / duration, 1);
-        const eased = 1 - Math.pow(1 - p, 4);
-        el.textContent = Math.round(target * eased).toLocaleString("en-US");
-        if (p < 1) requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
-    };
-
-    const reveal = (el: HTMLElement, instant = false) => {
-      el.classList.add("in");
-
-      el.querySelectorAll<HTMLElement>("[data-count]").forEach((n) => countUp(n, instant));
-
-      el.querySelectorAll<HTMLElement>(".fill").forEach((f, i) => {
-        const paint = () => {
-          f.style.transform = `translateX(${Number(f.dataset.w ?? 0) - 100}%)`;
-        };
-        if (instant) paint();
-        else window.setTimeout(paint, 180 + i * 70);
-      });
-    };
-
+    const els = [...document.querySelectorAll<HTMLElement>(".r:not(.in)")];
     const io = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          reveal(entry.target as HTMLElement);
-          io.unobserve(entry.target);
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          e.target.classList.add("in");
+          io.unobserve(e.target);
         }
       },
-      { threshold: 0.18, rootMargin: "0px 0px -8% 0px" },
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
     );
-
-    document.querySelectorAll<HTMLElement>(".r").forEach((el) => {
-      // A restored scroll position (reload, back-navigation, deep link) leaves
-      // everything above the fold permanently un-intersected — show it at once
-      // rather than animating content the reader has already scrolled past.
-      if (el.getBoundingClientRect().bottom < 0) {
-        el.style.transitionDelay = "0ms";
-        reveal(el, true);
-        return;
-      }
-
-      // Rewind the server-rendered figures so they can count back up. Safe to
-      // do after paint: `.r` is still transparent until this element is revealed.
-      if (!reduce) {
-        el.querySelectorAll<HTMLElement>("[data-count]").forEach((n) => {
-          n.textContent = "0";
-        });
-      }
-
-      io.observe(el);
-    });
-
-    return () => {
-      io.disconnect();
-      window.removeEventListener("scroll", onScroll);
-    };
+    for (const el of els) {
+      if (el.getBoundingClientRect().bottom < 0) el.classList.add("in");
+      else io.observe(el);
+    }
+    return () => io.disconnect();
   }, []);
 
   return null;

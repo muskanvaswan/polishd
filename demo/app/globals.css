@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+/* ── Queuebird's theme ────────────────────────────────────────────────────
+   Queuebird is the kind of launch page an AI tool writes in one go: zinc
+   here, neutral there, four purples, a size for every heading. The site's
+   own classes reach for whichever palette was nearest. The tokens below are
+   what the fixes converge on. */
+@theme {
+  --font-sans: var(--font-geist-face), ui-sans-serif, system-ui, sans-serif;
+  --font-code: var(--font-geist-mono-face), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-canvas: #09090b;
+  --color-surface: #111113;
+  --color-raised: #18181b;
+  --color-line: #27272a;
+  --color-fg: #ffffff;
+  --color-fg-2: #a1a1aa;
+  --color-fg-3: #8b8b95;
+  --color-accent: #7c3aed;
+  --color-accent-fg: #a78bfa;
+
+  /* Tailwind v4 defines its default palette in oklch(), and Chrome reports
+     those colours as oklch() too. @polishd/next 0.3.2's design scan only
+     reads rgb(), so it would skip every one of them. The colours this site
+     uses are pinned to their hex values here (Tailwind v3's) so the scan sees
+     them; the classes are unchanged. */
+  --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-fuchsia-400: #e879f9;
+  --color-fuchsia-500: #d946ef;
+  --color-green-500: #22c55e;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-300: #d4d4d4;
+  --color-neutral-400: #a3a3a3;
+  --color-neutral-500: #737373;
+  --color-neutral-600: #525252;
+  --color-neutral-800: #262626;
+  --color-neutral-900: #171717;
+  --color-orange-300: #fdba74;
+  --color-pink-400: #f472b6;
+  --color-purple-400: #c084fc;
+  --color-purple-600: #9333ea;
+  --color-red-500: #ef4444;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+  --color-yellow-500: #eab308;
+  --color-zinc-100: #f4f4f5;
+  --color-zinc-200: #e4e4e7;
+  --color-zinc-300: #d4d4d8;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #52525b;
+  --color-zinc-700: #3f3f46;
+  --color-zinc-800: #27272a;
+  --color-zinc-900: #18181b;
+
+  /* Code and pre fall back to the default mono stack: make that Geist Mono,
+     like the rest of the site. */
+  --default-mono-font-family: var(--font-code);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+/* ── Fixes ────────────────────────────────────────────────────────────────
+   Each finding's fix is a variant: `text-neutral-500 fx-contrast:text-fg-3`
+   is the rough code and the change a coding agent made, side by side. The
+   demo bar's "Polished" switch turns them all on by naming them in
+   `data-fix` on <html>.
+   Order matters: a later variant wins when two fixes touch one property. */
+@custom-variant fx-palette (&:where([data-fix~="palette"] *));
+@custom-variant fx-contrast (&:where([data-fix~="contrast"] *));
+@custom-variant fx-type (&:where([data-fix~="type"] *));
+@custom-variant fx-radii (&:where([data-fix~="radii"] *));
+@custom-variant fx-space (&:where([data-fix~="space"] *));
+@custom-variant fx-copy (&:where([data-fix~="copy"] *));
+@custom-variant fx-billing (&:where([data-fix~="billing"] *));
+@custom-variant fx-tabs (&:where([data-fix~="tabs"] *));
+@custom-variant fx-links (&:where([data-fix~="links"] *));
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* While a fix lands, everything on the site eases into its new value
+   instead of snapping, so you can watch what changed. */
+html[data-morph] .site-root,
+html[data-morph] .site-root * {
+  transition:
+    color 0.7s var(--ease-out),
+    background-color 0.7s var(--ease-out),
+    border-color 0.7s var(--ease-out),
+    border-radius 0.7s var(--ease-out),
+    font-size 0.7s var(--ease-out),
+    margin 0.7s var(--ease-out),
+    padding 0.7s var(--ease-out),
+    gap 0.7s var(--ease-out),
+    min-height 0.7s var(--ease-out),
+    text-decoration-color 0.7s var(--ease-out),
+    opacity 0.7s var(--ease-out),
+    box-shadow 0.7s var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  html[data-morph] .site-root,
+  html[data-morph] .site-root * {
+    transition: none;
+  }
+}
+
+/* ── The polish ───────────────────────────────────────────────────────────
+   The brush: a warm band of light swept across the page as the fixes land. */
+@keyframes polish-sweep {
+  from {
+    transform: translateX(-40vw);
+  }
+  to {
+    transform: translateX(140vw);
+  }
+}
+.polish-sweep {
+  left: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(90, 70, 40, 0.08) 0 1.5px, transparent 1.5px 7px),
+    linear-gradient(
+      90deg,
+      rgba(245, 236, 220, 0) 0%,
+      rgba(245, 236, 220, 0.08) 45%,
+      rgba(240, 228, 206, 0.6) 80%,
+      #fbf6ec 90%,
+      #ffffff 93.5%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  filter: drop-shadow(0 0 40px rgba(255, 236, 205, 0.45));
+  animation: polish-sweep 1.3s cubic-bezier(0.77, 0, 0.175, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .polish-sweep {
+    display: none;
+  }
+}

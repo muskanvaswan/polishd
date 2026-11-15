@@ -1,77 +1,50 @@
-import type { ReactNode } from "react";
+import { PolishdMonitor } from "@polishd/next/client";
 
 import AgentPrompt from "@/components/agent-prompt";
-import { Eyebrow, Heading, Sub, Wrap } from "@/components/ui";
+import CopyButton from "@/components/copy-button";
+import { SectionHead, Wrap, d } from "@/components/kit";
+
+const STEPS = [
+  { cmd: "npm i @polishd/next", note: "The Postgres driver comes along as an optional dependency." },
+  { cmd: "npx @polishd/next init", note: "Writes the three files. Never touches your middleware." },
+  { cmd: "npm run dev", note: "Then open /polishd. Events land in a local SQLite file." },
+  { cmd: "npx @polishd/next doctor", note: "Checks the wiring that would otherwise fail silently." },
+];
 
 export default function Install() {
   return (
-    <section id="install" className="py-[76px] md:py-28">
+    <section id="install" className="relative z-10 py-24 md:py-32">
       <Wrap>
-        <Eyebrow>Start the loop</Eyebrow>
-        <Heading>
-          Three commands.
-          <br />
-          <span className="text-fg-4">Then your own dashboard.</span>
-        </Heading>
-        <Sub>
-          No third-party service, no script tag, no account. Events land in your database —
-          SQLite locally, Postgres in production.
-        </Sub>
+        <SectionHead
+          lead={<>Two minutes.</>}
+          title={<>Four commands.</>}
+          sub="Next.js 15.3 or later with the App Router, on Node 22.5 or later. In production on a serverless host, point it at a Postgres database — the one your app already has works."
+        />
 
-        <div className="mt-[38px] grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <Step n="01" title="Install" body="One package. Next.js 15+, App Router." delay={0}>
-            <Prompt /> npm i @polishd/next
-          </Step>
-          <Step
-            n="02"
-            title="Init"
-            body="Wires the proxy, client, route and dashboard for you."
-            delay={90}
-          >
-            <Prompt /> npx @polishd/next init
-          </Step>
-          <Step n="03" title="Look" body="Run the app and open the dashboard." delay={180}>
-            <Prompt /> npm run dev
-            {"\n"}
-            <span className="text-fg-4"># →</span>{" "}
-            <span className="text-ok">/polishd</span>
-          </Step>
-        </div>
+        <ol className="mt-12 grid gap-3 md:grid-cols-2">
+          {STEPS.map((s, i) => (
+            <li key={s.cmd} className="r card flex items-start gap-4 p-4 sm:p-5" style={d(60 + i * 60)}>
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-raised font-mono text-[11px] text-fg-2 ring-1 ring-inset ring-line-strong">
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3">
+                  <code className="truncate font-mono text-[13.5px] text-fg">
+                    <span className="text-fg-4">$ </span>
+                    {s.cmd}
+                  </code>
+                  <PolishdMonitor name={`install-copy-${i + 1}`} className="flex">
+                    <CopyButton text={s.cmd} label={`"${s.cmd}"`} />
+                  </PolishdMonitor>
+                </div>
+                <p className="mt-1.5 font-chart text-[13.5px] leading-[1.5] text-fg-3">{s.note}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
 
         <AgentPrompt />
       </Wrap>
     </section>
-  );
-}
-
-function Prompt() {
-  return <span className="text-fg-4">$</span>;
-}
-
-function Step({
-  n,
-  title,
-  body,
-  delay,
-  children,
-}: {
-  n: string;
-  title: string;
-  body: string;
-  delay: number;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className="card r rounded-[11px] p-5"
-      style={{ "--d": `${delay}ms` } as React.CSSProperties}
-    >
-      <div className="font-mono text-[10.5px] text-fg-4">{n}</div>
-      <h3 className="mt-3 text-[15px] font-semibold tracking-[-0.01em]">{title}</h3>
-      <p className="mt-2 text-[13.5px] leading-[1.2] text-fg-3">{body}</p>
-      <pre className="mt-3.5 overflow-x-auto rounded-lg border border-line bg-canvas px-3 py-[11px] font-mono text-[11.5px] leading-[1.7] text-fg">
-        {children}
-      </pre>
-    </div>
   );
 }

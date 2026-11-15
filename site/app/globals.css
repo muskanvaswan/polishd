@@ -11,8 +11,7 @@
      dashboard-replica infographic. */
   --font-sans: var(--font-nohemi-face), "Open Sauce One", -apple-system,
     BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  /* The infographic cards mirror the real dashboard, so they keep its UI
-     face instead of the site's display face. */
+  /* Body copy and the dashboard replicas: the dashboard's UI face. */
   --font-chart: "Open Sauce One", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, Menlo,
@@ -45,17 +44,20 @@
   /* The one blue: the Design source mark on an actionable, paired with red
      for Analytics. Not a status colour. */
   --color-blue: #60a5fa;
+  /* The polish itself: the warm light of the brush. */
+  --color-shine: #f5e6c8;
 
   --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4);
   --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.04), 0 18px 48px -12px rgb(0 0 0 / 0.75);
 
-  /* Motion. The built-in curves are too soft to read as intentional, so these
-     replace Tailwind's `ease-out` / `ease-in-out` and drive every hand-written
-     transition below: ease-out for anything entering or responding, ease-in-out
-     for something already on screen moving to a new place. Nothing eases in. */
+  /* Motion: ease-out for anything entering or responding, ease-in-out for
+     something already on screen moving to a new place. Nothing eases in. */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
+
+/* A screen wide and tall enough to hold a whole slide. */
+@custom-variant deck (@media (min-width: 1024px) and (min-height: 620px));
 
 @layer base {
   html {
@@ -65,17 +67,12 @@
   body {
     background: #000;
     color: #fff;
-    /* Nohemi sets tight; breathe it open a touch. Inherited everywhere the
-       display face speaks. */
-    letter-spacing: 0.025em;
+    letter-spacing: 0.02em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
   }
 
-  /* The exemptions: code and the ASCII art must keep the mono grid's exact
-     advances (the wireframe's columns depend on it), and the dashboard-replica
-     cards keep the dashboard's own spacing. */
   pre,
   code,
   kbd,
@@ -100,21 +97,99 @@
   .card {
     @apply rounded-xl border border-line bg-surface shadow-card;
   }
-}
 
-/* On a phone the dashboard replicas are a sample of the tab, not the tab:
-   each section keeps one or two cards (the rest are `max-md:hidden`) and
-   draws them a size down. Zoom rather than scale, so the layout shrinks
-   with them and leaves no gap below. */
-@media (max-width: 767px) {
-  .demo {
-    zoom: 0.86;
+  /* Body copy: the UI face, a grey a step down from the headings. */
+  .prose-sub {
+    @apply font-chart text-[16px] leading-[1.6] text-fg-3 md:text-[17px];
   }
 }
 
+/* ── The one slide ───────────────────────────────────────────────────────────
+   "Building got fast. Finishing didn't." is a bento that fits one screen: on
+   a screen big enough the section is exactly the viewport, with the headline
+   as one cell and a tile for each fingerprint around it. Anywhere smaller it
+   flows like the rest of the page. Nothing else on the page uses this. */
+.slide {
+  position: relative;
+  padding-block: 56px;
+}
+.slide-in {
+  position: relative;
+  margin-inline: auto;
+  width: 100%;
+  max-width: 1560px;
+  padding-inline: clamp(20px, 3.6vw, 64px);
+}
+.bento {
+  display: grid;
+  gap: 12px;
+}
+@media (min-width: 1024px) and (min-height: 620px) {
+  .slide {
+    height: 100svh;
+    padding-block: 0;
+    overflow: clip;
+  }
+  .slide-in {
+    height: 100%;
+    padding-block: clamp(18px, 4.2vh, 48px);
+  }
+  .bento {
+    height: 100%;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(6, minmax(0, 1fr));
+    gap: clamp(8px, 1.3vh, 14px);
+  }
+}
+/* A bento cell. The headline's cell goes bare; the rest are surfaces. */
+.cell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.cell-bare {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+/* Type sized to the slide: it grows with the screen and never outgrows it. */
+.h-slide {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(30px, min(3.5vw, 6.2vh), 58px);
+  line-height: 1.04;
+  letter-spacing: 0.005em;
+  text-wrap: balance;
+  color: var(--color-fg-2);
+}
+.h-slide .key {
+  display: block;
+}
+.lede {
+  font-family: var(--font-chart);
+  letter-spacing: normal;
+  font-size: clamp(14px, min(1.18vw, 2vh), 17.5px);
+  line-height: 1.55;
+  color: var(--color-fg-2);
+  text-wrap: pretty;
+}
+.small {
+  font-family: var(--font-chart);
+  letter-spacing: normal;
+  font-size: clamp(12.5px, min(1vw, 1.7vh), 14.5px);
+  line-height: 1.5;
+  color: var(--color-fg-3);
+}
+
 /* ── Ambient field ───────────────────────────────────────────────────────────
-   Jet black, no bloom. The only texture is a hairline grid, masked off at the
-   top of the page, plus film grain. */
+   Jet black. A hairline grid masked to the top of the page, film grain, and
+   one warm glow behind the hero — the light the brush leaves. */
 .aura::after {
   content: "";
   position: absolute;
@@ -129,8 +204,46 @@
   mask-image: radial-gradient(120% 70% at 50% 0%, #000 10%, transparent 70%);
 }
 
+.glow {
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgba(245, 230, 200, 0.13) 0%,
+    rgba(245, 230, 200, 0.04) 45%,
+    transparent 75%
+  );
+}
+
 .grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+}
+
+/* Headline text with a slow sheen across it — the polished word. */
+.sheen {
+  background: linear-gradient(
+      100deg,
+      #f5f5f5 0%,
+      #f5f5f5 40%,
+      #fff7e6 48%,
+      #ffffff 50%,
+      #fff7e6 52%,
+      #f5f5f5 60%,
+      #f5f5f5 100%
+    )
+    0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 6s var(--ease-in-out) 1.2s infinite;
+}
+
+@keyframes sheen {
+  0% {
+    background-position: 100% 0;
+  }
+  45%,
+  100% {
+    background-position: 0% 0;
+  }
 }
 
 /* ── Scroll reveal ───────────────────────────────────────────────────────────
@@ -153,17 +266,6 @@
   filter: none;
 }
 
-.r.lift {
-  transform: translateY(24px) scale(0.985);
-}
-
-.r.lift.in {
-  transform: none;
-}
-
-/* The same reveal for what's above the fold on arrival, run by CSS from first
-   paint instead of waiting for the scroll observer to hydrate — the hero
-   shouldn't sit blank while the page's JS loads. */
 @keyframes reveal {
   from {
     opacity: 0;
@@ -176,7 +278,62 @@
   animation: reveal 0.7s var(--ease-out) var(--d, 0ms) both;
 }
 
-/* ── Motion primitives ───────────────────────────────────────────────────── */
+/* ── Queuebird, drawn for the hero in absolute pixels ────────────────────── */
+.pv {
+  position: absolute;
+  inset: 0;
+}
+.pv > * {
+  position: absolute;
+}
+.pv .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The brush: a warm band of light, streaked, its leading edge white-hot. */
+.pp-stroke {
+  background:
+    repeating-linear-gradient(0deg, rgba(90, 70, 40, 0.1) 0 1.5px, transparent 1.5px 7px),
+    linear-gradient(
+      90deg,
+      rgba(245, 236, 220, 0) 0%,
+      rgba(245, 236, 220, 0.06) 45%,
+      rgba(240, 228, 206, 0.55) 80%,
+      #fbf6ec 90%,
+      #ffffff 93.5%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  filter: drop-shadow(0 0 30px rgba(255, 236, 205, 0.28));
+}
+
+/* ── Fingerprints ────────────────────────────────────────────────────────── */
+
+/* The palette tile's "after the fix" row arrives a beat after the tile. */
+.collapse-label {
+  opacity: 0;
+  transition: opacity 0.6s ease 1.2s;
+}
+.r.in .collapse-label {
+  opacity: 1;
+}
+
+@keyframes ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+.ripple {
+  animation: ripple 1.6s var(--ease-out) infinite;
+  animation-delay: var(--rd, 0s);
+}
+
 @keyframes blip {
   0%,
   100% {
@@ -186,19 +343,95 @@
     opacity: 0.25;
   }
 }
-
 .blip {
   animation: blip 2.4s ease-in-out infinite;
 }
 
-@keyframes slide {
-  to {
-    transform: translateX(-50%);
-  }
+/* Meter fill: full width, slid in from the left once revealed. */
+.fill {
+  width: 100%;
+  transform: translateX(-100%);
+  transition: transform 1.1s var(--ease-out);
+  transition-delay: var(--fd, 200ms);
+}
+.r.in .fill {
+  transform: translateX(calc((var(--w, 0) - 100) * 1%));
 }
 
-.ticker-track {
-  animation: slide 38s linear infinite;
+/* Sparklines draw themselves in when their card is revealed. */
+.r .spark .line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1.2s var(--ease-out) 0.2s;
+}
+.r .spark .area {
+  opacity: 0;
+  transition: opacity 0.6s ease 0.7s;
+}
+.r.in .spark .line {
+  stroke-dashoffset: 0;
+}
+.r.in .spark .area {
+  opacity: 1;
+}
+
+/* ── How it works: the panel on the right swaps with the step ───────────── */
+.step-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  filter: blur(4px);
+  pointer-events: none;
+  transition:
+    opacity 0.45s var(--ease-out),
+    transform 0.55s var(--ease-out),
+    filter 0.45s var(--ease-out);
+}
+.step-panel[data-on="1"] {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  pointer-events: auto;
+}
+/* Children of the live panel stagger in. */
+.step-panel .st {
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.5s var(--ease-out),
+    transform 0.5s var(--ease-out);
+  transition-delay: calc(120ms + var(--k, 0) * 70ms);
+}
+.step-panel[data-on="1"] .st {
+  opacity: 1;
+  transform: none;
+}
+
+/* Typed lines in the terminal. */
+.step-panel .tl {
+  opacity: 0;
+  transition: opacity 0.01s linear;
+  transition-delay: calc(200ms + var(--k, 0) * 160ms);
+}
+.step-panel[data-on="1"] .tl {
+  opacity: 1;
+}
+
+.step-dot {
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    color 0.3s ease;
+}
+
+/* ── Where it runs: packets travel the wires ────────────────────────────── */
+@keyframes dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.wire {
+  stroke-dasharray: 4 8;
+  animation: dash 1.2s linear infinite;
 }
 
 .fade-x {
@@ -206,115 +439,9 @@
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 
-/* Bottom fade — the hero wireframe is cut at the fold and dissolves into the
-   next section instead of ending on a hard edge. */
-.fade-b {
-  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 99%);
-  mask-image: linear-gradient(180deg, #000 70%, transparent 99%);
-}
-
-/* ── Loop ring ───────────────────────────────────────────────────────────── */
-.ring-arc {
-  transition:
-    stroke-dashoffset 0.6s var(--ease-out),
-    stroke 0.3s ease;
-}
-
-.ring-node circle,
-.ring-node text {
-  transition:
-    fill 0.3s ease,
-    stroke 0.3s ease,
-    opacity 0.3s ease;
-}
-
-/* The active node grows and its halo widens out of it, both by transform
-   around the node's own centre — rather than by `r`, which Safari won't
-   transition, and a halo mounted in with no transition at all. */
-.ring-node .ring-dot,
-.ring-node .ring-halo {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.ring-node .ring-dot {
-  transition:
-    fill 0.3s ease,
-    stroke 0.3s ease,
-    transform 0.35s var(--ease-out);
-}
-
-.ring-node .ring-dot[data-active] {
-  transform: scale(1.3);
-}
-
-.ring-node .ring-halo {
-  opacity: 0;
-  transform: scale(0.5);
-  transition:
-    opacity 0.3s ease,
-    transform 0.45s var(--ease-out);
-}
-
-.ring-node .ring-halo[data-active] {
-  opacity: 0.28;
-  transform: none;
-}
-
-.ring-label {
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  letter-spacing: 0.12em;
-}
-
-/* The centre read-out, remounted per stage: the new figure comes into focus
-   from the direction the reader is scrolling, so 03 rises in under 02 on the
-   way down and drops in over it on the way back up. */
-@keyframes readout-in {
-  from {
-    opacity: 0;
-    transform: translateY(calc(var(--dir, 1) * 8px));
-    filter: blur(3px);
-  }
-}
-
-.ring-readout {
-  animation: readout-in 0.28s var(--ease-out) both;
-}
-
-/* Meter fill. Full width, slid in from the left by the scroll observer —
-   transform rather than width, so the meters animate on the compositor and
-   never relayout the card. The track's overflow clips the slid-out part. */
-.fill {
-  width: 100%;
-  transform: translateX(-100%);
-  transition: transform 1.1s var(--ease-out);
-}
-
-/* Sparklines draw themselves in when their card is revealed: the line runs
-   left to right (pathLength="1" makes one dash the whole path) and the area
-   under it fades up behind. */
-.r .spark .line {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  transition: stroke-dashoffset 1.2s var(--ease-out) 0.2s;
-}
-
-.r .spark .area {
-  opacity: 0;
-  transition: opacity 0.6s ease 0.7s;
-}
-
-.r.in .spark .line {
-  stroke-dashoffset: 0;
-}
-
-.r.in .spark .area {
-  opacity: 1;
-}
-
-/* Reduced motion means fewer and gentler, not none: nothing rises, slides,
-   scales or blurs, but content still fades in where it would have arrived. */
+/* ── Reduced motion ──────────────────────────────────────────────────────────
+   Fewer and gentler, not none: nothing rises, slides, scales or blurs, but
+   content still fades in where it would have arrived. */
 @keyframes fade {
   from {
     opacity: 0;
@@ -326,8 +453,7 @@
     scroll-behavior: auto;
   }
 
-  .r,
-  .r.lift {
+  .r {
     transform: none;
     filter: none;
     transition: opacity 0.4s ease var(--d, 0ms);
@@ -337,27 +463,29 @@
     animation-name: fade;
   }
 
-  .ring-readout {
-    animation-name: fade;
-  }
-
-  .ticker-track,
-  .blip {
+  .sheen,
+  .ripple,
+  .blip,
+  .wire {
     animation: none;
   }
 
+  .sheen {
+    color: #f5f5f5;
+    background: none;
+  }
+
   .fill,
-  .ring-arc {
-    transition: none;
+  .swatch,
+  .step-panel,
+  .step-panel .st {
+    transition-duration: 0.01s;
+    transition-delay: 0s;
   }
 
-  /* The active node still reads larger, it just doesn't grow into it. */
-  .ring-node .ring-dot {
-    transition-property: fill, stroke;
-  }
-
-  .ring-node .ring-halo {
-    transition-property: opacity;
+  .step-panel {
+    transform: none;
+    filter: none;
   }
 
   .r .spark .line {

@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.env*.local
+.DS_Store
+
+# polishd dev store (SQLite)
+.polishd/
+
+# written by next dev / next build (16.3 agent rules)
+/AGENTS.md
+/CLAUDE.md
