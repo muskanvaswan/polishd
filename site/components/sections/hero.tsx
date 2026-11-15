@@ -1,6 +1,6 @@
 import { PolishdMonitor } from "@polishd/next/client";
 
-import InstallCommand from "@/components/install-command";
+import AgentSetup from "@/components/agent-setup";
 import { Arrow, PrimaryLink, d } from "@/components/kit";
 import PolishPass from "@/components/polish-pass";
 import Wordmark from "@/components/wordmark";
@@ -27,7 +27,7 @@ export default function Hero() {
             npm
           </span>
           <span>
-            An npm package that gives you a <span className="whitespace-nowrap">self-hosted</span> analytics and UI/UX review dashboard
+            An in-app, <span className="whitespace-nowrap">self-hosted</span> UI/UX dashboard
           </span>
           <Arrow />
         </a>
@@ -37,14 +37,14 @@ export default function Hero() {
         </h1>
 
         <p
-          className="r-load sheen mt-5 font-heading text-[clamp(26px,3.6vw,44px)] font-semibold leading-[1.08] tracking-[0.005em]"
+          className="r-load mt-3 font-heading text-[clamp(19px,2.6vw,26px)] font-semibold tracking-[0.015em] text-fg"
           style={d(140)}
         >
-          Find the rough edges. Ship the fixes.
+          Build fast, refine relentlessly.
         </p>
 
         <p
-          className="r-load mt-5 max-w-[60ch] text-pretty font-chart text-[16px] leading-[1.6] text-fg-3 md:text-[17.5px]"
+          className="r-load mt-6 max-w-[74ch] text-pretty font-mono text-[12.5px] leading-[1.7] text-fg-3 md:text-[13.5px]"
           style={d(210)}
         >
           Polishd watches how real people use your Next.js app, reads back the design you actually
@@ -55,8 +55,8 @@ export default function Hero() {
         </p>
 
         <div className="r-load mt-8 flex flex-wrap items-center justify-center gap-2.5" style={d(280)}>
-          <PolishdMonitor name="hero-install" className="flex">
-            <InstallCommand />
+          <PolishdMonitor name="hero-agent-setup" className="flex">
+            <AgentSetup />
           </PolishdMonitor>
           <PolishdMonitor name="hero-demo" className="flex">
             <PrimaryLink href={DEMO_URL} external>
@@ -64,18 +64,6 @@ export default function Hero() {
             </PrimaryLink>
           </PolishdMonitor>
         </div>
-
-        <ul
-          className="r-load mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono text-[11.5px] text-fg-4"
-          style={d(340)}
-        >
-          {["3 files in your app", "your database", "your model key", "MIT"].map((s) => (
-            <li key={s} className="flex items-center gap-2">
-              <span className="h-1 w-1 rounded-full bg-fg-4" />
-              {s}
-            </li>
-          ))}
-        </ul>
       </div>
 
       {/* Polishd on a real site: scan, findings, the polish. */}
