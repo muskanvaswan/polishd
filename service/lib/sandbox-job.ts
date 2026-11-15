@@ -8,6 +8,7 @@
  * deployed today. Add optional fields; don't change or remove one without
  * bumping `WORKER_JOB_VERSION` and rebuilding the image.
  */
+import type { BackgroundCaptureRequest } from "../../src/capture/background.ts";
 import type { ShootRequest, ShotResult } from "../../src/capture/protocol.ts";
 
 export const WORKER_JOB_VERSION = 1;
@@ -34,6 +35,22 @@ export interface WorkerJob {
   budgetMs: number;
 }
 
+/**
+ * A whole background capture, run detached: the worker shoots every page and
+ * reports to the site itself (capture-run.ts), so nothing waits on it. The
+ * result file is only a log line for whoever looks.
+ */
+export interface WorkerCaptureJob {
+  v: typeof WORKER_JOB_VERSION;
+  kind: "capture";
+  request: BackgroundCaptureRequest;
+  /** Wall-clock time for the whole capture, inside the sandbox's own timeout. */
+  budgetMs: number;
+  /** Where to say it's done, so the sandbox is stopped rather than left to time out. */
+  done?: { url: string; name: string };
+}
+
 export type WorkerResult =
   | { v: typeof WORKER_JOB_VERSION; ok: true; shots: ShotResult[] }
-  | { v: typeof WORKER_JOB_VERSION; ok: false; message: string };
+  | { v: typeof WORKER_JOB_VERSION; ok: false; message: string }
+  | { v: typeof WORKER_JOB_VERSION; ok: true; capture: { recorded: number; shots: number | null; error: string | null } };

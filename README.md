@@ -786,6 +786,16 @@ What the service does, plainly:
 - You can withdraw the agreement any time from the section ("Turn off").
   `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever being called;
   snapshots are then only taken in local development.
+- **Once you've agreed, a snapshot is also taken on its own about once a
+  week**, so the gallery stays current without anyone opening the dashboard.
+  It rides on traffic rather than a schedule: when a visitor's events arrive
+  and the newest snapshot is more than a week old, your site asks the service
+  for a capture, and the service saves each picture straight to your storage
+  with a one-time upload link your site issues. It needs no cron and no
+  setup, a site nobody visited isn't shot, and a capture you take yourself
+  resets the week. "Stop weekly captures" in the section turns it off;
+  `POLISHD_SNAPSHOT_AUTO=off` turns it off for the deployment. It counts
+  towards the service's two captures per site per week.
 
 **Polishd's own dashboard pages.** An install that reads dashboard telemetry
 (`POLISHD_ANALYTICS_SOURCE=telemetry`, which is Polishd's own site) measures
@@ -1058,6 +1068,7 @@ POLISHD_SESSION_COOKIE=my_session
 | `POLISHD_GITHUB_API` | GitHub (optional) | REST base for a GitHub Enterprise Server, e.g. `https://ghe.example.com/api/v3`; defaults to `https://api.github.com` |
 | `POLISHD_GITHUB_AUTO_ISSUES` | GitHub (optional) | `true` — file a GitHub issue automatically for each new problem a summary finds |
 | `POLISHD_SNAPSHOT_SERVICE` | optional | `off` — never call Polishd's screenshot service: [site snapshots](#site-snapshots) are then only taken in local development, and the section is off on a public deployment. Or a URL, to use your own deployment of [`service/`](./service) (also in development, for testing it) |
+| `POLISHD_SNAPSHOT_AUTO` | optional | `off` — never take the weekly background snapshot; captures then only happen when someone presses Capture. Overrules the switch on the Design tab |
 | `POLISHD_SNAPSHOT_DIR` | optional | Where disk-stored snapshot images go (default `.polishd/snapshots`) |
 | `POLISHD_SITE_ORIGIN` | optional | The origin snapshots are taken of, if not the one the dashboard is opened on (proxies, tunnels) |
 | `POLISHD_TELEMETRY` | optional | `off` (or `0`/`false`/`no`) — disable [dashboard telemetry](#dashboard-telemetry) entirely, consent prompt included |

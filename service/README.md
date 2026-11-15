@@ -39,6 +39,49 @@ contract is defined in [`src/capture/protocol.ts`](../src/capture/protocol.ts).
 | Skips | `auth_wall`, `off_origin`, `protected` (Vercel's login), `bot_check`, `http_error`, `timeout`, `budget`, `failed` |
 | Versioning | In the path. v1 only ever gains optional fields. A breaking change ships as `/api/v2` beside v1, and v1 stays up while released packages still call it |
 
+### Background captures
+
+`POST /api/v1/captures` takes a whole capture in one request, for the weekly
+snapshot `@polishd/next` asks for without anyone at a dashboard. It's posted
+by the site's own server, so the site is named in the body, and the answer is
+`202` as soon as a sandbox has the job. The contract is
+[`src/capture/background.ts`](../src/capture/background.ts).
+
+```jsonc
+// request
+{ "v": 1, "origin": "https://example.com", "callback": "/api/polishd",
+  "id": "mh2x9k1a", "token": "<64 hex>",
+  "routes": ["/", "/pricing"],
+  "renderings": [{ "device": "desktop", "theme": "light" }, …],
+  "targets": [{ "key": "radius:7px", "ref": { … }, "pages": ["/pricing"] }] }
+// response
+{ "v": 1, "ok": true, "id": "mh2x9k1a", "shots": 8 }
+```
+
+The capture then runs in a sandbox of its own, with nothing waiting on it
+([`lib/background.ts`](./lib/background.ts),
+[`lib/capture-run.ts`](./lib/capture-run.ts)). The worker shoots every page
+in the order a dashboard would, and for each one calls the site back at
+`origin + callback` — the ingest route — with the capture's id and token: to
+ask where the image goes, to upload it (straight to the site's Blob store
+with the presigned URL the site returns, or in chunks to its disk), to record
+the shot, and at the end to close the capture. The service still stores
+nothing, and the worker only uploads to Vercel's Blob API, whatever URL a
+site hands it.
+
+- **The site has to confirm it asked.** Before a limit is spent or a sandbox
+  started, the function calls the site with the id and token (`hello`). Only
+  a site that parked that capture says yes, so nobody can use up another
+  site's captures by naming it.
+- **It counts as one of the site's two captures a week**, and its shots count
+  against the shot limits.
+- **Sandbox engine only.** A function can't outlive its request; without
+  `SHOTS_ENGINE=sandbox` the endpoint answers `unavailable`.
+- **The sandbox is stopped when the work is.** The worker's last call is
+  `POST /api/v1/captures/done` with its sandbox's name, which only it was
+  told; the function stops and removes that sandbox. If the call never
+  comes, the sandbox's timeout (sized to the capture, 4 to 14 minutes) does it.
+
 `GET /api/v1` reports the configured limits, whether the limiter is up, and
 `browser`: `ok` once a blank page has been opened and screenshotted on the
 instance's browser, `wedged` when it couldn't be (that browser is retired on
@@ -207,7 +250,8 @@ The snapshot never expires and counts against the plan's snapshot storage
 one it replaces.
 
 **Rebuild the image whenever the capture code changes** (`lib/`,
-`../src/capture/`, `sandbox/`). The image holds a copy; deploying the
+`../src/capture/`, `sandbox/`, and `../src/server/snapshot-files.ts`, which
+the capture worker shares with the package). The image holds a copy; deploying the
 function doesn't update it. An image too old to understand a job says so in
 the error, and `GET /api/v1` shows it as `browserDetail`.
 

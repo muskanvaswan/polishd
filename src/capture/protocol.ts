@@ -193,7 +193,7 @@ export function isRoutePath(route: unknown): route is string {
   );
 }
 
-function parseRef(raw: unknown): DesignValueRef | null {
+export function parseRef(raw: unknown): DesignValueRef | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   switch (r.kind) {

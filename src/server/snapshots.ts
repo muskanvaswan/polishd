@@ -39,6 +39,7 @@
  * looked up with the server's own credentials and must be the pathname this
  * capture signed. Every failure degrades to a message, never a crash.
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
@@ -80,6 +81,7 @@ import {
 } from "./snapshot-files";
 
 export { SNAPSHOT_RENDERINGS };
+import { loadSnapshotAutoState, resolveSnapshotAuto, type SnapshotAuto } from "./snapshot-auto";
 import { localCaptureUnavailable, onVercelDeployment, shootLocally } from "./snapshot-local";
 import { getMeta, setMeta, storeReady } from "./store";
 
@@ -148,6 +150,8 @@ export interface PolishdSnapshot {
   previewMisses?: string[];
   /** What shot it: Polishd's screenshot service, a browser on this machine, or both. */
   engines?: ("service" | "local")[];
+  /** True when nobody pressed Capture: the weekly background capture took it. */
+  auto?: true;
   /**
    * The routes the capture was planned for, in order — most visited first on
    * a review capture, which is what the model is shown them in. Absent on
@@ -366,6 +370,11 @@ interface PendingSnapshot {
   engine: SnapshotEngine;
   /** The access mode browser uploads succeeded with, once one has. */
   blobAccess?: BlobAccess;
+  /**
+   * Set on a background capture: the service's worker drives it, not a
+   * dashboard, and speaks for it with a token whose hash this is.
+   */
+  background?: { tokenHash: string };
   engines: ("service" | "local")[];
   shots: PendingShot[];
   previews: PolishdSnapshotPreview[];
@@ -448,6 +457,8 @@ export interface BeginSnapshotInput {
   renderings?: { device: SnapshotDevice; theme: SnapshotTheme }[];
   /** Shoot first screens only. */
   viewport?: boolean;
+  /** A background capture: the token the service's worker will present. */
+  backgroundToken?: string;
 }
 
 /**
@@ -500,6 +511,7 @@ export async function beginSnapshot(
     renderings,
     viewport: input.viewport === true,
     engine: input.engine,
+    ...(input.backgroundToken ? { background: { tokenHash: hashCaptureToken(input.backgroundToken) } } : {}),
     engines: [],
     shots: [],
     previews: [],
@@ -520,6 +532,39 @@ export async function beginSnapshot(
     purpose: pending.purpose,
     viewport: pending.viewport,
   };
+}
+
+// ── Background captures ──────────────────────────────────────────────────────
+
+function hashCaptureToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * True when `token` speaks for the background capture `id` — the one parked
+ * right now, started as one. A dashboard's capture has no token at all, so no
+ * call from outside can ever touch it.
+ */
+export async function backgroundCaptureAuthorized(id: string, token: string): Promise<boolean> {
+  const pending = await loadPending(id);
+  if (!pending?.background) return false;
+  const expected = Buffer.from(pending.background.tokenHash, "hex");
+  const given = Buffer.from(hashCaptureToken(token), "hex");
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
+/** When the capture in progress began, if there is one — so a background capture never sweeps a live one. */
+export async function pendingSnapshotStartedAt(): Promise<number | null> {
+  const pending = await loadPendingRaw();
+  return pending && typeof pending.startedAt === "number" ? pending.startedAt : null;
+}
+
+/** Drop a capture that never got going: its plan, and any image it stored. */
+export async function abandonSnapshot(id: string): Promise<void> {
+  const pending = await loadPending(id);
+  if (!pending) return;
+  await deleteSnapshotImages(pending);
+  await savePending(null);
 }
 
 function validSlot(pending: PendingSnapshot, slot: ShotSlot): boolean {
@@ -948,6 +993,7 @@ export async function finishSnapshot(id: string): Promise<{ ok: true; snapshot: 
     previews,
     previewMisses: previewMisses(pending.looked, previews.map((p) => p.key)),
     engines: pending.engines,
+    ...(pending.background ? { auto: true as const } : {}),
   };
 
   if (snapshot.shots.every((s) => !s.file)) {
@@ -1078,6 +1124,8 @@ export interface SnapshotAvailability {
   serviceUrl: string | null;
   /** The last capture's block, until a capture gets through. Only applies to service captures. */
   block: StoredCaptureBlock | null;
+  /** Whether snapshots are also taken weekly in the background, and how the last one went. */
+  auto: SnapshotAuto;
 }
 
 /**
@@ -1100,6 +1148,7 @@ export async function snapshotAvailability(origin: string | null): Promise<Snaps
     storageIssue,
     serviceUrl: snapshotServiceUrl(process.env.POLISHD_SNAPSHOT_SERVICE),
     block: mode.kind === "service" ? await loadSnapshotBlock() : null,
+    auto: resolveSnapshotAuto(await loadSnapshotAutoState()),
   };
 }
 

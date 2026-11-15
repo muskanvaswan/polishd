@@ -24,20 +24,14 @@
  * rejected action crashes the dashboard tab into Next's error boundary with
  * an opaque digest, while a returned message renders in the card.
  */
-import { buildDesignDigest } from "../ai/design";
-import { REVIEW_RENDERINGS, designReviewTargets, pickReviewRoutes } from "../ai/design-shots";
-import { fingerprintDigest } from "../ai/digest";
+import { REVIEW_RENDERINGS } from "../ai/design-shots";
 import { requirePolishdAuth } from "../ai/guard";
-import { resolveSettings } from "../ai/settings";
 import { parseCaptureBlock, type StoredCaptureBlock } from "../capture/protocol";
-import { isDashboardPath, resolveDashboardRoute } from "../config";
-import { getDesignData } from "../server/design";
-import { getPageTraffic } from "../server/queries";
-import { dashboardTabOf, type ShotSlot } from "../server/snapshot-files";
-import { collapseSlugRoutes } from "../server/snapshot-routes";
+import { saveSnapshotAutoMode, type SnapshotAuto } from "../server/snapshot-auto";
+import type { ShotSlot } from "../server/snapshot-files";
+import { planCapture } from "../server/snapshot-plan";
 import { resolveSiteOrigin } from "../server/site-origin";
 import {
-  MAX_SNAPSHOT_ROUTES,
   appendSnapshotChunk,
   beginSnapshot,
   captureLocalShot,
@@ -57,7 +51,6 @@ import {
   type SnapshotPurpose,
   type UploadTarget,
 } from "../server/snapshots";
-import { designPreviewTargets } from "../shared/design-values";
 
 function failed(prefix: string, err: unknown): Failure {
   return { ok: false, message: `${prefix}: ${err instanceof Error ? err.message : "unknown error"}` };
@@ -113,48 +106,7 @@ export async function beginSnapshotCaptureAction(
     const engine =
       mode.kind === "service" ? { kind: "service" as const, url: mode.url } : { kind: "local" as const };
 
-    const data = await getDesignData();
-    const dashboardRoute = resolveDashboardRoute();
-    // Shoot what visitors have actually rendered, never the dashboard as a
-    // page of the site. The exception is an install that measures Polishd's
-    // own dashboard (it reads dashboard telemetry, labelled /~polishd/<tab>):
-    // a local capture shoots those tabs too, where the development dashboard
-    // is open. The hosted service never does — it would need the dashboard's
-    // credentials.
-    const scanned = data.pages
-      .map((p) => p.path)
-      .filter(
-        (p) =>
-          p.startsWith("/") &&
-          !isDashboardPath(p, dashboardRoute) &&
-          (!p.startsWith("/~") || (engine.kind === "local" && dashboardTabOf(p) !== null)),
-      );
-    const candidates = scanned.length > 0 ? scanned : ["/"];
-    // Pages that are instances of one dynamic route — /posts/<slug> — are shot
-    // once, as the most visited of them. The gallery leads with the landing
-    // page, so the route cap never cuts it and its phone view goes first.
-    const traffic = await getPageTraffic(candidates);
-    const distinct = collapseSlugRoutes(candidates, traffic);
-    const routes = review
-      ? pickReviewRoutes(distinct, traffic)
-      : [...distinct.filter((r) => r === "/"), ...distinct.filter((r) => r !== "/")].slice(0, MAX_SNAPSHOT_ROUTES);
-
-    // Stamp the snapshot with the design digest's hash — the measurements the
-    // AI review is keyed on — so "taken before/after this round of changes" is
-    // a hash comparison.
-    let fingerprint: string | null = null;
-    if (data.ready && data.pages.length > 0) {
-      const { settings } = await resolveSettings();
-      fingerprint = fingerprintDigest(buildDesignDigest(data, settings.context));
-    }
-
-    // The values flagged right now get pictured in place: on a gallery capture
-    // so hovering one on the Design tab shows the element that carries it; on
-    // a review capture so the model sees it too, failing contrast included.
-    const shot = new Set(routes);
-    const targets = (review ? designReviewTargets(data) : designPreviewTargets(data)).filter((t) =>
-      t.pages.some((p) => shot.has(p)),
-    );
+    const { routes, fingerprint, targets } = await planCapture({ review, engine: engine.kind });
 
     return await beginSnapshot({
       origin,
@@ -202,6 +154,23 @@ export async function setSnapshotBlockAction(
     return { ok: true, block: await saveSnapshotBlock(parsed) };
   } catch (err) {
     return failed("Couldn't record the capture's outcome", err);
+  }
+}
+
+/**
+ * The weekly background capture's switch: on (the default) or off. Returns
+ * what's in force afterwards — the environment can overrule the choice.
+ */
+export async function setSnapshotAutoAction(
+  mode: unknown,
+): Promise<({ ok: true; auto: SnapshotAuto }) | Failure> {
+  await requirePolishdAuth();
+  try {
+    if (mode !== "weekly" && mode !== "off") return { ok: false, message: "That isn't a capture schedule." };
+    const auto = await saveSnapshotAutoMode(mode);
+    return auto ? { ok: true, auto } : { ok: false, message: "The store refused to record the choice." };
+  } catch (err) {
+    return failed("Couldn't record the choice", err);
   }
 }
 

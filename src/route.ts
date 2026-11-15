@@ -10,11 +10,14 @@
  *   export const dynamic = "force-dynamic";
  *   export const POST = createPolishdRoute();
  */
+import * as nextServer from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { parseCaptureCall } from "./capture/background";
 import { defaultPolishdConfig, resolveSessionCookie, type PolishdConfig } from "./config";
 import { readJsonBody } from "./server/body";
 import { ingest, sessionIdFromCookie } from "./server/ingest";
+import { siteOriginFrom } from "./server/site-origin";
 import { mintSessionId, setSessionCookie } from "./session";
 
 // node:sqlite / pg need the Node runtime — never the Edge runtime.
@@ -42,6 +45,17 @@ export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
       );
     }
 
+    // The screenshot service's worker reports a background capture here too:
+    // this is the one endpoint every install has. Such a body carries a
+    // capture's id and token; anything else is a beacon, handled as always.
+    const call = parseCaptureCall(read.body);
+    if (call) {
+      if (!call.ok) return NextResponse.json({ ok: false, message: call.message }, { status: 400 });
+      const { handleCaptureCall } = await import("./server/snapshot-background");
+      const answer = await handleCaptureCall(call.value);
+      return NextResponse.json(answer.body, { status: answer.status });
+    }
+
     // The session is minted here, on the first batch that arrives without a
     // usable cookie, so no proxy is needed. The batch is stored under the new
     // id straight away and the cookie goes back on this response; every later
@@ -63,8 +77,46 @@ export function createPolishdRoute(config: Partial<PolishdConfig> = {}) {
     const res = NextResponse.json(result, { status: result.ok ? 200 : 400 });
     // Only a batch ingest accepted earns a cookie; a body it rejects gets none.
     if (!existing && sessionId && result.ok) setSessionCookie(res, cfg.sessionCookie, sessionId);
+    // Real traffic is the only clock a serverless site has: a batch that was
+    // stored is when the weekly background capture gets looked at.
+    if (result.ok && result.stored > 0 && backgroundCheckDue(Date.now())) {
+      const origin = siteOriginFrom(req.headers);
+      const callback = req.nextUrl.pathname;
+      runAfterResponse(async () => {
+        const { maybeStartBackgroundCapture } = await import("./server/snapshot-background");
+        await maybeStartBackgroundCapture(origin, callback);
+      });
+    }
     return res;
   };
+}
+
+/** How often one server instance asks the store whether a background capture is due. */
+const BACKGROUND_CHECK_EVERY_MS = 10 * 60_000;
+let nextBackgroundCheckAt = 0;
+
+/** True at most once per interval, per instance — the rest of the batches skip the store. */
+function backgroundCheckDue(now: number): boolean {
+  if (now < nextBackgroundCheckAt) return false;
+  nextBackgroundCheckAt = now + BACKGROUND_CHECK_EVERY_MS;
+  return true;
+}
+
+/**
+ * Run `work` once the response has gone. Next's `after` keeps a serverless
+ * function alive for it; outside a request scope (a test, an old Next) it
+ * throws or isn't there, and the work simply runs unawaited. Either way it
+ * can't fail or slow the response.
+ */
+function runAfterResponse(work: () => Promise<void>): void {
+  const quiet = () => work().catch(() => {});
+  const after = (nextServer as { after?: (task: () => Promise<void>) => void }).after;
+  try {
+    if (typeof after !== "function") throw new Error("no after()");
+    after(quiet);
+  } catch {
+    void quiet();
+  }
 }
 
 /**
