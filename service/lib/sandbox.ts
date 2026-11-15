@@ -142,7 +142,7 @@ async function runJob(
     throw new WorkerFailure("the sandbox image is out of date — rebuild it (npm run sandbox:build)");
   }
   if (!result.ok) throw new WorkerFailure(result.message || "the worker failed");
-  if (!Array.isArray(result.shots)) throw new Error("the worker's result has no shots");
+  if (!("shots" in result) || !Array.isArray(result.shots)) throw new Error("the worker's result has no shots");
   return result.shots;
 }
 
@@ -271,7 +271,7 @@ export function createSandboxEngine(options: EngineOptions): SandboxEngine {
 }
 
 /** Marks the sandboxes this service starts, so `tidy` only ever touches its own. */
-const SANDBOX_TAGS = { service: "polishd-shots" };
+export const SANDBOX_TAGS = { service: "polishd-shots" };
 /** Stopped sandboxes cleared per start: enough to keep up, too few to slow one down. */
 const TIDY_LIMIT = 10;
 
@@ -284,7 +284,7 @@ type SandboxSdk = typeof import("@vercel/sandbox").Sandbox;
  * the image alone — that snapshot is kept unless asked for by name. Best
  * effort: a failure here is nobody's problem.
  */
-async function tidy(Sandbox: SandboxSdk, keep: string): Promise<void> {
+export async function tidy(Sandbox: SandboxSdk, keep: string): Promise<void> {
   try {
     const page = await Sandbox.list({ tags: SANDBOX_TAGS });
     const gone = page.sandboxes

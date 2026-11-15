@@ -43,6 +43,7 @@ import type { SnapshotMode, StoredCaptureBlock } from "../capture/protocol";
 import type { PolishdSnapshot, PolishdSnapshotShot, SnapshotAvailability } from "../server/snapshots";
 import {
   getSnapshotImageAction,
+  setSnapshotAutoAction,
   setSnapshotBlockAction,
   setSnapshotServiceConsentAction,
 } from "./snapshot-actions";
@@ -227,6 +228,8 @@ interface SnapshotsState {
   openConsent: () => void;
   /** Withdraw consent: production captures stop using the service. */
   turnOff: () => void;
+  /** Turn the weekly background capture on or off. */
+  setAuto: (mode: "weekly" | "off") => void;
   /** True while the aesthetic review runs its own capture — one capture at a time. */
   reviewCapturing: boolean;
   setReviewCapturing: (on: boolean) => void;
@@ -365,6 +368,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
           storageIssue: res.storageIssue,
           serviceUrl: res.serviceUrl,
           block: res.block,
+          auto: res.auto,
         });
         setBlock(res.block);
         setError(null);
@@ -375,6 +379,16 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
       })
       .catch(() => setConsentError("Couldn't record the choice — try again."))
       .finally(() => setDeciding(false));
+  }, []);
+
+  const setAuto = useCallback((mode: "weekly" | "off") => {
+    setError(null);
+    setSnapshotAutoAction(mode)
+      .then((res) => {
+        if (res.ok) setAvailability((prev) => ({ ...prev, auto: res.auto }));
+        else setError(res.message);
+      })
+      .catch(() => setError("Couldn't record the choice — try again."));
   }, []);
 
   const state: SnapshotsState = {
@@ -394,6 +408,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
       setConsentOpen(true);
     },
     turnOff: () => decide(false),
+    setAuto,
     reviewCapturing,
     setReviewCapturing,
     noteBlock: setBlock,
@@ -468,6 +483,11 @@ function ConsentDialog({
           page on your site the way any visitor would and sends the picture back here, and the
           dashboard saves it to your own storage.
         </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-fg-2">
+          Once allowed, a snapshot is also taken on its own about once a week, so the gallery stays
+          current without you: your site asks the service for it, and the service saves each picture
+          straight to your storage with a one-time upload link your site issues.
+        </p>
         <ul className="mt-4 space-y-2 rounded-xl border border-line bg-sunken p-3.5 text-[12.5px] leading-relaxed text-fg-3">
           <li>
             <span className="font-medium text-fg">What it sees:</span> the paths being shot, and what those
@@ -485,7 +505,7 @@ function ConsentDialog({
         </ul>
         <p className="mt-3 text-[12px] text-fg-3">
           Allowing it starts this capture. You can turn it off later from the Site snapshots
-          section.
+          section, or stop just the weekly captures there.
         </p>
         {error && (
           <p role="alert" className="mt-3 text-[12px] text-bad">
@@ -555,6 +575,7 @@ function SnapshotsCard() {
     capture,
     openConsent,
     turnOff,
+    setAuto,
     ready,
     reviewCapturing,
   } = useSnapshots();
@@ -567,7 +588,7 @@ function SnapshotsCard() {
   const newest = snapshots[0]?.id ?? null;
   useEffect(() => setSelectedId(null), [newest]);
 
-  const { mode } = availability;
+  const { mode, auto } = availability;
   const off = offState(availability, block);
   const needsConsent = mode.kind === "consent";
   const selected = snapshots.find((s) => s.id === selectedId) ?? snapshots[0] ?? null;
@@ -655,6 +676,7 @@ function SnapshotsCard() {
                   {snapshots.map((s) => (
                     <option key={s.id} value={s.id}>
                       {relTime(s.capturedAt)}
+                      {s.auto ? " · automatic" : ""}
                     </option>
                   ))}
                 </select>
@@ -770,7 +792,10 @@ function SnapshotsCard() {
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-fg-3">
-              <span>Captured {relTime(selected.capturedAt)}</span>
+              <span>
+                Captured {selected.auto ? "automatically " : ""}
+                {relTime(selected.capturedAt)}
+              </span>
               {selected.noDarkMode && <Badge>Site renders identically in dark mode</Badge>}
               {skipped.length > 0 && (
                 <span className="text-warn">
@@ -815,6 +840,29 @@ function SnapshotsCard() {
             >
               Turn off
             </button>
+          </p>
+        )}
+        {mode.kind === "service" && !off && !capturing && (
+          <p data-component="design-snapshot-auto" data-state={auto.mode} className="mt-1.5 text-[12px] text-fg-3">
+            {auto.mode === "weekly"
+              ? "A snapshot is also taken on its own once a week, when the newest is over a week old and the site has visitors."
+              : "Snapshots are only taken when you capture."}{" "}
+            {auto.locked ? (
+              <span>Set by POLISHD_SNAPSHOT_AUTO.</span>
+            ) : (
+              <button
+                type="button"
+                data-component="design-snapshot-auto-toggle"
+                onClick={() => setAuto(auto.mode === "weekly" ? "off" : "weekly")}
+                disabled={!ready}
+                className={`${textLink} disabled:cursor-default disabled:no-underline`}
+              >
+                {auto.mode === "weekly" ? "Stop weekly captures" : "Capture weekly"}
+              </button>
+            )}
+            {auto.mode === "weekly" && auto.lastError && (
+              <span className="mt-1 block text-warn">The last weekly capture didn&rsquo;t finish: {auto.lastError}</span>
+            )}
           </p>
         )}
       </div>

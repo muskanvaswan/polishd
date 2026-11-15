@@ -525,6 +525,7 @@ before creating or altering anything, and the dashboard says so.
 | `POLISHD_DATABASE_URL` | for production capture | Pooled Postgres connection string |
 | `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` | for production site snapshots | Injected automatically when a Vercel Blob store is connected — `BLOB_STORE_ID` for an OIDC connection, `BLOB_READ_WRITE_TOKEN` for the classic one; either works, as do public and private stores. The dashboard uploads snapshot images there straight from the browser, with an upload URL the server signs per file. `BLOB_WEBHOOK_PUBLIC_KEY` isn't needed |
 | `POLISHD_SNAPSHOT_SERVICE` | no | `off` never calls the screenshot service (snapshots then only work in local development). A URL points at a self-hosted screenshot service |
+| `POLISHD_SNAPSHOT_AUTO` | no | `off` never takes the weekly background snapshot; captures then only happen when the owner presses Capture |
 | `POLISHD_DASHBOARD_TOKEN` | for production, unless auth is wired | Protects `/polishd`. `openssl rand -hex 32` |
 | `POLISHD_DASHBOARD_PUBLIC` | no | `true` to serve the dashboard unguarded on purpose |
 | `POLISHD_SESSION_COOKIE` | no | Rename the session cookie; read by ingest (and by a proxy calling `withPolishdSession`, if the app has one) |
@@ -564,6 +565,16 @@ need a change:
 `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever being called, for
 owners who don't want URLs leaving their server. Snapshots then work only in
 local development.
+
+**Once the owner has allowed the service, a snapshot is also taken about once
+a week in the background** — when a visitor's events arrive and the newest
+snapshot is over a week old. The site asks the service for it through the
+ingest route it already has, and the service's worker reports back through
+that same route, so there is **nothing to set up: no cron, no extra route, no
+proxy**. Don't add any of those for it. It never runs before the owner has
+answered the consent dialog, on a preview deployment, or in development. The
+owner can stop it on the Design tab; `POLISHD_SNAPSHOT_AUTO=off` stops it for
+the deployment.
 
 When no store can be opened — no database URL on a read-only filesystem, an
 unreachable database, or Node < 22.5 — the package degrades to a safe no-op: a

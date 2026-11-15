@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Site snapshots
+
+- **A snapshot is now taken on its own, about once a week.** Once you've
+  allowed Polishd's screenshot service, the gallery stays current without
+  anyone opening the dashboard. There's no schedule to set up: when a
+  visitor's events arrive and the newest snapshot is more than a week old,
+  your site asks the service for a capture. A site with no visitors that week
+  isn't shot, and a capture you take yourself resets the week.
+- **The service saves the pictures straight to your storage.** Your site
+  issues a one-time upload link per image, as it does for a capture you run
+  from the dashboard; the service still keeps nothing. It reports each shot
+  back through the ingest route your app already has, with a token your site
+  minted for that capture alone, so there is no new route, cron or proxy.
+- **It only ever runs after you've said yes.** Never before the consent
+  dialog has been answered, never on a preview deployment or in development.
+  The dialog now says so.
+- **"Stop weekly captures"** in the Site snapshots section turns it off, and
+  `POLISHD_SNAPSHOT_AUTO=off` turns it off for the deployment. Snapshots it
+  takes are marked "automatic" in the history.
+- The weekly snapshot counts towards the screenshot service's limit of two
+  full captures per site per week, which leaves one for a capture of your own.
+
 ## 0.3.2
 
 ### Connecting the database

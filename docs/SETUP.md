@@ -481,6 +481,11 @@ doesn't do. If your site sets a Content-Security-Policy, add
 `connect-src`. `POLISHD_SNAPSHOT_SERVICE=off` stops the service from ever
 being called; snapshots are then taken only in local development.
 
+Once you've allowed the service, a snapshot is also taken on its own about
+once a week, when the newest is over a week old and the site has visitors.
+There's nothing to configure for it. "Stop weekly captures" in the section
+turns it off, as does `POLISHD_SNAPSHOT_AUTO=off`.
+
 See [DATABASE.md](../DATABASE.md) for schema, pooling notes, and retention.
 
 Until a database URL is set, Polishd runs as a safe no-op in production: a
