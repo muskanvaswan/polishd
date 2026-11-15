@@ -98,13 +98,45 @@ export function memoryLimiter(rules: LimitRule[]): Limiter {
   };
 }
 
-type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+
+export interface UpstashOptions {
+  url: string;
+  token: string;
+  fetch?: FetchLike;
+}
+
+/**
+ * Run commands as one Upstash REST pipeline and hand back each result, in
+ * order. Anything but a full, readable answer is the limiter being down.
+ */
+export async function upstashPipeline(
+  { url, token, fetch: doFetch = fetch }: UpstashOptions,
+  commands: string[][],
+): Promise<unknown[]> {
+  let res: Response;
+  try {
+    res = await doFetch(`${url.replace(/\/+$/, "")}/pipeline`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(commands),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {
+    throw new LimiterUnavailableError("the rate limiter didn't answer");
+  }
+  if (!res.ok) throw new LimiterUnavailableError(`the rate limiter answered ${res.status}`);
+  const body = (await res.json().catch(() => null)) as { result?: unknown; error?: string }[] | null;
+  if (!Array.isArray(body) || body.length !== commands.length) {
+    throw new LimiterUnavailableError("the rate limiter answered something unreadable");
+  }
+  return body.map((entry) => entry?.result);
+}
 
 export function upstashLimiter(
   rules: LimitRule[],
-  { url, token, fetch: doFetch = fetch }: { url: string; token: string; fetch?: FetchLike },
+  upstash: UpstashOptions,
 ): Limiter {
-  const endpoint = `${url.replace(/\/+$/, "")}/pipeline`;
   return {
     kind: "redis",
     async consume(who, cost, nowMs = Date.now()) {
@@ -115,23 +147,8 @@ export function upstashLimiter(
         // it counts.
         ["EXPIRE", key, String(resetIn)],
       ]);
-      let res: Response;
-      try {
-        res = await doFetch(endpoint, {
-          method: "POST",
-          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-          body: JSON.stringify(commands),
-          signal: AbortSignal.timeout(3000),
-        });
-      } catch {
-        throw new LimiterUnavailableError("the rate limiter didn't answer");
-      }
-      if (!res.ok) throw new LimiterUnavailableError(`the rate limiter answered ${res.status}`);
-      const body = (await res.json().catch(() => null)) as { result?: unknown; error?: string }[] | null;
-      if (!Array.isArray(body) || body.length !== commands.length) {
-        throw new LimiterUnavailableError("the rate limiter answered something unreadable");
-      }
-      const counts = keyed.map((_, i) => Number(body[i * 2]?.result));
+      const results = await upstashPipeline(upstash, commands);
+      const counts = keyed.map((_, i) => Number(results[i * 2]));
       if (counts.some((n) => !Number.isFinite(n))) {
         throw new LimiterUnavailableError("the rate limiter answered something unreadable");
       }

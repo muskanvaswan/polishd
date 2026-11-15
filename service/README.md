@@ -81,6 +81,18 @@ A full capture is up to 48 shots (12 routes × 2 devices × 2 themes). Keys hold
 only the hostname or a hash of the IP, plus the window number, and expire
 with the window.
 
+On top of the shot limits, **a site gets two full captures a week**
+(`SHOTS_CAPTURES_PER_WEEK`; `off` removes the limit). This one is about cost
+rather than abuse ([`lib/captures.ts`](./lib/captures.ts)). A capture reaches
+the service as forty-odd requests, so it's counted at the door: the first
+full-page request from a site opens a capture and spends one of its week's,
+and every request in the next twenty minutes belongs to it — a retry
+included. A third capture is refused whole, as `rate_limited` with scope
+`origin` and a `retryAfter` that runs to the end of the week (weeks are
+counted from the epoch, so they turn on Thursday 00:00 UTC); the dashboard
+says the site is being limited and when to try again. First-screen requests
+(`viewport`), which are the design review's, aren't counted.
+
 The global cap exists to protect the plan's included compute. On Vercel Hobby,
 about 4 active-CPU hours a month covers roughly 4–7k shots (an estimate:
 measure, then tune). Note that Hobby is for non-commercial use.
@@ -119,6 +131,94 @@ replacements come thick and fast, the instance is short of memory for the
 concurrency it's given: lower `SHOTS_MAX_CONCURRENT`, or raise the
 function's memory.
 
+All of that is the **function engine**, the default: Chromium inside the
+function that answers the request. The sandbox engine below is the way out
+of it.
+
+## The sandbox engine
+
+`SHOTS_ENGINE=sandbox` moves Chromium out of the function and into a
+[Vercel Sandbox](https://vercel.com/docs/sandbox), a small VM. The function
+still answers the same API; it writes each request into the sandbox as a job,
+runs the capture worker there ([`sandbox/worker.ts`](./sandbox/worker.ts)) and
+reads the shots back ([`lib/sandbox.ts`](./lib/sandbox.ts)). The worker is
+this service's own code — the same proxy, guard and capture core — so the
+shots are the same. What changes:
+
+- **A real browser.** Playwright's multi-process Chromium, launched for the
+  job and gone with it. Nothing is shared between jobs, so there is nothing
+  to wear out, and the pool above isn't used.
+- **No secrets in reach.** The sandbox has none of the function's
+  environment; the Redis token never shares a process with a page.
+- **Its own meter.** Sandbox time is billed apart from function time: active
+  CPU, and memory for as long as a sandbox is up, idle or not.
+
+Measured on 2026-11-15 against a long landing page (full page, cut at the
+12,000 px cap), two jobs at a time on 2 vCPUs: a sandbox is up in about 1.5
+seconds, a shot takes 5–7 seconds, and costs about 5 seconds of active CPU
+and 1 MB of transfer. Lighter pages cost less.
+
+What that comes to depends on the plan the project is on:
+
+- **Pro** has no free sandbox allowance: usage draws on the plan's monthly
+  credit at $0.128 per active-CPU hour and $0.0212 per GB-hour of memory
+  (transfer is included). A full capture of 48 such shots is about 4 minutes
+  of CPU and a 4 GB sandbox up for about 5, so roughly 1.6 cents; the image
+  is another 9 cents a month to store. `SHOTS_LIMIT_GLOBAL_PER_DAY` is the
+  ceiling on the whole bill — at the default 200 shots a day, about $2 a
+  month — and the weekly capture limit is the ceiling per site, about 15
+  cents a month.
+- **Hobby** includes 5 active-CPU hours, 420 GB-hours of memory and 5,000
+  sandbox starts a month, and refuses new sandboxes (it doesn't bill) once
+  they're used. CPU runs out first: about 3,600 such shots a month, some 120
+  a day, which is below the default daily cap — lower it to match.
+
+One sandbox per function instance, kept while requests keep coming: it
+starts with `SHOTS_SANDBOX_TIMEOUT_MIN` (3) to live, gets two more whenever a
+job finds it within 75 seconds of the end, and stops by itself when they stop
+coming. Short on purpose — its memory is paid for until it stops.
+`SHOTS_MAX_CONCURRENT` jobs run in it at once, each with its own browser, so
+size it with `SHOTS_SANDBOX_VCPUS` (2, and 2 GB of memory each; Hobby allows
+4). A sandbox that has gone, can't be extended (Hobby sessions end at 45
+minutes) or fails a job is replaced, and that job is tried once more.
+`[shots] sandbox #n dropped: …` in the function logs says why.
+
+A sandbox that stops stays listed on the project. Each new one deletes the
+stopped records of the ones before it (those tagged `service=polishd-shots`,
+which is every sandbox this service starts); the image is untouched.
+
+### The image
+
+A sandbox starts from a snapshot that already has Chromium, its system
+libraries and a copy of the capture code:
+
+```bash
+cd service
+vercel link          # once: the service's Vercel project
+vercel env pull      # a 12-hour token in .env.local
+npm run sandbox:build
+```
+
+It takes a few minutes: it installs everything in a fresh sandbox, shoots
+`https://example.com` there as a test, and prints the snapshot id. Set that
+as `SHOTS_SANDBOX_SNAPSHOT_ID`, set `SHOTS_ENGINE=sandbox`, and redeploy.
+The snapshot never expires and counts against the plan's snapshot storage
+(15 GB on Hobby); pass `--delete <old id>` on the next build to remove the
+one it replaces.
+
+**Rebuild the image whenever the capture code changes** (`lib/`,
+`../src/capture/`, `sandbox/`). The image holds a copy; deploying the
+function doesn't update it. An image too old to understand a job says so in
+the error, and `GET /api/v1` shows it as `browserDetail`.
+
+To go back, unset `SHOTS_ENGINE`. Nothing else changes: the function engine
+is still there.
+
+`GET /api/v1` reports `"engine": "sandbox"`. It doesn't start a sandbox to
+check — a monitor's pings would spend the month's sandbox starts — so
+`browser` is `ok` until a job fails for a reason of the sandbox's, then
+`unavailable` with the reason, until a job succeeds again.
+
 ## Deploying
 
 1. New Vercel project from this repository, **Root Directory `service`**.
@@ -131,6 +231,7 @@ function's memory.
    (`SNAPSHOT_SERVICE_URL` in `src/capture/protocol.ts`).
 4. Check `GET https://shots.polishd.muskanvaswan.xyz/api/v1` reports
    `"ok": true, "limiter": "redis", "browser": "ok"`.
+5. Optional: switch to the sandbox engine (above).
 
 No other secrets: the service holds no credentials for any site.
 
@@ -161,4 +262,6 @@ POLISHD_SNAPSHOT_SERVICE=http://localhost:4100/api/v1
 
 Tests run with the package's: `npm test` at the repository root covers
 `service/lib/**/*.test.ts` (address blocking, the proxy over real sockets,
-origin parsing, limits, the browser pool's recycling and replacement).
+origin parsing, limits, the browser pool's recycling and replacement, and
+the sandbox engine's reuse, extension, replacement and retry — against a
+fake sandbox; the image build's test shot is the check against a real one).

@@ -12,6 +12,7 @@ import { CORS_HEADERS, errorResponse, json, readBodyCapped } from "../../../../l
 import { LimiterUnavailableError } from "../../../../lib/limiter.ts";
 import { resolvePublic } from "../../../../lib/net.ts";
 import { clientIp, parseOriginHeader } from "../../../../lib/origin.ts";
+import { sandboxEngine } from "../../../../lib/sandbox.ts";
 import { byDeadline, shootAll } from "../../../../lib/shoot.ts";
 
 export const runtime = "nodejs";
@@ -67,8 +68,26 @@ export async function POST(req: Request): Promise<Response> {
       "The screenshot service has no rate limiter configured, so it isn't taking work.",
     );
   }
+  if (config.engine === "sandbox" && !config.sandbox.snapshotId) {
+    return errorResponse(
+      "unavailable",
+      "The screenshot service has no sandbox image configured, so it isn't taking work.",
+    );
+  }
   const cost = request.routes.length * request.devices.length * request.themes.length;
   try {
+    // A full-page request belongs to a capture, and a site gets so many a
+    // week. First screens — the design review's — aren't counted.
+    if (config.captures && request.viewport !== true) {
+      const admitted = await config.captures.admit(origin.hostname);
+      if (!admitted.ok) {
+        return errorResponse(
+          "rate_limited",
+          "The screenshot service has taken this site's full captures for the week.",
+          { retryAfter: admitted.retryAfter, scope: "origin" },
+        );
+      }
+    }
     const decision = await config.limiter.consume(
       { ip: clientIp(req.headers), origin: origin.hostname },
       cost,
@@ -93,10 +112,11 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
+    const deadline = started + SHOOT_BUDGET_MS;
     const shots = await byDeadline(
-      withBrowser(config, (lease, pool) =>
-        shootAll(pool, lease, origin.origin, request, started + SHOOT_BUDGET_MS),
-      ),
+      config.engine === "sandbox"
+        ? sandboxEngine(config).shoot(origin.origin, request, deadline)
+        : withBrowser(config, (lease, pool) => shootAll(pool, lease, origin.origin, request, deadline)),
       started + ANSWER_BY_MS,
     );
     if (!shots) {
