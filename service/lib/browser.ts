@@ -4,7 +4,9 @@
  *
  * On Vercel it's `@sparticuz/chromium` — a Chromium built to unpack and run in
  * Lambda-shaped sandboxes. Locally it's your installed Chrome, or Playwright's
- * Chromium. The choice is made from the environment at runtime, never from
+ * Chromium, and in the capture worker (sandbox/worker.ts, when the service's
+ * engine is a Vercel Sandbox) Playwright's Chromium is the only one there.
+ * The choice is made from the environment at runtime, never from
  * `process.platform`, which Turbopack inlines at build time.
  *
  * Every launch routes all traffic through the egress proxy (proxy.ts) with
@@ -25,11 +27,19 @@ import {
   type Pressure,
 } from "./pool.ts";
 import { startEgressProxy, type EgressProxy } from "./proxy.ts";
+import { WORKER_ENV } from "./sandbox-job.ts";
 
 /** A wedged Chromium may never answer `close`; after this long it's killed outright. */
 const CLOSE_TIMEOUT_MS = 5_000;
 
+/** True in the capture worker (sandbox/worker.ts), which runs in a VM with a full Chromium. */
+function inSandboxWorker(): boolean {
+  return process.env[WORKER_ENV] === "1";
+}
+
 function onServerless(): boolean {
+  // The worker's VM may carry Vercel's variables too, and it's not a function.
+  if (inSandboxWorker()) return false;
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 
@@ -93,7 +103,9 @@ async function launchLocal(
   proxy: { server: string; bypass: string },
 ): Promise<Browser> {
   let lastError: unknown;
-  for (const channel of ["chrome", "msedge", undefined] as const) {
+  // The sandbox image has Playwright's Chromium and no installed Chrome to look for.
+  const channels = inSandboxWorker() ? ([undefined] as const) : (["chrome", "msedge", undefined] as const);
+  for (const channel of channels) {
     try {
       return await chromium.launch({ args, proxy, ...(channel ? { channel } : {}) });
     } catch (err) {

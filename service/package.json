@@ -8,13 +8,15 @@
     "dev": "next dev -p 4100",
     "build": "next build",
     "start": "next start -p 4100",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sandbox:build": "node scripts/build-sandbox.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",
+    "@vercel/sandbox": "^4.0.0",
     "allpages": "^0.3.3",
     "next": "^16",
     "playwright-core": "^1.62.1",
