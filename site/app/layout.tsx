@@ -74,7 +74,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans">
         {/* Scroll reveal starts hidden — without JS it would never un-hide. */}
         <noscript>
-          <style>{`.r{opacity:1!important;transform:none!important;filter:none!important}.fill{transform:translateX(calc((var(--w,0) - 100)*1%))}`}</style>
+          <style>{`.r{opacity:1!important;transform:none!important;filter:none!important}[data-card],.collapse-label{opacity:1!important}`}</style>
         </noscript>
         {children}
       </body>

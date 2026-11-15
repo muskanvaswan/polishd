@@ -1,0 +1,19 @@
+{
+  "site": {
+    "description": "Queuebird, a sample launch page for a fictional background-jobs product, generated in one go to demo Polishd. Visitors read the landing page, try the code examples and the install command, compare plans on /pricing and read the quickstart on /docs. It was shipped as generated, rough edges included.",
+    "audience": "Developers evaluating a background-jobs tool for a TypeScript app",
+    "values": "",
+    "sourceDirs": [
+      "app",
+      "components"
+    ]
+  },
+  "github": {
+    "repo": ""
+  },
+  "ai": {
+    "provider": "",
+    "model": "",
+    "apiKeyEnv": ""
+  }
+}

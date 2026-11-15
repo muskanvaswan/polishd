@@ -87,25 +87,52 @@ upload to the production Blob store, so the live dashboard shows them.
 
 ## The story the page tells
 
-Shipping is cheap now, so working software is no longer the bar — taste is. The
-page argues that in one arc, then shows the loop that gets you there:
-
-**track → measure → analyse → surface → experiment → verify → ship, or repeat.**
-
-Stages 01–04 ship today; 05–06 are in build. Every stage on the page carries its
-own `Live` / `In beta` status, and the frontier section says outright that the
-API for the unshipped half isn't settled. Nothing claims to exist that doesn't.
+The page answers a developer's questions in the order they ask them. People
+who skimmed the old page took Polishd for an agent skill; the hero says
+plainly that it's an npm package running in your app, and `in-your-app` shows
+the files once the reader knows what it does.
 
 | Section | Does |
 |---|---|
-| `hero` | The thesis — *Build fast, refine relentlessly* |
-| `design` | The Design tab's measurements as cards: the palette as the Overview's brand board draws it, type specimens, contrast, the aesthetic review, radii and spacing |
-| `proof` | The shipped half, as the Analytics tab's components: stat tiles with sparklines, device sizes, the summary with its pointer to the actionables |
-| `actionables` | The Actionables tab — both reviews' findings in one list, with Mark fixed / Ignore / File bug and the GitHub state — beside the fix prompt and its verdicts |
-| `loop` | The centrepiece — the six-stage ring |
-| `frontier` | Stages 05–06, drawn dashed |
-| `install` | Three commands |
-| `closing` | *Make your website look polishd* |
+| `hero` | Centred: what it is and what you install. Below it, `polish-pass.tsx`: the promo film's opening, live, on the demo site — Queuebird scanned, its rough edges called out, the brush, the polished page. The window arrives tilted back and stands up as you scroll. Drag or arrow keys scrub it |
+| `fingerprints` | "Building got fast. Finishing didn't." The one section laid out as a bento that fits a single screen: the headline as one cell, a tile per fingerprint around it, with the values Polishd measured on Queuebird |
+| `how-it-works` | Five steps, scrolled through on the dashboard they happen in |
+| `where-it-runs` | The data flow as a diagram, and exactly what can leave the server and when |
+| `in-your-app` | "A package in your app. Not a service. Not a skill." Directly under `where-it-runs`, which already covers whose database, model and agent it uses; this one shows the files `init` writes |
+| `demo` | The invitation to the live demo: the site, and its real dashboard |
+| `install` | Four commands, and the prompt that hands them to a coding agent (`agent-prompt.tsx`) |
+| `status` | The seven stages, Live or Coming (`lib/loop.ts`) |
+| `faq` | The questions developers ask first |
+| `closing` | The wordmark, install, the demo, and the film in a dialog (`film-button.tsx`, `public/film/`) |
+
+House rules, because they were each a correction:
+
+- No header. The wordmark is on the first and last screens; the links live in
+  the footer.
+- No labels above section headings.
+- In a two-line headline the second line is the point, so it's the bright one
+  and it carries the sheen. Grey never carries the important line.
+- Numbers only where the content is a sequence (the five steps, the four
+  commands, the seven stages).
+- The one-screen bento is for `fingerprints` only. Every other section keeps
+  its own layout and scrolls as a page; nothing snaps.
+- No halftone background. The page is jet black with a hairline grid, film
+  grain and one warm glow.
+
+### The demo
+
+`DEMO_URL` in `lib/links.ts` (`NEXT_PUBLIC_DEMO_URL` to override, default
+`https://demo.polishd.site`) points at `demo/` in this repo: Queuebird, a dark
+dev-tool launch page generated in one go, with the package installed. Its
+dashboard at `/polishd` is the real one, open to look at and read-only.
+
+Everything the landing page shows of a site is Queuebird: the hero, the
+fingerprint tiles, the walkthrough's panels, the demo section. The numbers come
+from Polishd's own dashboard for it (`lib/findings.ts`; `demo/README.md` says
+how the traffic was recorded). The two AI reviews and the pull request in the
+walkthrough are labelled examples: the numbers were captured with no model
+connected. Real visitors add to the demo's traffic, so its live dashboard will
+drift from the numbers quoted here.
 
 ## How it's put together
 
@@ -113,38 +140,28 @@ Tailwind v4, on the package's own dashboard tokens (`src/dashboard/dashboard.css
 dark scheme): a `#0a0a0a` canvas, `#121212` cards on `#262626` hairlines, the
 four-step grey ink scale (`fg` … `fg-4`), and colour reserved for status — green
 ok, amber warn, red bad, a warm tan where another tool would reach for violet.
-Nothing blue; the accent is the text colour itself. The page itself stays jet
-black around them. Open Sauce One is the dashboard's UI face, Nohemi its titles,
-JetBrains Mono its code — the same three the site uses.
+The page itself stays jet black around them. Open Sauce One is the dashboard's
+UI face, Nohemi its titles, JetBrains Mono its code — the same three the site
+uses.
 
-- `components/dash/` — the dashboard's own components, replicated for the
-  product sections: `ui.tsx` its vocabulary (card, header strip, badges,
-  status pill, callout, colour and contrast chips, illustrative buttons),
-  `icons.tsx` the glyph set, `tiles.tsx` the stat tiles with sparklines,
-  `brand-board.tsx` the Overview's brand board (its palette), `pointer.tsx`
-  the line a review card ends on, pointing at the actionables. Sections compose these as
-  cards rather than drawing a whole tab. When the dashboard changes, this is
-  the folder to bring along.
+- `app/globals.css` — the tokens, the ambient field (`.aura`, `.grain`,
+  `.glow`), the reveal classes, and "The one slide": `.slide`, `.bento` and
+  `.cell`, used by `fingerprints` alone.
+- `components/kit.tsx` — `Wrap`, `SectionHead` (the two-line heading), the
+  button-links, and `Slide` / `Headline` for the one bento section.
+- `lib/queuebird.ts` — Queuebird's first screen for the hero, 1400×784, as
+  generated and polished, as HTML strings, plus where each rough edge sits
+  for the callouts. `components/queuebird-thumb.tsx` is the small one in the
+  demo section.
 - `components/wordmark.tsx` — the logo: "polis" and "d" in the highway face
   (Overpass) with the halftone polish bottle for the h, the same mark the
-  dashboard's sidebar carries. Used in the header and the hero.
-  The favicon, `app/icon.svg`, is the bottle as a solid silhouette,
-  derived from the dot field in `components/dot-bottle.tsx` — the dots don't
-  survive 16px, the shape does.
-- `components/loop-ring.tsx` — the ring. Six nodes; the shipped arc is solid and
-  the beta arc dashed. A white arc travels the shipped stretch and an amber one
-  continues into beta, closing the circle on the last stage.
-- `components/sections/loop.tsx` — the only stateful section. An observer band
-  across the middle of the viewport decides which stage you're reading; the ring
-  is sticky beside it on `lg`, and sits above the stage list on smaller screens.
+  dashboard's sidebar carries. The favicon, `app/icon.svg`, is the bottle as
+  a solid silhouette, derived from the dot field in
+  `components/dot-bottle.tsx`.
 - `components/scroll-fx.tsx` — one page-wide observer that reveals anything
-  tagged `className="r"`, counts up every `[data-count]` figure inside it,
-  fills `.fill` meters and lets the `.spark` sparklines draw in. Elements
-  already scrolled past on load reveal instantly rather than staying hidden.
-- Reduced motion is honoured, and a `<noscript>` block unhides everything for
+  tagged `className="r"` as it arrives.
+- `public/film/` — the promo film, re-encoded for the web (1280px, 3.5MB), and
+  its poster. Loaded only when the dialog opens.
+- Reduced motion is honoured (the hero shows a still, half-polished frame and
+  the window doesn't tilt), and a `<noscript>` block unhides everything for
   visitors without JS.
-
-The dashboard numbers in `design`, `proof` and `actionables` are illustrative —
-they mirror a real Polishd install (a desktop-first publication read mostly on phones, set in
-Georgia and Helvetica with one rust for actions) so the layout is shown at
-realistic density. Every component is the dashboard's own, on its tokens.
