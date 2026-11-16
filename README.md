@@ -262,6 +262,13 @@ POLISHD_DASHBOARD_PUBLIC=true
 An explicit, grep-able opt-in. You will still get one console warning per boot,
 in production, because that is the only place it is worth acting on.
 
+### Read-only
+
+`createPolishdPage({ readOnly: true })` lets viewers see everything and change
+nothing: no settings, no filing, no captures, no model calls. A callback,
+`readOnly: (ctx) => !isOwner(ctx)`, decides per request. Combine it with one of
+the three options above; see [docs/SETUP.md](./docs/SETUP.md#read-only-let-people-look-without-changing-anything).
+
 > **The gate covers the server actions, not just the page.** The AI actions
 > (generate summary, save settings, scan codebase, file GitHub issues) are
 > independently addressable POST endpoints whose ids ship in the public client

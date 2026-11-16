@@ -16,6 +16,7 @@
  * paint — no model call on load. A model is only hit on explicit actions or
  * the server-side cadence refresh.
  */
+import { READ_ONLY_TITLE, usePolishdReadOnly } from "./access";
 import { useState, useTransition } from "react";
 
 import { generateSummaryAction } from "../ai/actions";
@@ -74,6 +75,7 @@ export default function SummaryCard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startGenerate] = useTransition();
   const settings = initialSettings;
+  const readOnly = usePolishdReadOnly();
 
   const generate = (force: boolean) => {
     setError(null);
@@ -127,8 +129,14 @@ export default function SummaryCard({
             type="button"
             data-component="ai-summary-refresh"
             onClick={() => generate(hasSummary)}
-            disabled={pending || !settings.hasApiKey}
-            title={settings.hasApiKey ? "Regenerate the summary now" : "Connect a model first"}
+            disabled={pending || !settings.hasApiKey || readOnly}
+            title={
+              readOnly
+                ? READ_ONLY_TITLE
+                : settings.hasApiKey
+                  ? "Regenerate the summary now"
+                  : "Connect a model first"
+            }
             aria-label="Refresh summary"
             className={iconBtn}
           >
@@ -176,6 +184,10 @@ export default function SummaryCard({
               )}
             </div>
           </>
+        ) : readOnly ? (
+          <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
+            No summary has been written for this site yet.
+          </p>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">

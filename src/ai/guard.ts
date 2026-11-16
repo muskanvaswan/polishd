@@ -49,11 +49,18 @@ export async function polishdAuthContext(): Promise<PolishdAuthContext> {
   return { cookies: c, headers: h };
 }
 
+/**
+ * Whether a caller who may *see* the dashboard may also *change* it. `true`
+ * makes it read-only for everyone; a callback decides per request, the same
+ * way `authenticate` does — e.g. read-only unless the owner has signed in.
+ */
+export type PolishdReadOnly = boolean | PolishdAuthenticate;
+
 export type PolishdAuthPolicy =
   /** Deliberately public: dev, or an explicit `POLISHD_DASHBOARD_PUBLIC=true`. */
-  | { mode: "open" }
+  | { mode: "open"; readOnly?: PolishdReadOnly }
   /** `createPolishdPage({ authenticate })` — re-checked per action call. */
-  | { mode: "guarded"; authenticate: PolishdAuthenticate }
+  | { mode: "guarded"; authenticate: PolishdAuthenticate; readOnly?: PolishdReadOnly }
   /**
    * Production with no access decision made by the host at all. Denied like a
    * failed check rather than waved through.
@@ -86,11 +93,71 @@ export class PolishdUnauthorizedError extends Error {
 }
 
 /**
+ * Thrown when a read-only caller invokes an action that changes something.
+ * The dashboard doesn't offer those actions in read-only mode, so reaching
+ * this means a direct call, a stale page, or a host check that changed its
+ * answer between render and click.
+ */
+export class PolishdReadOnlyError extends PolishdUnauthorizedError {
+  constructor() {
+    super();
+    this.message = "[polishd] read-only";
+    this.name = "PolishdReadOnlyError";
+  }
+}
+
+/**
+ * Resolve a read-only setting for one request. A callback that throws counts
+ * as read-only: failing towards "can't change anything" is the safe side.
+ */
+export async function resolvePolishdReadOnly(
+  readOnly: PolishdReadOnly | undefined,
+  ctx?: PolishdAuthContext,
+): Promise<boolean> {
+  if (readOnly === undefined || readOnly === false) return false;
+  if (readOnly === true) return true;
+  try {
+    return (await readOnly(ctx ?? (await polishdAuthContext()))) === true;
+  } catch (err) {
+    console.warn(
+      "[polishd] readOnly() threw, treating the dashboard as read-only:",
+      err instanceof Error ? err.message : err,
+    );
+    return true;
+  }
+}
+
+/**
+ * What an action does, for the read-only check. `read` actions only fetch
+ * what the dashboard already shows (a snapshot image, a fix's status), so a
+ * read-only viewer may still call them; everything else changes settings,
+ * writes to the store or GitHub, or spends the model key.
+ */
+export type PolishdActionAccess = "read" | "write";
+
+/**
  * Authorize the current server-action request, or throw. A callback that
  * itself throws is treated as a denial — an auth helper blowing up must never
- * open the gate.
+ * open the gate. Actions are writes unless they say otherwise.
  */
-export async function requirePolishdAuth(): Promise<void> {
+export async function requirePolishdAuth(access: PolishdActionAccess = "write"): Promise<void> {
+  await requireAccess();
+  if (access === "write" && policy && policy.mode !== "setup-required") {
+    if (await resolvePolishdReadOnly(policy.readOnly)) throw new PolishdReadOnlyError();
+  }
+}
+
+/**
+ * Whether the current request may only read. Server components use it to
+ * skip work that writes or spends the key on a viewer's page load. False when
+ * no policy is registered (no dashboard page) or access isn't decided yet.
+ */
+export async function isPolishdReadOnly(ctx?: PolishdAuthContext): Promise<boolean> {
+  if (!policy || policy.mode === "setup-required") return false;
+  return resolvePolishdReadOnly(policy.readOnly, ctx);
+}
+
+async function requireAccess(): Promise<void> {
   // No dashboard page registered a policy in this runtime: deny rather than
   // guess. Reaching an action without the page module loaded is not a flow the
   // dashboard produces.

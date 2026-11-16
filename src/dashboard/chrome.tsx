@@ -24,6 +24,7 @@
  * anywhere on the dashboard gets the identical instant response.
  */
 
+import { usePolishdReadOnly } from "./access";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -158,6 +159,7 @@ export default function DashboardChrome({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const readOnly = usePolishdReadOnly();
   const rootRef = useRef<HTMLDivElement>(null);
   const [pending, startNav] = useTransition();
   const [currentTheme, toggleTheme] = useThemeToggle(rootRef, theme);
@@ -214,6 +216,14 @@ export default function DashboardChrome({
                 <p className="mt-2 text-[11.5px] leading-snug text-fg-3">
                   What gets measured gets improved
                 </p>
+                {readOnly && (
+                  <p
+                    data-component="read-only-note"
+                    className="mt-3 inline-flex rounded-md border border-line px-2 py-1 text-[11.5px] leading-snug text-fg-3"
+                  >
+                    Read-only: look around, nothing can be changed
+                  </p>
+                )}
               </div>
               <nav
                 aria-label="Dashboard sections"

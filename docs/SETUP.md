@@ -376,6 +376,38 @@ POLISHD_DASHBOARD_PUBLIC=true
 An explicit opt-in, greppable in your deployment config. You'll still get one
 warning per boot in production, because that's the only place it's actionable.
 
+### Read-only: let people look without changing anything
+
+A public demo, or a teammate who should see the numbers but not the settings,
+wants the dashboard readable and closed to change. Pass `readOnly`:
+
+```tsx
+export default createPolishdPage({ defaults, readOnly: true });
+```
+
+A read-only dashboard shows everything, says once that it's read-only, and
+offers no control that changes settings, writes to the store or GitHub, or
+spends the model key. Nothing calls the model on a viewer's page load, the
+telemetry prompt doesn't show, and the server actions refuse those calls
+whatever the client sends. Snapshot pictures and a filed issue's status still
+load: those are reads.
+
+`readOnly` also takes a callback, decided per request like `authenticate`,
+so the owner can sign in and change things while everyone else only looks:
+
+```tsx
+export default createPolishdPage({
+  authenticate: () => true,             // anyone may look
+  readOnly: (ctx) => !isOwner(ctx),     // only the owner may change
+});
+```
+
+`readOnly` isn't an access decision by itself. In production the dashboard
+still needs `authenticate`, a token, or `POLISHD_DASHBOARD_PUBLIC=true` before
+it serves anyone. Don't put a proxy in front to refuse the dashboard's POSTs
+instead: snapshot pictures load through one, and a page whose calls are
+refused upstream can only report that it couldn't reach the server.
+
 ### Why this is stricter than it looks
 
 **The gate covers the AI server actions, not just the page.** A Next server

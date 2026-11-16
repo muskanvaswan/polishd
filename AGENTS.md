@@ -237,6 +237,16 @@ call `cookies()`/`headers()` itself. A zero-argument callback still works.
 POLISHD_DASHBOARD_PUBLIC=true
 ```
 
+**Read-only, in addition to any of the three.** If the user wants people to
+look without changing anything (a public demo, a read-only teammate), pass
+`readOnly: true`, or a per-request callback such as
+`readOnly: (ctx) => !isOwner(ctx)`, to `createPolishdPage`. The dashboard then
+hides every control that writes or spends the key, and the actions refuse
+writes server-side. It isn't an access decision on its own: combine it with
+one of the three above. Never add a proxy that refuses the dashboard's POSTs
+to get this effect: snapshot images load through a server action, and refused
+calls surface only as "couldn't reach the server".
+
 In every case the same policy guards the AI server actions, re-running per
 request against the caller's cookies. Note that an app which deletes
 `app/polishd/page.tsx` while keeping the package leaves those actions routable

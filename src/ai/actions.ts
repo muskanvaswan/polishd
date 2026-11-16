@@ -360,7 +360,7 @@ export async function dispatchFixAction(issueNumber: number): Promise<DispatchFi
  * asks when an issue is opened, and now and then while an agent is working.
  */
 export async function readFixesAction(issueNumbers: number[]): Promise<RefreshFixesResult> {
-  await requirePolishdAuth();
+  await requirePolishdAuth("read");
   const numbers = Array.isArray(issueNumbers)
     ? issueNumbers.map(issueNumberOf).filter((n): n is number => n !== null)
     : [];

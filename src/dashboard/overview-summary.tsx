@@ -20,6 +20,7 @@
  * and folding them is the one call the Overview owes for itself. Nothing
  * else here calls a model unprompted.
  */
+import { READ_ONLY_TITLE, usePolishdReadOnly } from "./access";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import {
@@ -68,6 +69,7 @@ export default function OverviewSummary({
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, start] = useTransition();
   const autoStarted = useRef(false);
+  const readOnly = usePolishdReadOnly();
 
   const hasKey = settings.hasApiKey;
   const hasSources = summary !== null || review !== null;
@@ -131,6 +133,8 @@ export default function OverviewSummary({
 
   // A paragraph that's missing or behind its reviews is written on open.
   useEffect(() => {
+    // A read-only viewer's visit must not spend the owner's key.
+    if (readOnly) return;
     if (autoStarted.current || !hasKey || !hasSources || (story !== null && !stale)) return;
     autoStarted.current = true;
     start(async () => {
@@ -157,9 +161,11 @@ export default function OverviewSummary({
               type="button"
               data-component="overview-summary-refresh"
               onClick={refresh}
-              disabled={pending || !hasKey}
+              disabled={pending || !hasKey || readOnly}
               title={
-                hasKey
+                readOnly
+                  ? READ_ONLY_TITLE
+                  : hasKey
                   ? "Regenerate the analytics summary and the design review, then this paragraph from them"
                   : "Connect a model first — Settings tab"
               }
@@ -229,6 +235,14 @@ function Empty({
   pending: boolean;
   onGenerate: () => void;
 }) {
+  const readOnly = usePolishdReadOnly();
+  if (readOnly) {
+    return (
+      <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
+        No overview has been written for this site yet.
+      </p>
+    );
+  }
   return (
     <div className="flex flex-wrap items-center justify-between gap-4">
       <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">

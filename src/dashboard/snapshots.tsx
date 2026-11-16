@@ -28,6 +28,7 @@
  * consent question, once, in a dialog — when Capture is first pressed in
  * production, not before.
  */
+import { usePolishdReadOnly } from "./access";
 import {
   createContext,
   useCallback,
@@ -283,6 +284,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   // The dialog only ever opens from a click — Capture, or "Review and
   // allow" — so it can't be answered before the page is interactive.
   const [consentOpen, setConsentOpen] = useState(false);
+  const readOnly = usePolishdReadOnly();
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
   const [consentError, setConsentError] = useState<string | null>(null);
@@ -294,7 +296,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
   const router = useRouter();
 
   const capture = useCallback(() => {
-    if (capturing || reviewCapturing) return;
+    if (capturing || reviewCapturing || readOnly) return;
     // A standing block stays put while a retry runs: the section only comes
     // back up once a capture actually gets through.
     const blocked = block !== null;
@@ -350,7 +352,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
         setProgress(null);
         setLive([]);
       });
-  }, [capturing, reviewCapturing, block, router]);
+  }, [capturing, reviewCapturing, block, router, readOnly]);
   captureRef.current = capture;
 
   const decide = useCallback((allow: boolean) => {
@@ -403,6 +405,7 @@ export function SnapshotsProvider({ initial, availability: initialAvailability, 
     fresh: fresh.current,
     capture,
     openConsent: () => {
+      if (readOnly) return;
       captureAfterConsent.current = false;
       setConsentError(null);
       setConsentOpen(true);
@@ -579,6 +582,7 @@ function SnapshotsCard() {
     ready,
     reviewCapturing,
   } = useSnapshots();
+  const readOnly = usePolishdReadOnly();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [device, setDevice] = useState<(typeof DEVICES)[number]>("desktop");
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("light");
@@ -605,7 +609,8 @@ function SnapshotsCard() {
     ? selected.shots.filter((s) => s.device === device && s.theme === effectiveTheme && !s.file)
     : [];
 
-  const captureButton = (
+  // Read-only viewers see the snapshots, not the controls that take them.
+  const captureButton = readOnly ? null : (
     <button
       type="button"
       data-component="design-snapshot-capture"
@@ -683,7 +688,7 @@ function SnapshotsCard() {
               )}
             </>
           )}
-          {off?.action === "reconsider" ? (
+          {readOnly ? null : off?.action === "reconsider" ? (
             <button
               type="button"
               data-component="design-snapshot-consent-open"
@@ -700,7 +705,7 @@ function SnapshotsCard() {
       </div>
 
       <div className="px-4 py-5 sm:px-5">
-        {off && (
+        {off && !readOnly && (
           <div data-component="design-snapshot-off-reason" className="mb-4">
             <Callout tone="neutral">{off.message}</Callout>
           </div>
@@ -758,7 +763,10 @@ function SnapshotsCard() {
           </div>
         )}
 
-        {!selected && !capturing && !off && (
+        {!selected && readOnly && (
+          <p className="text-[13px] leading-relaxed text-fg-2">No snapshots have been taken yet.</p>
+        )}
+        {!selected && !capturing && !off && !readOnly && (
           <p className="text-[13px] leading-relaxed text-fg-2">
             No snapshots yet. Capture one to see every page of the site as it renders
             right now — the &ldquo;before&rdquo; to hold future design changes against.
@@ -821,13 +829,13 @@ function SnapshotsCard() {
           </>
         )}
 
-        {needsConsent && !capturing && (
+        {needsConsent && !capturing && !readOnly && (
           <p className="mt-3 text-[12px] text-fg-3">
             In production, captures use Polishd&rsquo;s screenshot service — you&rsquo;ll be asked
             before the first one.
           </p>
         )}
-        {mode.kind === "service" && !capturing && (
+        {mode.kind === "service" && !capturing && !readOnly && (
           <p className="mt-3 text-[12px] text-fg-3">
             Captures use Polishd&rsquo;s screenshot service — page paths and pixels pass through it;
             it keeps neither.{" "}
@@ -842,7 +850,7 @@ function SnapshotsCard() {
             </button>
           </p>
         )}
-        {mode.kind === "service" && !off && !capturing && (
+        {mode.kind === "service" && !off && !capturing && !readOnly && (
           <p data-component="design-snapshot-auto" data-state={auto.mode} className="mt-1.5 text-[12px] text-fg-3">
             {auto.mode === "weekly"
               ? "A snapshot is also taken on its own once a week, when the newest is over a week old and the site has visitors."
