@@ -24,6 +24,19 @@
 - The weekly snapshot counts towards the screenshot service's limit of two
   full captures per site per week, which leaves one for a capture of your own.
 
+### Capture
+
+- **Events with fractional timestamps are stored, not dropped.** A `ts` like
+  `1794701936816.39` (what `performance.timeOrigin + performance.now()`
+  gives) made Postgres refuse the whole batch, while SQLite took it, so only
+  production lost them. Ingest now rounds every timestamp to the millisecond.
+- **A batch the store refuses is no longer silent.** Ingest still answers 200,
+  so the client doesn't retry, but with `reason: "store_write_failed"` instead
+  of a bare `stored: 0`, and the server log names the batch size and the
+  database's error. With no store open at all the reason is
+  `store_unavailable`. `writeEvents` (from `@polishd/next/server`) returns the
+  same distinction; `insertEvents` still returns a count.
+
 ## 0.3.2
 
 ### Connecting the database

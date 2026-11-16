@@ -16,7 +16,7 @@ import { foldNoSessionDrop, parseNoSessionRecord } from "../shared/capture-statu
 import { normalizeLabel, reclassifiedClickType } from "../shared/text-signals";
 import { CLIENT_EVENT_TYPES, type PolishdEvent } from "../shared/types";
 import { resolveServerBuild } from "./build";
-import { getMeta, insertEvents, setMeta } from "./store";
+import { getMeta, setMeta, writeEvents, type WriteResult } from "./store";
 
 const MAX_EVENTS_PER_BATCH = 200;
 const MAX_TEXT_LEN = 120;
@@ -40,10 +40,15 @@ const MAX_DESIGN_PAYLOAD_LEN = 32_000;
 const MIN_EVENT_TS = Date.UTC(2020, 0, 1);
 const MAX_EVENT_TS_AHEAD_MS = 24 * 60 * 60 * 1000;
 
-/** The client's timestamp when it is plausible, the server's otherwise. */
+/**
+ * The client's timestamp when it is plausible, the server's otherwise —
+ * always a whole millisecond. `ts` is a BIGINT on Postgres, which rejects
+ * `1794701936816.39` (what `performance.timeOrigin + performance.now()` gives)
+ * and with it the whole batch; SQLite takes it, so only production lost them.
+ */
 export function plausibleTs(raw: unknown, now: number = Date.now()): number {
-  if (typeof raw !== "number" || !Number.isFinite(raw)) return now;
-  return raw >= MIN_EVENT_TS && raw <= now + MAX_EVENT_TS_AHEAD_MS ? raw : now;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return Math.round(now);
+  return raw >= MIN_EVENT_TS && raw <= now + MAX_EVENT_TS_AHEAD_MS ? Math.round(raw) : Math.round(now);
 }
 
 /**
@@ -126,6 +131,24 @@ async function recordNoSession(): Promise<void> {
     // record the rejection still returns a clean result to the beacon.
   }
 }
+
+/**
+ * Turn a store write into the beacon's answer. A write the store refused is
+ * still `ok: true` — the payload was fine, and a 4xx would only make the
+ * client retry a batch the store will refuse again — but it carries a
+ * reason, so nothing reads it as a batch that simply had nothing to store.
+ * The store has already warned in the server log.
+ */
+function writeOutcome(write: WriteResult): IngestResult {
+  if (write.error !== undefined) return { ok: true, stored: 0, reason: STORE_WRITE_FAILED };
+  if (write.unavailable) return { ok: true, stored: 0, reason: STORE_UNAVAILABLE };
+  return { ok: true, stored: write.stored };
+}
+
+/** The store was open but refused the batch; it was dropped. */
+export const STORE_WRITE_FAILED = "store_write_failed";
+/** No store could be opened, so capture is a no-op here (see `/polishd`). */
+export const STORE_UNAVAILABLE = "store_unavailable";
 
 export interface IngestResult {
   ok: boolean;
@@ -236,8 +259,7 @@ export async function ingest(
   // in a build on hosts that never set a public variable for the client.
   const build = sanitizeBuild(b?.build) ?? (await resolveServerBuild());
 
-  const stored = await insertEvents(sessionId, events, { build });
-  return { ok: true, stored };
+  return writeOutcome(await writeEvents(sessionId, events, { build }));
 }
 
 // ── Cross-install telemetry ingest ───────────────────────────────────────────
@@ -328,6 +350,5 @@ export async function ingestTelemetry(
   // nothing for someone else's install, so there is no server fallback here.
   const build = sanitizeBuild(b?.build);
 
-  const stored = await insertEvents(sessionId, events, { installId, build });
-  return { ok: true, stored };
+  return writeOutcome(await writeEvents(sessionId, events, { installId, build }));
 }

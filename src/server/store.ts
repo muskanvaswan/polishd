@@ -446,7 +446,22 @@ function databaseHost(url: string): string | null {
 }
 
 /**
- * Persist a batch of events for one session. Silently drops if no store.
+ * What a batch write came to. `error` is set only when a store was open and
+ * the write itself failed, so a caller can tell a lost batch from an empty
+ * one or a deployment with no store at all.
+ */
+export interface WriteResult {
+  stored: number;
+  /** No store could be opened: capture is a no-op on this deployment. */
+  unavailable?: true;
+  /** The store refused the write; the batch was dropped. */
+  error?: string;
+}
+
+/**
+ * Persist a batch of events for one session, and say how it went. Never
+ * throws: a failed write is warned about on the server and reported in the
+ * result, so analytics can't take the host's request down with it.
  *
  * `tags` is what the whole batch shares: the reporting install (only ever set
  * on the telemetry path — first-party ingest leaves it undefined and the
@@ -454,22 +469,35 @@ function databaseHost(url: string): string | null {
  * still accepted as the install id, which is how this was called before
  * builds were tracked.
  */
+export async function writeEvents(
+  sessionId: string,
+  events: PolishdEvent[],
+  tags: string | InsertTags = {},
+): Promise<WriteResult> {
+  const b = await getBackend();
+  if (!b) return events.length === 0 ? { stored: 0 } : { stored: 0, unavailable: true };
+  if (events.length === 0) return { stored: 0 };
+  try {
+    const stored = await b.insert(sessionId, events, typeof tags === "string" ? { installId: tags } : tags);
+    return { stored };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[polishd] insert failed, dropping a batch of ${events.length} events:`, message);
+    return { stored: 0, error: message };
+  }
+}
+
+/**
+ * Persist a batch of events for one session; the rows written. Drops quietly
+ * when there is no store or the write fails — use {@link writeEvents} to tell
+ * those apart from an empty batch.
+ */
 export async function insertEvents(
   sessionId: string,
   events: PolishdEvent[],
   tags: string | InsertTags = {},
 ): Promise<number> {
-  const b = await getBackend();
-  if (!b || events.length === 0) return 0;
-  try {
-    return await b.insert(sessionId, events, typeof tags === "string" ? { installId: tags } : tags);
-  } catch (err) {
-    console.warn(
-      "[polishd] insert failed, dropping batch:",
-      err instanceof Error ? err.message : err,
-    );
-    return 0;
-  }
+  return (await writeEvents(sessionId, events, tags)).stored;
 }
 
 /**
