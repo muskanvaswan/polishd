@@ -48,7 +48,8 @@ for (let i = 0; i < SESSIONS; i++) {
   // A daytime start somewhere in the window.
   const day = Math.floor(rand() * DAYS);
   const hour = 8 + rand() * 14;
-  const start = now - (day + 1) * 86_400_000 + hour * 3_600_000;
+  // Whole milliseconds: Postgres stores ts as an integer and rejects a fraction.
+  const start = Math.round(now - (day + 1) * 86_400_000 + hour * 3_600_000);
   const events = T[name].map(({ dt, ...e }) => ({ ...e, ts: Math.min(start + dt, now - 60_000) }));
   const res = await fetch(`${ORIGIN}/api/polishd`, {
     method: "POST",

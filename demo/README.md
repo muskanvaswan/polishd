@@ -129,16 +129,27 @@ site with `NEXT_PUBLIC_DEMO_URL`.
 1. **A database.** `POLISHD_DATABASE_URL`, a pooled Postgres URL of the demo's
    own — never the Polishd site's. Without one the dashboard shows its setup
    screen and nothing is captured.
-2. **Seed it:** `ORIGIN=https://demo.polishd.site npm run seed`.
-3. **The model.** Set `POLISHD_AI_API_KEY` (and `POLISHD_AI_PROVIDER` /
+2. **A Blob store**, for site snapshots: `vercel blob create-store
+   demo-polishd-snapshots --access private --yes --environment production`.
+   Without one the Design tab's Site snapshots section is turned off.
+3. **Redeploy**, so the database and the store apply, then **seed it:**
+   `ORIGIN=https://demo.polishd.site npm run seed`.
+4. **The model.** Set `POLISHD_AI_API_KEY` (and `POLISHD_AI_PROVIDER` /
    `POLISHD_AI_MODEL` if not the defaults) in the project's environment. Then
    run the reviews once from your machine, where the dashboard isn't
    read-only, against the same database:
 
    ```bash
-   vercel env pull .env.local --environment production
-   npm run dev      # open /polishd, finish setup, generate the summary and the design review
+   vercel env pull .polishd/env.prod --environment production   # the database URL
+   POLISHD_DATABASE_URL="$(node -e 'process.stdout.write(require("node:util").parseEnv(require("fs").readFileSync(".polishd/env.prod","utf8")).POLISHD_DATABASE_URL)')" \
+     POLISHD_AI_API_KEY="$(pbpaste)" npm run dev   # key from the clipboard
+   rm .polishd/env.prod
    ```
+
+   A key stored as a sensitive variable never comes back down with
+   `vercel env pull`, so it goes to the dev server straight from the
+   clipboard. Open only `/polishd` while it runs: visits to the site's own
+   pages would land in the production numbers.
 
    The results are stored in the database, so the deployed dashboard shows
    them. Visitors can't regenerate them or change the settings.

@@ -242,7 +242,7 @@ request against the caller's cookies. Note that an app which deletes
 `app/polishd/page.tsx` while keeping the package leaves those actions routable
 but always denying — correct, but confusing if you meet it cold.
 
-## Phase 6a — Connect the production database (Vercel)
+## Phase 6a — Connect the production database and Blob store (Vercel)
 
 Locally there is nothing to do. In production Polishd needs a Postgres URL in
 `POLISHD_DATABASE_URL`, and on Vercel nothing is captured until it has one.
@@ -331,6 +331,24 @@ store doesn't run yet; say so if that's the host.
    ask before deploying. Once it's live,
    `npx @polishd/next doctor --url https://<production domain>` should say
    *"Ingest reached the store"*.
+5. **A Blob store, for site snapshots.** Without one, the Design tab's Site
+   snapshots section sits turned off with *"nowhere to live on this
+   deployment"*, and the design review has no screenshots to read. Check
+   first: `npx vercel blob list-stores` lists the stores connected to the
+   project, and `BLOB_READ_WRITE_TOKEN` or `BLOB_STORE_ID` in the env list
+   means one is already there. If not, tell the user you're creating a
+   private Blob store on their team and go ahead once they confirm:
+
+   ```bash
+   npx vercel blob create-store <project>-polishd-snapshots --access private --yes --environment production
+   ```
+
+   It connects the store to the project's production environment and sets
+   the token there itself, so no secret passes through you. It also writes a
+   short-lived `VERCEL_OIDC_TOKEN` into `.env.local`; check that file is
+   gitignored. Like the database, it applies from the next production
+   deployment. Creating the store is all you do here: the screenshot
+   service's consent is the owner's to give in the dashboard (Phase 8).
 
 ## Phase 6b — Describe the site in `polishd.defaults.json`
 

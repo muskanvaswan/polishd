@@ -12,3 +12,7 @@ next-env.d.ts
 # written by next dev / next build (16.3 agent rules)
 /AGENTS.md
 /CLAUDE.md
+
+# vercel link
+.vercel
+.env*
