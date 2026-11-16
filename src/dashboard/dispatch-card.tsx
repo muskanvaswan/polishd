@@ -21,7 +21,8 @@
  * issue number is stored, and "Check again" picks the poll back up.
  */
 
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { usePolishdReadOnly, useSafeTransition } from "./access";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   checkDispatchReadinessAction,
@@ -97,10 +98,11 @@ export interface DispatchCardProps {
 
 export default function DispatchCard({ repo, initialState, choices, onChoices }: DispatchCardProps) {
   const [state, setState] = useState(initialState);
+  const readOnly = usePolishdReadOnly();
   const [error, setError] = useState<string | null>(null);
-  const [checking, startCheck] = useTransition();
-  const [testing, startTest] = useTransition();
-  const [polling, startPoll] = useTransition();
+  const [checking, startCheck] = useSafeTransition(setError);
+  const [testing, startTest] = useSafeTransition(setError);
+  const [polling, startPoll] = useSafeTransition(setError);
 
   const readiness = state.readiness;
   const status = readiness?.status;
@@ -108,7 +110,7 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
   const running = test?.status === "running";
 
   const check = () => {
-    if (checking) return;
+    if (checking || readOnly) return;
     setError(null);
     startCheck(async () => {
       const res = await checkDispatchReadinessAction();
@@ -128,7 +130,7 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
   }, []);
 
   const poll = () => {
-    if (polling) return;
+    if (polling || readOnly) return;
     startPoll(async () => {
       const res = await pollDispatchTestAction();
       setState(res.state);
@@ -140,7 +142,7 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
   // when it's over (reply, closed elsewhere, or the three-minute deadline),
   // so a poll that keeps coming back "running" just keeps going.
   useEffect(() => {
-    if (!running) return;
+    if (!running || readOnly) return;
     const timer = setInterval(() => {
       startPoll(async () => {
         const res = await pollDispatchTestAction();
@@ -149,10 +151,10 @@ export default function DispatchCard({ repo, initialState, choices, onChoices }:
       });
     }, POLL_EVERY_MS);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [running, readOnly]);
 
   const sendTest = () => {
-    if (testing || running) return;
+    if (testing || running || readOnly) return;
     setError(null);
     startTest(async () => {
       const res = await startDispatchTestAction();

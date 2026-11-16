@@ -24,6 +24,7 @@
  * the metrics alone and the card says so. The server decides what can run;
  * this card only skips the attempt when the section already knows it's off.
  */
+import { READ_ONLY_TITLE, usePolishdReadOnly } from "./access";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
@@ -176,7 +177,8 @@ export default function DesignReviewCard({
     });
   };
 
-  const canGenerate = hasApiKey && scannedPages > 0 && !snapshots?.capturing;
+  const readOnly = usePolishdReadOnly();
+  const canGenerate = hasApiKey && scannedPages > 0 && !snapshots?.capturing && !readOnly;
   const busyLabel = capturing
     ? `Capturing screenshots${capturing.total ? ` ${capturing.done}/${capturing.total}` : ""}…`
     : "Reviewing…";
@@ -203,7 +205,9 @@ export default function DesignReviewCard({
           onClick={() => generate(review !== null)}
           disabled={pending || !canGenerate}
           title={
-            !hasApiKey
+            readOnly
+              ? READ_ONLY_TITLE
+              : !hasApiKey
               ? "Connect a model first — Settings tab"
               : scannedPages === 0
                 ? "No pages scanned yet"
@@ -270,6 +274,10 @@ export default function DesignReviewCard({
               {stale && <Badge tone="warn">Something&apos;s changed since this review — refresh to update</Badge>}
             </div>
           </>
+        ) : readOnly ? (
+          <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">
+            No design review has been written for this site yet.
+          </p>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="max-w-2xl text-[13px] leading-relaxed text-fg-2">

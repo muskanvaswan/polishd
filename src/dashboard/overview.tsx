@@ -30,6 +30,7 @@
  * here. Verdict ids are matched against the prompt as it was last copied,
  * since a regenerate since then renumbers it.
  */
+import { READ_ONLY_TITLE, usePolishdReadOnly } from "./access";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 
 import { recordVerdictsAction } from "../ai/actions";
@@ -342,6 +343,7 @@ function FixLoopMenu({
   connected: boolean;
   onPaste: () => void;
 }) {
+  const readOnly = usePolishdReadOnly();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -375,11 +377,12 @@ function FixLoopMenu({
         type="button"
         data-component="overview-fix-menu"
         onClick={() => setOpen((o) => !o)}
-        disabled={!connected}
+        // Everything behind it records something, so read-only turns it off.
+        disabled={!connected || readOnly}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="More of the fix loop"
-        title={connected ? "More of the fix loop" : NOT_CONNECTED}
+        title={readOnly ? READ_ONLY_TITLE : connected ? "More of the fix loop" : NOT_CONNECTED}
         className={`${primaryBtn} rounded-l-none border-l border-accent-fg/15 px-2`}
       >
         <ChevronDownIcon size={13} />

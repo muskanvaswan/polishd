@@ -68,10 +68,13 @@ import {
 } from "./data";
 import PillNav, { type PillOption } from "./pill-nav";
 import {
+  isPolishdReadOnly,
   polishdAuthContext,
   registerPolishdAuth,
+  resolvePolishdReadOnly,
   type PolishdAuthenticate,
   type PolishdAuthPolicy,
+  type PolishdReadOnly,
 } from "../ai/guard";
 import {
   polishdDashboardToken,
@@ -79,6 +82,7 @@ import {
   type PolishdTokenAuthOptions,
 } from "./token-auth";
 import { unlockPolishdDashboard } from "./unlock";
+import { PolishdAccessProvider } from "./access";
 import { loadPolishdTelemetryState, resolveAnalyticsSource } from "../server/telemetry";
 import { PolishdTelemetryConsent, PolishdTelemetryEmitter } from "./telemetry";
 import { loadDesignReview, loadDesignReviewState } from "../ai/design";
@@ -280,6 +284,7 @@ export type { PolishdDashboardTab } from "./chrome";
 
 // The shape of polishd.defaults.json, for hosts that type the import.
 export type { PolishdDefaults } from "../ai/settings";
+export type { PolishdAuthContext, PolishdAuthenticate, PolishdReadOnly } from "../ai/guard";
 
 // ── Analytics: header + status (shared by batch and streamed renders) ────────
 function AnalyticsHeader({ pill, controls }: { pill: ReactNode; controls: ReactNode }) {
@@ -951,11 +956,11 @@ async function StatusBannersData({ source }: { source?: PolishdAnalyticsSource }
  * genuinely new behavior to narrate. Run by every render that shows the
  * summary — the Analytics tab and the Overview.
  */
-function scheduleSummaryRefresh(
+async function scheduleSummaryRefresh(
   data: PolishdDashboardData,
   settings: PolishdAISettingsPublic,
   state: { summary: PolishdSummary | null; stale: boolean },
-): void {
+): Promise<void> {
   const cadence = settings.refreshCadence ?? "manual";
   if (
     cadence === "manual" ||
@@ -970,6 +975,8 @@ function scheduleSummaryRefresh(
     state.summary === null ||
     (state.stale && Date.now() - state.summary.generatedAt > cadenceMs);
   if (!due) return;
+  // A read-only viewer's page load must not spend the owner's key.
+  if (await isPolishdReadOnly()) return;
   after(async () => {
     try {
       await generateSummary();
@@ -991,7 +998,7 @@ async function SummaryData() {
     getAISettingsPublic(),
     loadProfileState(data),
   ]);
-  scheduleSummaryRefresh(data, settings, summaryState);
+  await scheduleSummaryRefresh(data, settings, summaryState);
 
   return (
     <SummaryCard
@@ -1161,7 +1168,7 @@ async function OverviewTabData() {
   ]);
   // The paragraph is written from the two reviews, so its staleness follows theirs.
   const overviewState = await loadOverviewState(summaryState.summary, reviewState.review);
-  scheduleSummaryRefresh(data, settings, summaryState);
+  await scheduleSummaryRefresh(data, settings, summaryState);
   return (
     <OverviewPanel
       overview={data.overview}
@@ -1413,6 +1420,19 @@ export interface CreatePolishdPageOptions {
    * or to the token unlock form when `POLISHD_DASHBOARD_TOKEN` is in use.
    */
   unauthorized?: ReactNode;
+  /**
+   * Let viewers look without changing anything. `true` makes the dashboard
+   * read-only for everyone who passes the access check; a callback decides
+   * per request, like `authenticate` — e.g. read-only unless the owner is
+   * signed in. A read-only dashboard shows everything, offers no control
+   * that changes settings, writes to the store or GitHub, or spends the model
+   * key, and its server actions refuse those calls whatever the client sends.
+   *
+   * It isn't an access decision by itself: in production the dashboard still
+   * needs `authenticate`, a token, or `POLISHD_DASHBOARD_PUBLIC=true` to serve.
+   * @default false
+   */
+  readOnly?: PolishdReadOnly;
   /** Tune the built-in token auth (mount path, grant lifetime). */
   tokenAuth?: PolishdTokenAuthOptions;
   /**
@@ -1719,17 +1739,18 @@ function DatabaseSetup({ failure, showDetail }: { failure: StoreFailure; showDet
  * either by wiring a check or by opting out in so many words.
  */
 function resolvePolicy(opts: CreatePolishdPageOptions): PolishdAuthPolicy {
-  if (opts.authenticate) return { mode: "guarded", authenticate: opts.authenticate };
+  const readOnly = opts.readOnly;
+  if (opts.authenticate) return { mode: "guarded", authenticate: opts.authenticate, readOnly };
   // A configured token is a decision, so honour it without being asked to.
   // Setting the env var is the entire integration for a host with no auth of
   // its own — there is nothing to import and no page to edit.
   if (polishdDashboardToken()) {
-    return { mode: "guarded", authenticate: polishdTokenAuth(opts.tokenAuth) };
+    return { mode: "guarded", authenticate: polishdTokenAuth(opts.tokenAuth), readOnly };
   }
   if (process.env.NODE_ENV === "production" && process.env.POLISHD_DASHBOARD_PUBLIC !== "true") {
     return { mode: "setup-required" };
   }
-  return { mode: "open" };
+  return { mode: "open", readOnly };
 }
 
 let announcedPolicy = false;
@@ -1746,6 +1767,13 @@ function announcePolicy(policy: PolishdAuthPolicy): void {
         "gate, pass `authenticate` to createPolishdPage() to use your app's own auth, or set " +
         "POLISHD_DASHBOARD_PUBLIC=true to serve it publicly on purpose.",
     );
+  } else if (policy.mode === "open" && policy.readOnly === true) {
+    if (production) {
+      console.warn(
+        "[polishd] dashboard is public and read-only — anyone who finds the URL can read " +
+          "your analytics, and nobody can change anything.",
+      );
+    }
   } else if (policy.mode === "open") {
     // Deliberately not suppressed in production. Production is the *only*
     // environment where an unguarded dashboard is actionable news; warning
@@ -1814,6 +1842,10 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       }
     }
 
+    // Decided after the access check and per request, like `authenticate`:
+    // a callback may make the owner a writer and everyone else a reader.
+    const readOnly = await resolvePolishdReadOnly(policy.readOnly);
+
     // Past the access check, so the setup screen and its error detail only
     // ever reach the dashboard's owner. With no store there is nothing to show
     // and every visit is being dropped: say how to connect one instead.
@@ -1834,7 +1866,9 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
       loadPolishdTelemetryState(),
       hasTelemetryInstalls(),
     ]);
-    const telemetryUi = (
+    // A read-only viewer isn't the owner: no consent prompt (answering it
+    // writes) and no emitter (it would report a stranger's clicks).
+    const telemetryUi = readOnly ? null : (
       <>
         {telemetry.status === "granted" && (
           <PolishdTelemetryEmitter
@@ -1862,7 +1896,7 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
         ? rawTab
         : rawTab === "issues"
           ? "actionables"
-          : rawTab === undefined && (await needsOnboarding())
+          : rawTab === undefined && !readOnly && (await needsOnboarding())
             ? "settings"
             : "overview";
 
@@ -1910,9 +1944,11 @@ export function createPolishdPage(opts: CreatePolishdPageOptions = {}) {
     return wrap(
       theme,
       <>
-        <DashboardChrome active={tab} showInstalls={showInstalls} theme={theme}>
-          {body}
-        </DashboardChrome>
+        <PolishdAccessProvider readOnly={readOnly}>
+          <DashboardChrome active={tab} showInstalls={showInstalls} theme={theme}>
+            {body}
+          </DashboardChrome>
+        </PolishdAccessProvider>
         {telemetryUi}
       </>,
     );

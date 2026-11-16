@@ -251,7 +251,7 @@ export async function getSnapshotImageAction(
   snapshotId: string,
   file: string,
 ): Promise<SnapshotImageResult> {
-  await requirePolishdAuth();
+  await requirePolishdAuth("read");
   const dataUrl = await readSnapshotImage(snapshotId, file);
   return dataUrl ? { ok: true, dataUrl } : { ok: false };
 }

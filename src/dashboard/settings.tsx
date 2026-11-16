@@ -16,6 +16,7 @@
  * exists.
  */
 
+import { UNREACHABLE_MESSAGE, usePolishdReadOnly, useSafeTransition } from "./access";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 
@@ -129,6 +130,7 @@ function ModelField({
   /** True when a saved key exists for this exact provider. */
   hasStoredKey: boolean;
 }) {
+  const readOnly = usePolishdReadOnly();
   const [models, setModels] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startLoad] = useTransition();
@@ -145,14 +147,22 @@ function ModelField({
   const canFetch = (apiKey.trim().length > 0 || hasStoredKey) && !needsBaseUrl;
 
   const load = () => {
-    if (!canFetch || pending) return;
+    if (!canFetch || pending || readOnly) return;
     setError(null);
     startLoad(async () => {
-      const res = await listModelsAction({
-        provider,
-        apiKey: apiKey.trim() || undefined,
-        baseUrl: baseUrl.trim() || undefined,
-      });
+      let res: Awaited<ReturnType<typeof listModelsAction>>;
+      try {
+        res = await listModelsAction({
+          provider,
+          apiKey: apiKey.trim() || undefined,
+          baseUrl: baseUrl.trim() || undefined,
+        });
+      } catch {
+        // Refused or unanswered. Uncaught inside a transition it would take
+        // the whole tab down; the field stays a text input instead.
+        setError(UNREACHABLE_MESSAGE);
+        return;
+      }
       if (res.ok) {
         setModels(res.models);
         if (res.models.length > 0 && !res.models.includes(model)) onModel(res.models[0]);
@@ -245,6 +255,7 @@ export default function SettingsView({
   initialDispatch,
 }: SettingsViewProps) {
   const router = useRouter();
+  const readOnly = usePolishdReadOnly();
   const [settings, setSettings] = useState(initialSettings);
   const [profile, setProfile] = useState(initialProfile);
   const [gaps, setGaps] = useState(initialGaps);
@@ -283,7 +294,13 @@ export default function SettingsView({
         </Callout>
       )}
 
-      {onboarding ? (
+      {readOnly && (
+        <Callout tone="neutral" className="mb-6">
+          This dashboard is read-only, so its settings can be seen but not changed.
+        </Callout>
+      )}
+
+      {onboarding && !readOnly ? (
         <section className={`${card} overflow-hidden`}>
           <div className={cardHeader}>
             <span className={cardTitleCls}>First-time setup</span>
@@ -311,6 +328,9 @@ export default function SettingsView({
           />
         </section>
       ) : (
+        // A disabled fieldset turns off every control inside it at once, so
+        // nothing in the form can be edited or pressed when read-only.
+        <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
         <SettingsForm
           settings={settings}
           profile={profile}
@@ -328,6 +348,7 @@ export default function SettingsView({
           }}
           onError={setError}
         />
+        </fieldset>
       )}
     </main>
   );
@@ -477,9 +498,9 @@ function OnboardingWizard({
   // Step 4 — cadence
   const [cadence, setCadence] = useState<PolishdRefreshCadence>("manual");
 
-  const [pending, startStep] = useTransition();
+  const [pending, startStep] = useSafeTransition(setError);
   // Connecting has its own transition so its button, not the step's, says so.
-  const [connecting, startConnect] = useTransition();
+  const [connecting, startConnect] = useSafeTransition(setError);
   const prov = PROVIDERS.find((p) => p.value === provider);
 
   // Each option unlocks with what it needs: the scan with any source to read
@@ -966,7 +987,7 @@ function SettingsForm({
     paused: settings.dispatchPaused,
   });
   const [saved, setSaved] = useState(false);
-  const [pending, startSave] = useTransition();
+  const [pending, startSave] = useSafeTransition(onError);
 
   const prov = PROVIDERS.find((p) => p.value === provider);
   // The card only means something once there's a repo to look at.
@@ -1301,7 +1322,7 @@ function ProfileStrip({
   onError: (msg: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [pending, startScan] = useTransition();
+  const [pending, startScan] = useSafeTransition(onError);
 
   const scan = () => {
     startScan(async () => {

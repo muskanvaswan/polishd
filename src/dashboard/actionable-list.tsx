@@ -52,6 +52,7 @@
  * to the issue — or **Link PR**, for an agent's pull request missing its
  * `Fixes #N`. polishd writes nothing to a pull request without that click.
  */
+import { usePolishdReadOnly } from "./access";
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 
 import {
@@ -571,7 +572,10 @@ function VerdictButtons({
   className?: string;
   trailing?: ReactNode;
 }) {
+  const readOnly = usePolishdReadOnly();
   const { a, link, dismissal, rejected } = item;
+  // Every verdict writes somewhere; a read-only viewer keeps only the links.
+  if (readOnly) return trailing ? <div className={`flex flex-wrap items-center gap-2 ${className}`}>{trailing}</div> : null;
   if (!a.finding && !item.fixable && !item.prAction) return null;
   const fileable = !!a.finding && canFile && !link && !rejected;
   const busy = item.filing || dismissal.pending;
@@ -975,6 +979,7 @@ function FixPanel({
   canSuggest: boolean;
   onSuggested: (s: PolishdFixSuggestion) => void;
 }) {
+  const readOnly = usePolishdReadOnly();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -1054,7 +1059,7 @@ function FixPanel({
           )}
 
           <div className="mt-4 flex items-center gap-2.5">
-            <button
+            {!readOnly && <button
               type="button"
               data-component="issue-suggest-fix"
               onClick={() => run(true)}
@@ -1062,12 +1067,14 @@ function FixPanel({
               className={microBtn}
             >
               {pending ? "Rethinking…" : "Regenerate"}
-            </button>
+            </button>}
             <span className="text-[12px] text-fg-3">
               {suggestion.model} · {timeAgo(suggestion.generatedAt)}
             </span>
           </div>
         </>
+      ) : readOnly ? (
+        <p className="text-[12.5px] leading-relaxed text-fg-3">No fix has been suggested for this issue.</p>
       ) : canSuggest ? (
         <>
           <p className="mb-4 text-[12.5px] leading-relaxed text-fg-2">
@@ -1608,6 +1615,7 @@ function ActionableDrawer({
   onRefresh: () => void;
   onSuggested: (s: PolishdFixSuggestion) => void;
 }) {
+  const readOnly = usePolishdReadOnly();
   // Esc to close + lock background scroll while the drawer is open.
   useEffect(() => {
     if (!item) return;
@@ -1725,7 +1733,7 @@ function ActionableDrawer({
                         &ldquo;{item.dismissal.ignored.reason}&rdquo;
                       </span>
                     )}
-                    <button
+                    {!readOnly && <button
                       type="button"
                       data-component="actionable-ignore-undo-drawer"
                       onClick={item.dismissal.undo}
@@ -1733,7 +1741,7 @@ function ActionableDrawer({
                       className={microBtn}
                     >
                       {item.dismissal.pending ? "Undoing…" : "Undo"}
-                    </button>
+                    </button>}
                   </div>
                 )}
                 {(detail?.labels.length ?? 0) > 0 && (
